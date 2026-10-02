@@ -1,0 +1,136 @@
+{
+  "_说明": [
+    "直连白名单（v7.1 分层获取策略的**机器可读部分**）。",
+    "",
+    "策略（SKILL §5.1）：",
+    "  第一层｜允许直连：元数据、**摘要**、**综述（题录/摘要级）**、",
+    "                  以及本文件列出的**已验证可行的开源数据库**。",
+    "  第二层｜必须走 CDP：**原文全文**（PDF / HTML 正文）。",
+    "  content_class 取值：metadata / abstract / abstract+oa-fulltext-xml。",
+    "  ★ 含 oa-fulltext-xml 的条目必须 oa_only=true（只取开放获取子集）。",
+    "  回退：第一层尝试失败 → 转向 CDP（见 §5.1「回退规则」）。",
+    "",
+    "本文件的作用：把「工作文件夹下验证可行」这句话变成**可执行的判据** ——",
+    "  fetch_direct.py 只对本表里的域名发请求，**表外一律拒绝（fail closed）**，",
+    "  而不是让 agent 每次临场判断某个站点算不算『开源数据库』。",
+    "  content_class 该域名**允许**取到的层级：metadata / abstract / abstract+oa-fulltext-xml",
+    "",
+    "字段：",
+    "  domain        域名（子域匹配：api.crossref.org 命中 api.crossref.org 与 *.api.crossref.org）",
+    "  purpose       用途分类：metadata / abstract / review / oa-fulltext-xml",
+    "  oa_only       该源是否只应取开放获取内容",
+    "  verified_by   验证依据（哪个 skill / 哪次实跑）",
+    "  verified_at   验证日期",
+    "  note          注意事项",
+    "",
+    "⛔ 收录判据（三条同时满足）：",
+    "  ① 公开、无需密钥或仅有免费额度；",
+    "  ② 返回**结构化数据**（JSON/XML），不是给人读的网页；",
+    "  ③ 工作文件夹 `skills/` 下已有 skill 在用，或本流程已实跑成功。",
+    "",
+    "⛔ 明确**不**收录：任何出版社内容站（nature.com / sciencedirect.com / …）——",
+    "  取它们的正文与 PDF 属于第二层，一律走 CDP。",
+    "★ 键名以 _ 开头的条目会被忽略。"
+  ],
+  "sources": [
+    {
+      "domain": "api.crossref.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": false,
+      "verified_by": "本流程 fetch_crossref_all.py / retry_crossref.py（长期使用）",
+      "verified_at": "2026-09-19",
+      "note": "题录权威源。`abstract` 字段仅在部分出版社存缴时存在，可用作摘要兜底之一。"
+    },
+    {
+      "domain": "api.openalex.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": false,
+      "verified_by": "本流程 fetch_openalex_abstracts.py、refs_backfill.py；skills/paper-lookup",
+      "verified_at": "2026-09-19",
+      "note": "摘要由 abstract_inverted_index 倒排索引重建；另有 cited_by_count / referenced_works。"
+    },
+    {
+      "domain": "pub.orcid.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": false,
+      "verified_by": "本流程 orcid_probe.py",
+      "verified_at": "2026-09-19",
+      "note": "作者身份核验与成果列表（公共 API v3.0）。"
+    },
+    {
+      "domain": "api.unpaywall.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": false,
+      "verified_by": "本流程 unpaywall_check.py",
+      "verified_at": "2026-09-19",
+      "note": "只用来**判断**是否 OA（决定获取难度），不用它下载 PDF —— 下载属第二层。"
+    },
+    {
+      "domain": "api.semanticscholar.org",
+      "purpose": "abstract",
+      "content_class": "abstract",
+      "oa_only": false,
+      "verified_by": "skills/paper-lookup（references/semantic-scholar.md）",
+      "verified_at": "2026-09-19",
+      "note": "批量 POST /graph/v1/paper/batch 可取 abstract 与 citationCount。无 key 时速率受限，需退避。"
+    },
+    {
+      "domain": "www.ebi.ac.uk",
+      "purpose": "abstract",
+      "content_class": "abstract+oa-fulltext-xml",
+      "oa_only": true,
+      "verified_by": "本流程 jats_to_text.py（Europe PMC fullTextXML）；skills/paper-lookup（references/europepmc.md）",
+      "verified_at": "2026-09-19",
+      "note": "Europe PMC REST。abstractText 为摘要；**fullTextXML 仅在 inEPMC=Y 且 isOpenAccess=Y 时可用**，非 OA 返回 404/空 —— 这是**结构化开放获取接口**，不是抓出版社网页，故归第一层；取不到就转 CDP 或退回详细摘要，**不要反复试**。"
+    },
+    {
+      "domain": "eutils.ncbi.nlm.nih.gov",
+      "purpose": "abstract",
+      "content_class": "abstract",
+      "oa_only": false,
+      "verified_by": "skills/paper-lookup（references/pubmed.md）",
+      "verified_at": "2026-09-19",
+      "note": "PubMed E-utilities（esearch + efetch）。生物医学覆盖好，但需两次调用，作为兜底源。"
+    },
+    {
+      "domain": "export.arxiv.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": true,
+      "verified_by": "skills/paper-lookup（references/arxiv.md）",
+      "verified_at": "2026-09-19",
+      "note": "仅 arXiv 预印本（DOI 前缀 10.48550/arXiv.）；arXiv 本身就是全开放，取其元数据与摘要属第一层。"
+    },
+    {
+      "domain": "api.biorxiv.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": true,
+      "verified_by": "skills/paper-lookup（references/biorxiv.md）",
+      "verified_at": "2026-09-19",
+      "note": "bioRxiv / medRxiv 预印本元数据。"
+    },
+    {
+      "domain": "api.core.ac.uk",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": true,
+      "verified_by": "skills/paper-lookup（references/core.md）",
+      "verified_at": "2026-09-19",
+      "note": "需 API key（免费额度）。只查询元数据；其托管全文的下载仍按第二层处理。"
+    },
+    {
+      "domain": "api.datacite.org",
+      "purpose": "metadata",
+      "content_class": "metadata",
+      "oa_only": false,
+      "verified_by": "skills/paper-lookup（DOI 解析分支）",
+      "verified_at": "2026-09-19",
+      "note": "数据集 / 软件 DOI 的题录。"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "_说明": [
+    "语义词族合并表 —— 供 interpret_build.py 的 --families= 使用。",
+    "为什么需要：单条目频次会把同一概念的多种写法拆散（framework 18 / frameworks 7、",
+    "CO2 capture / carbon dioxide capture / CO2 adsorption），词族合并后才看得出真实主题强度。",
+    "用法：把本文件复制到 <WORKDIR>/.work_cdp/keyword_families.json 后按实际语料增删，",
+    "     再跑 uv run python 流程1/scripts/interpret_build.py",
+    "格式：{ \"语义词族显示名\": [\"成员1\", \"成员2\", ...], ... }",
+    "★ 成员一律小写；只做**合并同义/近义写法**，不要把不同概念硬凑成一族。",
+    "★★ 成员必须是**单个词**，不能是短语！分词器只产出「英文单词」与「中文 2-gram」，",
+    "    写成 \"t cell\" / \"cell cycle\" / \"amino acid\" 这类短语**永远匹配不到**，",
+    "    会在表里恒显示 0，让人误以为该概念没出现。请拆成单词（t、cell 分开列）。",
+    "★ 本文件是**空壳模板**：下面几族只是示例，务必按该作者的真实语料改写。",
+    "★ 键名以 _ 开头的条目会被忽略（用于写这些说明）。"
+  ],
+
+  "多孔材料": ["porous", "porosity", "micropore", "mesopore", "pore", "pores", "bet"],
+  "框架化学": ["framework", "frameworks", "mof", "mofs", "cof", "cofs", "polyoxometalate", "polyoxovanadate"],
+  "碳捕集": ["co2", "carbon", "capture", "sequestration", "adsorption", "adsorbent"],
+  "能源存储": ["battery", "batteries", "lithium-ion", "anode", "cathode", "electrolyte", "supercapacitor"],
+  "光催化": ["photocatalytic", "photocatalysis", "photoactivity", "solar", "photochemical", "light-driven"],
+  "手性": ["chiral", "chirality", "enantioselective", "enantiomer", "resolution"],
+  "表征手段": ["diffraction", "spectroscopy", "nmr", "xrd", "microscopy", "spectra", "crystal"]
+}

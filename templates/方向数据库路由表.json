@@ -1,0 +1,366 @@
+{
+  "_comment": "方向 → 数据库路由表 —— 阶段 R 的**唯一**选库依据。",
+  "_why_this_file": [
+    "实测教训（2026-10-04，中科大生医部「免疫与感染」）：",
+    "  三线全跑（Europe PMC + arXiv + Scholar）时，arXiv 返回的 24 条里绝大多数是",
+    "  **计算机领域**的 'immune'（入侵检测 / 程序验证）与**传染病建模**，",
+    "  对湿实验免疫学**完全无用**；而 Google Scholar 反爬不可用。",
+    "  结果是三线里只有一条真正产出文献 —— 所谓「并行」名不副实。",
+    "",
+    "反过来，若给『计算生物学 / 机器学习 / 物理』这类方向只查 PubMed，",
+    "则几乎命中不到预印本与方法学论文（这些方向的成果大量先发 arXiv）。",
+    "",
+    "**结论：库要按方向选，不是三个都跑。**",
+    "本表把「研究方法与关键词总表.md」的 24 个领域映射到各自合适的库。"
+  ],
+  "version": "1.0",
+  "updated": "2026-10-04",
+
+  "_schema": {
+    "databases.<key>.api": "paginate.py 的 --api 取值",
+    "databases.<key>.query_style": "query 写法：europepmc=Europe PMC 语法；openalex/crossref=原始参数串",
+    "databases.<key>.citation_sort": "能否按被引排序（决定能否直接拿到高影响力文献）",
+    "databases.<key>.delay_seconds": "最小请求间隔（**串行降速**，不得并发同一主机）",
+    "databases.<key>.content_level": "内容层级：metadata / abstract（**全文一律走 CDP**，见 SKILL §5.1）",
+    "databases.<key>.strength": "该库的强项（写进检索报告，便于用户判断覆盖度）",
+    "domains.<领域名>.primary": "主力库（必跑）",
+    "domains.<领域名>.secondary": "补充库（**确有增益时才跑**）",
+    "domains.<领域名>.skip": "**明确不跑的库**，并给出理由 —— 防止无谓请求",
+    "domains.<领域名>.review_filter": "该库上取综述的过滤写法"
+  },
+
+  "databases": {
+    "europepmc": {
+      "api": "europepmc",
+      "query_style": "europepmc",
+      "citation_sort": true,
+      "sort_syntax": "在 query 里加 AND (SORT_CITED:y) 即按被引降序",
+      "delay_seconds": 0.5,
+      "content_level": "metadata+abstract",
+      "strength": "生命科学/医学主力，覆盖面广，**可直接按被引排序**，带 PMID/PMCID/OA 标记",
+      "default": true
+    },
+    "pubmed": {
+      "api": "europepmc",
+      "query_style": "europepmc",
+      "citation_sort": true,
+      "delay_seconds": 0.5,
+      "content_level": "metadata+abstract",
+      "strength": "与 Europe PMC 同源（Europe PMC 收录 MEDLINE）；**用 europepmc 即可覆盖 PubMed**，无需另配 key",
+      "note": "Europe PMC 的 SRC:MED 即 MEDLINE/PubMed 子集。要**只**查 PubMed，加 SRC:\"MED\"。"
+    },
+    "arxiv": {
+      "api": "arxiv_atom.py",
+      "query_style": "arxiv",
+      "citation_sort": false,
+      "rate_limit_seconds": 3,
+      "content_level": "metadata+abstract",
+      "strength": "**计算/物理/数学/AI 的预印本主力**；生物医学仅覆盖生物信息与计算方向",
+      "note": "⛔ **限流：每 3 秒 1 个请求**，必须**串行**。遇到限流 arxiv_atom.py 退出码 5。",
+      "warning": "计算机领域 'immune' 大量指『人工免疫系统/入侵检测』，与免疫学同形异义；跨学科检索必须人工筛。"
+    },
+    "biorxiv": {
+      "api": "biorxiv",
+      "query_style": "interval",
+      "citation_sort": false,
+      "delay_seconds": 1.0,
+      "content_level": "metadata+abstract",
+      "strength": "生物学**预印本**，比期刊早数月；query 是**日期区间**而非关键词",
+      "note": "query 形如 2024-01-01/2024-06-30。**不能按关键词检索** —— 需先取区间再本地筛。"
+    },
+    "medrxiv": {
+      "api": "medrxiv",
+      "query_style": "interval",
+      "citation_sort": false,
+      "delay_seconds": 1.0,
+      "content_level": "metadata+abstract",
+      "strength": "临床医学**预印本**；同样走 api.biorxiv.org，query 是日期区间",
+      "note": "同 biorxiv：不能按关键词检索。"
+    },
+    "openalex": {
+      "api": "openalex",
+      "query_style": "raw_params",
+      "citation_sort": true,
+      "sort_syntax": "sort=cited_by_count:desc",
+      "delay_seconds": 0.2,
+      "content_level": "metadata+abstract",
+      "strength": "**跨学科最广**（含社科/人文/工程），带 cited_by_count 与 concepts；适合做跨库补充与去重",
+      "note": "query 是**原始参数串**，如 'search=crispr' 或 'filter=publication_year:2024'。"
+    },
+    "crossref": {
+      "api": "crossref",
+      "query_style": "raw_params",
+      "citation_sort": false,
+      "delay_seconds": 0.3,
+      "content_level": "metadata",
+      "strength": "**DOI 权威注册库**；适合校验题录、补全卷期页，不擅长主题检索",
+      "note": "query 是原始参数串，如 'query.bibliographic=...'。主要用于**核实**而非发现。",
+      "role": "verify"
+    }
+  },
+
+  "domains": {
+    "科研数据库与数据获取": {
+      "primary": ["openalex"],
+      "secondary": ["europepmc"],
+      "skip": ["arxiv"],
+      "reason": "该领域是**元工具/基础设施**，成果多在软件与数据库而非论文；不自建主题检索，按被服务的**目标学科**选库。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "文献检索与引用管理": {
+      "primary": ["openalex", "crossref"],
+      "secondary": ["europepmc"],
+      "skip": ["arxiv"],
+      "reason": "图书情报学，OpenAlex 跨学科覆盖最好；Crossref 用于题录核实。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "网络检索与情报分析": {
+      "primary": ["openalex"],
+      "secondary": [],
+      "skip": ["europepmc", "arxiv"],
+      "reason": "社科/情报学，**PubMed 几乎不收录**；arXiv 仅有少量 cs.IR。",
+      "review_filter": "type:review"
+    },
+    "生物信息学与基因组学": {
+      "primary": ["europepmc", "arxiv"],
+      "secondary": ["biorxiv"],
+      "skip": [],
+      "reason": "**跨生物与计算两侧**：方法学论文大量上 arXiv（q-bio/GN），应用论文在 PubMed。**唯一需要同时跑两侧的领域。**",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "单细胞与多组学": {
+      "primary": ["europepmc"],
+      "secondary": ["biorxiv", "arxiv"],
+      "skip": [],
+      "reason": "生物医学为主；分析方法（降维/整合/注释）可上 arXiv，但主体在 PubMed/bioRxiv。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "系统发育与进化": {
+      "primary": ["europepmc"],
+      "secondary": ["biorxiv"],
+      "skip": ["arxiv"],
+      "reason": "进化生物学以期刊与 bioRxiv 为主；arXiv 覆盖极弱。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "蛋白工程与结构生物学": {
+      "primary": ["europepmc"],
+      "secondary": ["biorxiv"],
+      "skip": [],
+      "reason": "结构测定论文在期刊；**结构预测方法**（如 AlphaFold 类）会同时上 arXiv，故 arXiv 列为可选补充。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "化学信息学与药物发现": {
+      "primary": ["europepmc"],
+      "secondary": ["openalex", "arxiv"],
+      "skip": ["biorxiv"],
+      "reason": "药物发现偏化学/药学，OpenAlex 补充化学期刊；**分子生成/ADMET 预测等 ML 方法**常上 arXiv。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "质谱与蛋白质组学": {
+      "primary": ["europepmc"],
+      "secondary": ["biorxiv"],
+      "skip": ["arxiv"],
+      "reason": "方法学论文在分析化学与蛋白质组学期刊；arXiv 基本无覆盖。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "药理与临床研究": {
+      "primary": ["europepmc"],
+      "secondary": ["medrxiv"],
+      "skip": ["arxiv"],
+      "reason": "**PubMed/Europe PMC 是绝对主力**；临床试验预印本在 medRxiv。arXiv 不覆盖临床。",
+      "review_filter": "(PUB_TYPE:\"Review\" OR PUB_TYPE:\"systematic-review\")"
+    },
+    "医学影像与数字病理": {
+      "primary": ["europepmc", "arxiv"],
+      "secondary": ["medrxiv"],
+      "skip": [],
+      "reason": "**典型跨两侧**：临床影像研究在 PubMed，**影像 AI 方法**（分割/检测/自监督）大量在 arXiv（eess.IV/cs.CV）。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "神经科学与生理信号": {
+      "primary": ["europepmc"],
+      "secondary": ["biorxiv", "arxiv"],
+      "skip": [],
+      "reason": "神经科学主体在 PubMed/bioRxiv；**神经信号解码/脑机接口**的 ML 方法会上 arXiv。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "机器学习与深度学习": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc", "biorxiv", "medrxiv"],
+      "reason": "**arXiv 是绝对主力**（cs.LG/cs.AI/stat.ML），且成果优先发预印本；PubMed 对该领域**覆盖极差**，跑了只会拉回无关文献。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "统计与数据分析": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc"],
+      "reason": "方法学论文在 arXiv（stat.ME/stat.ML）；医学统计部分才需要 Europe PMC。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "可视化与图分析": {
+      "primary": ["arxiv", "openalex"],
+      "secondary": [],
+      "skip": ["europepmc"],
+      "reason": "cs.HC/cs.GR 为主；可视化是人机交互与图形学交叉，生物医学库无覆盖。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "材料、物理与工程仿真": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc", "biorxiv"],
+      "reason": "cond-mat / physics / engr 预印本在 arXiv；OpenAlex 补期刊版。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "量子计算": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc"],
+      "reason": "quant-ph 是 arXiv 的核心板块，期刊版往往滞后。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "天文与地学": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc"],
+      "reason": "astro-ph 在 arXiv 高度发达；地学部分用 OpenAlex 补。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "实验室自动化与平台集成": {
+      "primary": ["europepmc"],
+      "secondary": ["arxiv"],
+      "skip": [],
+      "reason": "实验室自动化论文在生物医学与工程期刊；机器人/调度算法可上 arXiv。",
+      "review_filter": "PUB_TYPE:\"Review\""
+    },
+    "科研写作、评审与出版": {
+      "primary": ["openalex"],
+      "secondary": ["europepmc"],
+      "skip": ["arxiv"],
+      "reason": "元研究/科学计量学，OpenAlex 有完整引文数据；arXiv 无此主题。",
+      "review_filter": "type:review"
+    },
+    "文档处理与转换": {
+      "primary": ["arxiv"],
+      "secondary": ["openalex"],
+      "skip": ["europepmc"],
+      "reason": "cs.CL/cs.IR（文档理解、OCR、信息抽取）为主。",
+      "review_filter": "all:\"review\" OR all:\"survey\""
+    },
+    "研究方法论与推理": {
+      "primary": ["openalex"],
+      "secondary": ["arxiv", "europepmc"],
+      "skip": [],
+      "reason": "横跨统计/哲学/科学学；按**被服务的目标学科**再收窄。",
+      "review_filter": "type:review"
+    },
+    "监管与标准合规": {
+      "primary": ["openalex"],
+      "secondary": ["europepmc"],
+      "skip": ["arxiv"],
+      "reason": "法规与政策类文献在社科与医学期刊；arXiv 无覆盖。",
+      "review_filter": "type:review"
+    },
+    "环境、资源与元工具": {
+      "primary": ["openalex"],
+      "secondary": ["europepmc"],
+      "skip": ["arxiv"],
+      "reason": "元工具类，同「科研数据库与数据获取」：按目标学科选库。",
+      "review_filter": "type:review"
+    }
+  },
+
+  "faculty_direction_map": {
+    "_why": [
+      "阶段 S 归类出的**学部方向**（12 个，见 templates/导师方向规则.json）与",
+      "阶段 N 的**方法领域**（24 个，见 研究方法与关键词总表.md）是**两套正交坐标系**：",
+      "前者按**研究对象/疾病**切（免疫与感染、神经与脑科学…），",
+      "后者按**研究手段**切（机器学习与深度学习、质谱与蛋白质组学…）。",
+      "",
+      "用户往往是先选**学部方向**（因为那是「谁在做」），再做检索。",
+      "故此处给出映射：学部方向 → 方法领域（可多个）→ 由 domains 再得出库。",
+      "**不映射时走 fallback**（Europe PMC → OpenAlex），多数情况也对，",
+      "但会漏掉「生物信息与计算」该配 arXiv、「成像与生物物理」该配 arXiv 这类关键选择。"
+    ],
+    "_schema": "学部方向名 → {domains: [方法领域名…], note: 说明}",
+    "免疫与感染": {
+      "domains": ["药理与临床研究", "单细胞与多组学"],
+      "note": "以 PubMed/Europe PMC 为主；**不要跑 arXiv**（实测 cs 的 'immune' 是入侵检测，完全无关）。"
+    },
+    "神经与脑科学": {
+      "domains": ["神经科学与生理信号"],
+      "note": "PubMed/bioRxiv 为主；脑机接口/信号解码的 ML 方法可补 arXiv。"
+    },
+    "肿瘤与血液": {
+      "domains": ["药理与临床研究", "单细胞与多组学"],
+      "note": "同免疫与感染：临床与组学为主，**不跑 arXiv**。"
+    },
+    "遗传与发育": {
+      "domains": ["生物信息学与基因组学"],
+      "note": "**需同时跑 Europe PMC + arXiv**（遗传学方法学大量在 q-bio/GN）。"
+    },
+    "结构与分子生物学": {
+      "domains": ["蛋白工程与结构生物学"],
+      "note": "结构测定在期刊；结构预测方法（AlphaFold 类）在 arXiv，列为补充。"
+    },
+    "细胞与信号转导": {
+      "domains": ["单细胞与多组学"],
+      "note": "生物医学为主，**不跑 arXiv**。"
+    },
+    "药理与转化医学": {
+      "domains": ["药理与临床研究", "化学信息学与药物发现"],
+      "note": "PubMed/Europe PMC 主力；分子生成/ADMET 预测可补 arXiv。"
+    },
+    "生物信息与计算": {
+      "domains": ["生物信息学与基因组学", "机器学习与深度学习"],
+      "note": "★ **本方向最需要 arXiv** —— 实测只查 PubMed 会漏掉大量方法学论文。"
+    },
+    "成像与生物物理": {
+      "domains": ["医学影像与数字病理"],
+      "note": "★ **临床影像在 PubMed，影像 AI 在 arXiv（eess.IV/cs.CV）** —— 两侧都要。"
+    },
+    "生态与进化": {
+      "domains": ["系统发育与进化"],
+      "note": "期刊 + bioRxiv 为主，**不跑 arXiv**。"
+    },
+    "植物与农业": {
+      "domains": ["系统发育与进化", "生物信息学与基因组学"],
+      "note": "植物基因组学可用 arXiv 补方法；一般以 Europe PMC/bioRxiv 为主。"
+    },
+    "公共卫生与健康": {
+      "domains": ["药理与临床研究"],
+      "note": "PubMed/Europe PMC + medRxiv；**不跑 arXiv**。"
+    }
+  },
+
+  "fallback": {
+    "_policy": "用户确认（2026-10-04）：**先跑 Europe PMC 扩充，再按需加库**。",
+    "order": ["europepmc", "openalex"],
+    "rule": [
+      "① 方向在 domains 里命中 → 跑 primary；secondary **仅在 primary 结果 < 6 篇时**才跑。",
+      "② 方向**未命中** domains → 跑 fallback.order（europepmc → openalex），",
+      "   并在报告里**明确标注该方向未登记路由，用的是兜底库**。",
+      "③ skip 列出的库**一律不发请求**（避免无谓请求与无关结果）。",
+      "④ 任何库返回 < 6 篇时，按 fallback.order 依次补，直到 ≥ 6 篇或库用尽。"
+    ]
+  },
+
+  "query_templates": {
+    "europepmc_review": "(<主题词 OR …>) AND (<方法词 OR …>) AND (PUB_TYPE:\"Review\" OR PUB_TYPE:\"systematic-review\")",
+    "europepmc_review_cited": "(<主题词 OR …>) AND (<方法词 OR …>) AND (PUB_TYPE:\"Review\") AND (SORT_CITED:y)",
+    "europepmc_pubmed_only": "SRC:\"MED\" AND (<主题词>) AND (PUB_TYPE:\"Review\")",
+    "europepmc_preprint_only": "SRC:\"PPR\" AND (<主题词>)",
+    "arxiv_review": "all:\"<主题词>\" AND (all:\"review\" OR all:\"survey\")",
+    "openalex_search": "search=<主题词>&filter=type:review",
+    "openalex_cited": "search=<主题词>&sort=cited_by_count:desc",
+    "_note": "SORT_CITED:y 是关键 —— paginate.py **没有 --sort 开关**，排序语法必须写在 query 里。"
+  },
+
+  "honesty_rules": [
+    "报告检索覆盖度时，**逐库**列出「跑了什么 / 返回多少 / 是否被上限截断」。",
+    "`complete: false` 时必须说明是**部分结果**。",
+    "某库被 skip 时，说明**理由**（本表已给），不要默不作声。",
+    "arXiv 被限流（退出码 5）时**如实报告该线未取到**，不得伪装成已跑。",
+    "**跨学科同形异义词必须筛**：如 cs 的 'immune' ≠ 免疫学；cs 的 'transformer' ≠ 电力变压器。"
+  ]
+}
