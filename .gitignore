@@ -1,0 +1,24 @@
+# ── 流程1 版本控制忽略规则（2026-10-02 建立）───────────────────
+#
+# 决策：vendor/ **不入库**。
+#   理由：它是**拷贝进来的第三方快照**（无 .git），共 88.8 MB，其中 9.1 MB
+#   还是生成物（vendor/ppt-master/projects/ 的 pptx 导出）。
+#   完整性核验靠 PACKAGE_MANIFEST.json 的逐文件 sha256。
+#   若日后要自包含，删掉下面这行再 git add 即可。
+vendor/
+
+# ── 运行副产物（流程跑起来才会生成，不应入库）─────────────────
+.work_cdp/                 # 中间数据 + logs + 缓存
+*_paper_Exports/           # 原文 PDF 目录（规范名）
+*_Exports/                 # 原文 PDF 目录（历史名，store.py 会沿用）
+.edge-cdp-*/               # CDP 用户数据目录
+*.log
+
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ── 编辑器 / 系统 ─────────────────────────────────────────
+.DS_Store
+Thumbs.db

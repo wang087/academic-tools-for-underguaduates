@@ -1,0 +1,58 @@
+{
+  "_说明": [
+    "学科通用语义词族表 —— 供 interpret_build.py 的 --families= 使用。",
+    "来源：工作根目录《研究方法与关键词总表.md》（24 个领域）的机读派生物。",
+    "用法：cp 流程1/templates/关键词词族_学科通用.json <WORKDIR>/.work_cdp/keyword_families.json",
+    "     （可与作者专属词族合并：作者专属的放前面，通用族放后面；同名键后者覆盖前者）",
+    "     再跑 uv run python 流程1/scripts/interpret_build.py",
+    "格式：{ \"语义词族显示名\": [\"成员1\", \"成员2\", ...], ... }",
+    "★ 成员一律小写；只做**合并同义/近义写法**，不要把不同概念硬凑成一族。",
+    "★★ 成员必须是**单个词**，不能是短语！分词器只产出「英文单词（≥3 字符，含数字）」与「中文 2-gram」，",
+    "    写成 \"t cell\" / \"cell cycle\" / \"amino acid\" 这类短语**永远匹配不到**，",
+    "    会在表里恒显示 0，让人误以为该概念没出现。",
+    "★ 本表是**通用底座**，不是最终词族表：请按该作者的真实语料裁剪 —— ",
+    "    与本领域无关的族直接删掉，否则会给报告引入大量恒为 0 的噪声行。",
+    "★ 键名以 _ 开头的条目会被忽略（用于写这些说明）。"
+  ],
+
+  "_通用方法范式": ["method", "methods", "approach", "strategy", "pipeline", "workflow", "framework", "frameworks", "toolkit", "protocol", "platform"],
+
+  "_通用测量与评价": ["measurement", "measure", "quantification", "quantify", "quantitative", "evaluation", "evaluate", "assessment", "benchmark", "metric", "metrics", "accuracy", "precision", "sensitivity", "specificity", "robustness", "reproducibility"],
+
+  "机器学习": ["machine", "learning", "model", "models", "modeling", "training", "train", "prediction", "predict", "predictive", "classifier", "classification", "regression", "clustering", "supervised", "unsupervised", "feature", "features", "embedding", "embeddings", "representation", "inference"],
+  "深度学习": ["neural", "network", "networks", "deep", "transformer", "transformers", "attention", "convolutional", "cnn", "gnn", "autoencoder", "latent", "trained"],
+  "图与网络分析": ["graph", "graphs", "node", "nodes", "edge", "edges", "topology", "network", "networks", "centrality", "community", "pathway", "pathways"],
+  "强化学习与优化": ["reinforcement", "policy", "reward", "agent", "optimization", "optimisation", "optimize", "objective", "pareto", "constraint", "constraints", "heuristic", "search"],
+
+  "统计推断": ["statistical", "statistics", "significance", "significant", "hypothesis", "confidence", "interval", "variance", "distribution", "correlation", "regression", "estimator", "estimation", "bootstrap", "permutation", "likelihood", "bayesian", "posterior", "prior"],
+  "实验设计": ["randomization", "randomized", "randomised", "control", "controlled", "blinding", "blinded", "placebo", "replicate", "replicates", "replication", "sample", "samples", "power", "design", "blocking", "factorial", "crossover"],
+  "测量不确定度": ["uncertainty", "units", "calibration", "error", "errors", "bias", "tolerance", "precision", "deviation"],
+
+  "分子与化学": ["molecule", "molecules", "molecular", "compound", "compounds", "ligand", "ligands", "smiles", "descriptor", "descriptors", "scaffold", "pharmacophore", "admet", "solubility", "permeability", "toxicity", "potency", "assay", "screening", "docking", "binding", "affinity"],
+  "材料与结构": ["crystal", "crystalline", "lattice", "symmetry", "phase", "structural", "structure", "structures", "surface", "interface", "defect", "doping", "nanoparticle", "nanoparticles", "thin", "film", "films"],
+  "催化与反应": ["catalysis", "catalyst", "catalysts", "catalytic", "reaction", "reactions", "reactivity", "selectivity", "conversion", "yield", "kinetic", "kinetics", "mechanism", "mechanistic"],
+  "能源与环境": ["battery", "batteries", "electrode", "electrolyte", "anode", "cathode", "supercapacitor", "solar", "photocatalytic", "photocatalysis", "co2", "carbon", "capture", "sequestration", "adsorption", "adsorbent", "hydrogen", "storage", "emission", "emissions"],
+
+  "基因组学": ["genome", "genomes", "genomic", "genomics", "dna", "rna", "gene", "genes", "genetic", "sequencing", "sequence", "sequences", "alignment", "assembly", "variant", "variants", "mutation", "mutations", "snp", "indel", "allele", "alleles", "chromosome", "chromatin", "methylation", "epigenetic", "transcriptome", "transcriptomic"],
+  "转录与表达": ["expression", "transcript", "transcripts", "transcriptional", "mrna", "differential", "fold", "deseq", "normalization", "counts", "replicate"],
+  "蛋白质与结构生物学": ["protein", "proteins", "peptide", "peptides", "residue", "residues", "folding", "fold", "conformation", "cryo", "crystallography", "domain", "domains", "motif", "motifs", "complex", "complexes", "interface", "epitope"],
+  "单细胞与多组学": ["single", "cell", "cells", "cellular", "cluster", "clusters", "droplet", "barcode", "umi", "spatial", "atlas", "marker", "markers", "trajectory", "velocity", "pseudotime", "integrative", "multimodal", "modality"],
+  "微生物与群落": ["microbial", "microbiome", "microbiota", "bacterial", "bacteria", "viral", "virus", "strain", "strains", "phage", "community", "metagenome", "metagenomic"],
+  "系统发育与进化": ["phylogenetic", "phylogeny", "tree", "trees", "clade", "lineage", "lineages", "divergence", "ancestral", "evolution", "evolutionary", "speciation", "ortholog", "homolog", "bootstrap"],
+  "通路与调控": ["pathway", "pathways", "enrichment", "regulatory", "regulation", "transcription", "motif", "signaling", "cascade", "interaction", "interactions", "network"],
+
+  "成像与显微": ["imaging", "image", "images", "microscopy", "microscopic", "fluorescence", "confocal", "tomography", "histology", "pathology", "staining", "segmentation", "pixel", "resolution", "slice", "slides", "tile", "tiles"],
+  "谱学与表征": ["spectroscopy", "spectroscopic", "spectra", "spectrum", "spectral", "nmr", "xrd", "raman", "infrared", "absorption", "emission", "diffraction", "scattering", "characterization", "characterisation", "mass", "chromatography"],
+  "电生理与信号": ["signal", "signals", "neural", "neuron", "neurons", "spike", "spikes", "electrophysiology", "eeg", "meg", "fmri", "recording", "channel", "artifact", "filtering", "variability", "entropy"],
+
+  "临床与流行病": ["clinical", "patient", "patients", "cohort", "trial", "trials", "endpoint", "outcome", "outcomes", "survival", "mortality", "hazard", "incidence", "prevalence", "diagnosis", "diagnostic", "prognosis", "prognostic", "biomarker", "biomarkers", "therapy", "treatment", "dose", "dosing", "pharmacokinetic", "pharmacodynamic", "efficacy", "safety", "adverse", "retrospective", "prospective"],
+  "实验室自动化": ["automation", "automated", "robot", "robotic", "liquid", "handling", "pipette", "plate", "plates", "assay", "throughput", "workflow", "protocol", "instrument", "simulation"],
+
+  "计算与模拟": ["simulation", "simulations", "simulate", "computational", "molecular", "dynamics", "monte", "carlo", "dft", "density", "functional", "ab", "initio", "modeling", "numerical", "solver", "finite", "element", "mesh", "convergence"],
+  "数据与基础设施": ["dataset", "datasets", "database", "databases", "repository", "archive", "metadata", "annotation", "curation", "ontology", "identifier", "provenance", "reproducible", "pipeline", "pipelines", "scalable", "storage", "cloud"],
+  "量子与物理": ["quantum", "qubit", "qubits", "circuit", "circuits", "gate", "gates", "entanglement", "hamiltonian", "operator", "state", "states", "measurement", "noise", "decoherence", "thermodynamic", "statistical", "mechanics"],
+
+  "开放获取与传播": ["open", "access", "preprint", "preprints", "repository", "citation", "citations", "cited", "reference", "references", "bibliography", "doi", "provenance"],
+  "综述与元分析": ["review", "reviews", "survey", "overview", "perspective", "meta", "analysis", "synthesis", "state", "art", "advances", "progress", "challenges", "opportunities", "future", "outlook"],
+  "局限与展望": ["limitation", "limitations", "caveat", "caveats", "remaining", "unresolved", "future", "outlook", "further", "promising", "preliminary", "warrant", "requires"]
+}

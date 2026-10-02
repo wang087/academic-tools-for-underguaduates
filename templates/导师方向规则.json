@@ -1,0 +1,77 @@
+{
+  "_说明": [
+    "导师研究方向 → 细分方向 的分类规则表（供 scripts/harvest_mentors.py 使用）。",
+    "匹配方式：大小写不敏感的**子串匹配**（中文直接子串，英文匹配词干）。",
+    "★ 只做「可解释的粗归类」，不是权威学科分类；一条方向命中多类时全部记入，",
+    "   因此同一位老师可能出现在多个方向桶下。",
+    "★ 请按目标学部的真实语料增删关键词：规则越贴合，'未分类'越少。",
+    "★ 键名以 _ 开头的条目会被忽略（用于写说明）。",
+    "★ 未命中任何规则的老师进入「未分类」桶，脚本**不会**硬塞进某个方向。"
+  ],
+
+  "免疫与感染": ["免疫", "immun", "炎症", "inflamm", "感染", "infect", "病毒", "virus",
+                 "virolog", "抗体", "antibod", "疫苗", "vaccin", "t细胞", "t cell",
+                 "淋巴细胞", "lymphocyte", "微生物", "microb", "菌", "bacteri",
+                 "寄生虫", "parasit", "宿主", "host", "天然免疫", "innate"],
+
+  "神经与脑科学": ["神经", "neuro", "脑", "brain", "突触", "synap", "认知", "cognit",
+                   "行为", "behavior", "记忆", "memory", "感觉", "sensory", "视觉",
+                   "vision", "visual", "听觉", "auditory", "嗅觉", "olfact",
+                   "睡眠", "sleep", "环路", "circuit", "皮层", "cortex",
+                   "神经退行", "degenerat", "精神", "psychi"],
+
+  "肿瘤与血液": ["肿瘤", "tumor", "tumour", "癌", "cancer", "carcin", "白血病",
+                 "leukem", "血液", "hemat", "转移", "metasta", "靶向", "targeted",
+                 "化疗", "chemotherap", "免疫治疗", "immunotherap", "抑癌",
+                 "oncogen", "肉瘤", "sarcoma"],
+
+  "遗传与发育": ["遗传", "genetic", "基因", "gene", "发育", "develop", "干细胞",
+                 "stem cell", "胚胎", "embryo", "分化", "differenti", "表观",
+                 "epigen", "染色质", "chromatin", "基因组", "genom", "突变",
+                 "mutation", "遗传病", "生殖", "reproduct", "器官发生",
+                 "organogenesis", "再生", "regenerat"],
+
+  "结构与分子生物学": ["结构", "structur", "蛋白", "protein", "冷冻电镜", "cryo",
+                       "晶体", "crystall", "分子", "molecul", "酶", "enzyme",
+                       "rna", "dna", "折叠", "fold", "复合物", "complex",
+                       "核磁", "nmr", "质谱", "mass spec", "互作", "interact",
+                       "转录", "transcription", "翻译调控"],
+
+  "细胞与信号转导": ["细胞", "cell", "信号", "signal", "通路", "pathway", "受体",
+                     "receptor", "代谢", "metabol", "自噬", "autophag", "凋亡",
+                     "apoptos", "细胞周期", "cell cycle", "膜", "membrane",
+                     "转运", "transport", "细胞骨架", "cytoskelet", "囊泡",
+                     "vesicle", "稳态", "homeostas"],
+
+  "药理与转化医学": ["药理", "pharmac", "药物", "drug", "临床", "clinical", "转化",
+                     "translat", "诊断", "diagnos", "治疗", "therap", "医学",
+                     "medic", "疾病", "disease", "流行病", "epidemi", "病理",
+                     "patholog", "生物标志", "biomarker", "安全性", "toxic"],
+
+  "生物信息与计算": ["生物信息", "bioinform", "计算", "comput", "统计", "statist",
+                     "算法", "algorithm", "机器学习", "machine learning", "深度",
+                     "deep learning", "建模", "model", "组学", "omics", "大数据",
+                     "data", "人工智能", "artificial intelligence", "网络",
+                     "network", "数据库", "database", "测序分析", "sequencing analysis"],
+
+  "成像与生物物理": ["成像", "imaging", "显微", "microscop", "光学", "optic",
+                     "生物物理", "biophysic", "光谱", "spectro", "单分子",
+                     "single molecule", "物理", "physic", "探针", "probe",
+                     "荧光", "fluoresc", "超分辨", "super-resolution", "电镜",
+                     "electron microscop", "力学", "mechanic"],
+
+  "生态与进化": ["生态", "ecolog", "进化", "evolution", "系统发育", "phylogen",
+                 "物种", "species", "保护", "conserv", "群落", "community",
+                 "生物多样性", "biodivers", "适应", "adapt", "种群", "population",
+                 "行为生态", "生态系统", "ecosystem"],
+
+  "植物与农业": ["植物", "plant", "农", "agri", "作物", "crop", "光合",
+                 "photosynth", "拟南芥", "arabidopsis", "水稻", "rice", "玉米",
+                 "maize", "根系", "root", "抗逆", "stress tolerance", "育种",
+                 "breeding"],
+
+  "公共卫生与健康": ["公共卫生", "public health", "健康", "health", "营养",
+                     "nutrit", "环境健康", "环境卫生", "职业", "occupation",
+                     "队列", "cohort", "预防", "prevent", "流行病学调查",
+                     "卫生统计", "医疗保障", "健康政策"]
+}

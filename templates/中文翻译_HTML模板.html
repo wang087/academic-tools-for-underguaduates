@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>中文翻译 · {{TITLE_EN}}</title>
+<style>
+  /* 中文科技论文翻译排版：CJK 友好，A4 打印 */
+  @page { size: A4; margin: 2cm 2.2cm; }
+  body {
+    font-family: "Times New Roman", "SimSun", "Songti SC", "Microsoft YaHei", serif;
+    font-size: 11pt; line-height: 1.7; color: #111; max-width: 100%;
+  }
+  h1 { font-size: 16pt; line-height: 1.5; }
+  h2 { font-size: 13pt; border-bottom: 1.5px solid #333; padding-bottom: 4px; margin-top: 22px; }
+  h3 { font-size: 12pt; }
+  .meta { color: #444; font-size: 10.5pt; }
+  .abstract { background: #f2f2f2; border-left: 4px solid #888; padding: 10px 14px; }
+  .figcap { background: #f7f7f7; border: 1px solid #ddd; padding: 8px 12px; margin: 10px 0; font-size: 10pt; }
+  .refnote { font-size: 9pt; color: #555; }
+  sup, sub { font-size: 70%; }
+  table { border-collapse: collapse; width: 100%; font-size: 10pt; }
+  th, td { border: 1px solid #bbb; padding: 4px 6px; }
+</style>
+</head>
+<body>
+
+<h1>{{TITLE_ZH}}</h1>
+<div class="meta">
+  <b>中文译题：</b>{{TITLE_EN}}<br>
+  <b>作者：</b>{{AUTHORS_ZH}}<br>
+  <b>单位：</b>{{AFFILIATION}}<br>
+  <b>期刊出处：</b>{{JOURNAL}}, {{YEAR}}, {{VOL}}({{ISSUE}}): {{PAGES}}. DOI: {{DOI}}{{OA_NOTE}}
+</div>
+
+<p class="abstract"><b>摘要（翻译）：</b>{{ABSTRACT_ZH}}</p>
+
+<h2>1 引言（Introduction）</h2>
+<p>{{INTRO_ZH}}</p>
+
+<h2>2 结果（Results）</h2>
+<h3>2.1 {{SECTION_2_1}}</h3>
+<p>{{...}}</p>
+
+<h2>3 讨论（Discussion）</h2>
+<p>{{DISCUSSION_ZH}}</p>
+
+<h2>4 方法（Methods）</h2>
+<p>{{METHODS_ZH}}</p>
+
+<h2>图注（Figure captions，译）</h2>
+<div class="figcap"><b>图1</b> {{FIG1_CAPTION_ZH}}</div>
+<div class="figcap"><b>图2</b> {{FIG2_CAPTION_ZH}}</div>
+
+<h2>数据可得性、致谢与作者贡献（译）</h2>
+<p><b>数据可得性：</b>{{DATA_AVAILABILITY_ZH}}</p>
+<p><b>致谢：</b>{{ACK_ZH}}</p>
+<p><b>作者贡献：</b>{{CONTRIB_ZH}}</p>
+
+<p class="refnote">
+参考文献与补充材料请见原文（{{LICENSE_NOTE}}：https://doi.org/{{DOI}}）。
+本文为中文翻译供阅读参考，专业术语与数据以原文为准。
+</p>
+
+</body>
+</html>
+
+<!--
+════════════════════════════════════════════════════════════════
+渲染为 PDF（Chrome / Edge 无头模式）：
+
+CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
+URL=$(python -c "import pathlib;print(pathlib.Path(r'<绝对路径>.html').as_uri())")
+"$CHROME" --headless=new --disable-gpu --no-sandbox \
+  --print-to-pdf="<输出>.pdf" --print-to-pdf-no-header "$URL"
+
+校验中文是否嵌入：
+uv run --with pypdf python -c "
+from pypdf import PdfReader
+r=PdfReader(r'<输出>.pdf'); t=r.pages[0].extract_text()
+print('pages:',len(r.pages),'CJK:',sum(1 for c in t if '一'<=c<='鿿'))"
+════════════════════════════════════════════════════════════════
+使用说明：
+1. 先用 Cherry `to_markdown` 把原文 PDF 转为 Markdown，保留章节结构。
+2. 按原文章节逐段翻译，填入本模板对应占位符。
+3. 图注、表注、数据可得性、致谢、作者贡献均需翻译（参考文献通常保留原文）。
+4. 化学式下标用 <sub>，上标用 <sup>（如 V<sub>14</sub>O<sub>34</sub>）。
+5. 保留原文数值与单位（如 2872 m² g⁻¹、ee 89%），不得改写。
+-->
