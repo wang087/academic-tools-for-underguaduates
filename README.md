@@ -1198,3 +1198,61 @@ ppt-master/projects/<项目名>/
 2. 残缺/异常产物**不删除**，改名后保留（如 `【补充材料】…`），便于回溯。
 3. 中译 PDF 与源 PDF 命名规则不同：源文件用**论文标题**，译文用**刊名缩写 + 年份**
    （便于按刊物/年份快速定位；同刊同年多篇加 `a/b` 后缀）。
+
+---
+
+## 版本控制（2026-10-02 建立）
+
+**本目录 `流程1/` 是一个独立的本地 git 仓库**（`流程1/.git/`），与外层的
+`K-Dense-AI/scientific-agent-skills` 克隆**互不相干**。
+
+> ⚠️ **为什么不是提交进外层仓库**：外层是**上游公开仓库的克隆**（有真实 remote
+> `origin`），把个人科研流程（含 88.8 MB 第三方 vendor）混进去，会污染上游历史、
+> 且存在**误 push** 风险。独立仓库给出同样的回滚能力，零外部影响。
+
+| 项 | 值 |
+|---|---|
+| 仓库位置 | `流程1/.git/`（约 1.4 MB） |
+| 分支 | `main` |
+| 首次提交 | `chore: 建立 流程1 版本控制基线` |
+| 入库范围 | 文档 + `scripts/`(59) + `templates/` + `示例数据/` + 子流程，共 **84 个文件 / ~4.4 MB** |
+| **不入库** | `vendor/`（第三方拷贝快照 88.8 MB，含 9.1 MB 生成物）—— 见 `.gitignore` |
+| 换行策略 | `core.autocrlf=false`（本目录 CRLF/LF 混杂，**按磁盘原样存储**，避免全量「已修改」） |
+| 提交身份 | 仓库级 `流程1 (local) <flow1@localhost>` —— **仅本地**，改法见下 |
+
+### 日常用法
+
+```bash
+cd 流程1
+
+git status                     # 看改了哪些文件
+git diff                       # 看具体改了哪几行
+git add -A && git commit -m "…" # 提交一次改动
+git log --oneline              # 历史
+git checkout -- <file>         # 丢弃某文件的改动（危险：不可恢复）
+git revert <commit>            # 更安全的回退方式
+```
+
+**改提交身份**（如需）：
+
+```bash
+git -C 流程1 config user.name  "你的名字"
+git -C 流程1 config user.email "you@example.com"
+git -C 流程1 commit --amend --reset-author --no-edit   # 顺便改写首次提交的作者
+```
+
+### 与外层仓库的关系
+
+外层仓库已把 `流程1/` 等本机 scratch 写进**只在本机生效**的
+`.git/info/exclude`（**不是** `.gitignore` —— 后者是被跟踪文件，改动会进入上游 diff）。
+因此外层 `git status` 不会把 `流程1/` 报成未跟踪，本目录的改动也**不会**混进上游提交。
+
+### 若日后要改「vendor 不入库」的决定
+
+删掉 `流程1/.gitignore` 里的 `vendor/` 一行，然后：
+
+```bash
+cd 流程1 && git add vendor/ && git commit -m "chore: 纳入 vendor 快照"
+```
+
+（注意：那会一次性写入约 88 MB 二进制。）
