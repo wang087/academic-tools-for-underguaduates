@@ -73,6 +73,21 @@ if [ ! -f "${WORKDIR}/.work_cdp/prepare_plan.json" ]; then
 fi
 if gate D2; then RUN_D2=1; else RUN_D2=0; echo "[0.5] 阶段 D2 已按准备计划跳过"; fi
 
+# ── 0.6 ★ v13：解读档位（只读展示，**不改变本脚本的任何行为**）────────
+#   本脚本只做数据采集；解读档位由阶段 H / H2 / R2 各自的脚本读取任务包后生效。
+#   在这里打印一遍是为了让「跑完采集才发现档位选错」这种事不发生。
+#   --tier 的 stdout 现在**只有** L1|L2|L3（已把日志行移到 stderr 之前的处理），
+#   所以可以直接去掉空白后使用；取不到就跳过，绝不因此中断。
+TIER_H="$(uv run python "${SDIR}/prepare_stage.py" --tier H  2>/dev/null | tr -d '[:space:]')"
+TIER_REVIEW="$(uv run python "${SDIR}/prepare_stage.py" --tier H2 2>/dev/null | tr -d '[:space:]')"
+if [ -n "${TIER_H}" ]; then
+  echo "[0.6] 解读档位：作者论文 ${TIER_H}；综述类（H2/R2）${TIER_REVIEW:-L3}"
+  echo "      改档： uv run python 流程1/scripts/prepare_stage.py --set interpret_tier=L1|L2|L3"
+  echo "             uv run python 流程1/scripts/prepare_stage.py --set review_interpret_tier=L1|L2|L3"
+else
+  echo "[0.6] ℹ 未读到解读档位（将按默认：作者论文 L2、综述类 L3）"
+fi
+
 # ── 1. 启动多实例 CDP Edge（最小参数档位）────────────────────────
 echo "[1/7] 启动 ${N_INST} 个 CDP Edge 实例 ..."
 bash "${SDIR}/start_edge_cdp.sh" "$WORKDIR" 9222 "$N_INST" 0 || {
@@ -182,6 +197,7 @@ echo " 下一步（需 LLM 参与，无法全自动）："
 echo "   ① 阶段 F  翻译全文 → templates/中文翻译_HTML模板.html → Chrome 打印 PDF"
 if gate G2; then echo "   ② 阶段 G2 refs_bibliography.py →《${AUTHOR_NAME}_代表性文献参考文献.md》"; fi
 echo "   ③ 阶段 H  装词表 → interpret_prepare.py → 并行 subagent → interpret_build.py"
+echo "              ★ 档位 ${TIER_H:-L2}：提示词必须写死「任务包路径 / 结果路径 / 只写自己那份 / 档位」四件事"
 if gate H2; then
 echo "   ④ 阶段 H2 refs_curate.py → refs_prepare.py → 并行 subagent → refs_build.py"
 echo "              →《${AUTHOR_NAME}_研究方向综述.md》（review 结果）"

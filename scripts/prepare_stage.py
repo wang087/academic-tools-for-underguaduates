@@ -30,6 +30,15 @@
 #   uv run python 流程1/scripts/prepare_stage.py --check translate   # 0=执行 3=跳过
 #   uv run python 流程1/scripts/prepare_stage.py --check-all         # 打印全部闸门状态
 #
+#   # ⑥ ★ v9：解读档位查询（参数，不是开关 —— 所以不能用 --check 问）
+#   uv run python 流程1/scripts/prepare_stage.py --tier H    # 作者论文档位
+#   uv run python 流程1/scripts/prepare_stage.py --tier H2   # 综述网络档位
+#   uv run python 流程1/scripts/prepare_stage.py --tier R2   # 领域概貌档位
+#   #     stdout 只有档位本身（L1|L2|L3），便于 `T=$(… --tier H)` 捕获
+#
+#   # ⑦ ★ v9：门控齐全性自检
+#   uv run python 流程1/scripts/prepare_stage.py --audit
+#
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
@@ -108,15 +117,21 @@ OPTIONS = [
         "kind": "enum",
         "values": ["markdown", "pdf", "both"],
         "default": "markdown",
-        "gates": ["F", "G"],
-        "gate_rule": {
-            "markdown": {"F": "skip", "G": "run"},
-            "pdf":      {"F": "run",  "G": "run"},
-            "both":     {"F": "run",  "G": "run"},
-        },
+        # ★ v13.1：本项**不再是闸门**，改为纯参数。
+        #   改前 gates=["F","G"] 且 gate_rule 把 markdown 映射成 F=skip，
+        #   与它自己的 note、translate 的 note、_f_mode="html-only"、
+        #   _translate_output="markdown"、render() 的提示语**五处**相互矛盾：
+        #   translate=yes + markdown 会**跳过阶段 F**，用户要了翻译却什么都拿不到。
+        #   现改由 `translate` 单独判定阶段 F 是否执行，本项只决定
+        #   「顺带渲染 PDF 与否」（经 `_f_mode` 表达）。详见 §9.16。
+        "gates": [],
+        "gate_rule": {},
         "note": ("markdown = 只出 .md 交付物（论文列表 / 解读 / 综述），不渲染 PDF；"
                  "pdf = 额外渲染中译 PDF；both = 两者都要。"
-                 "★ 只影响**产物格式**，不影响是否下载原文 PDF —— 原文 PDF 是解读的输入，一律要下。"),
+                 "★ 只影响**产物格式**，不影响是否下载原文 PDF —— 原文 PDF 是解读的输入，一律要下。"
+                 "★ 也**不决定阶段 F 是否执行**：那由 `translate` 单独判定。"
+                 "本项只在阶段 F 执行时决定「要不要顺带渲染 PDF」"
+                 "（translate=yes 且 output_format=markdown → 产出中译 Markdown，不渲染 PDF）。"),
     },
     {
         "key": "translate",
@@ -201,6 +216,55 @@ OPTIONS = [
                  "★ 与 reverse_refs 的关系：reverse_refs 关掉时本项**自动关闭**。"),
     },
     {
+        "key": "undergrad_prelude",
+        "question": "是否执行本科科研辅助前置链路（阶段 N 大方向确定 → S 匹配细分专业 → R 平行检索综述 → R2 领域概貌）？",
+        "kind": "bool",
+        "default": True,
+        "gates": ["N", "S", "R", "R2"],
+        "gate_rule": {True: {"N": "run", "S": "run", "R": "run", "R2": "run"},
+                      False: {"N": "skip", "S": "skip", "R": "skip", "R2": "skip"}},
+        "note": ("★ 前置链路与原有链路的关系：本科入门场景通常**只走 N→S→R→R2** 就到交付"
+                 "（领域概貌 + 导师候选 + 综述清单）；只有用户已锁定某位导师、想深挖其成果时，"
+                 "才需要再接阶段 0 之后的原有链路。"
+                 "★ 默认开启：这是 v8 起为本科生设定的默认入口。"
+                 "★ 关掉它并不会关闭原有链路（A→…→I）；两条链路相互独立。"),
+    },
+    {
+        "key": "interpret_tier",
+        "question": "论文解读档位（阶段 H，作者本人的论文）：L1 精简 / L2 详细 / L3 完整？",
+        "kind": "enum",
+        "values": ["L1", "L2", "L3"],
+        "default": "L2",
+        "gates": [],
+        "gate_rule": {},
+        "note": ("三档只差**细节量**，不差**语气强度** —— 同一个发现三档的动词强度一致"
+                 "（原文说 suggest，三档都写「提示」）。"
+                 "L1 = 一句话定位 + 主要成就 + 关键位点与结论数字（2–5 个），"
+                 "不含误差项 / 样本量 / 图表引用 / 实验步骤，适合表格；"
+                 "L2 = 另加误差项、样本量、有限实验过程与排除性证据，适合逐篇卡片；"
+                 "L3 = 另加完整论证链、机制细节与逐条局限，适合综述与代表作。"
+                 "★ 默认 L2：阶段 H 的产物《<作者名>_论文解读.md》是**逐篇卡片**，"
+                 "正是 L2 的目标形态。要恢复到与旧版等深的全量解读，选 L3。"
+                 "★ 规范性规则见 skill：`paper-interpretation-writing`"
+                 "（档位规范、句式库、跨 agent 数据契约）。"),
+    },
+    {
+        "key": "review_interpret_tier",
+        "question": "综述解读档位（阶段 H2 研究方向综述 / 阶段 R2 领域概貌）：L1 / L2 / L3？",
+        "kind": "enum",
+        "values": ["L1", "L2", "L3"],
+        "default": "L3",
+        "gates": [],
+        "gate_rule": {},
+        "note": ("★ 默认 L3：阶段 H2 的《<作者名>_研究方向综述.md》与阶段 R2 的《领域概貌.md》"
+                 "都是**独立成篇**的综述类交付物，需要完整论证链、排除性证据与逐条局限。"
+                 "综述读者要据此判断一篇文献在网络中的位置与证据强度 —— "
+                 "低档会丢掉排除性证据与作者语气限定，而那正是综述最需要的部分。"
+                 "★ 阶段 R2 的读者是没有科研经验的本科生，L3 还要额外解释术语、"
+                 "给出推荐阅读顺序（见 subagent-driven-review § 7.2）。"
+                 "★ 规范性规则见 skill：`paper-interpretation-writing`。"),
+    },
+    {
         "key": "ppt_pages",
         "question": "PPT 目标页数（简化 Strategist 用，无需交互确认）？",
         "kind": "enum",
@@ -214,10 +278,19 @@ OPTIONS = [
 
 BY_KEY = {o["key"]: o for o in OPTIONS}
 
-VALID_STAGES = ["A", "B", "C", "D", "D2", "E", "F", "G", "G2", "H", "H2",
+# ★ 物理执行顺序：准备阶段在最前（它产出闸门表），随后是前置链路，
+#   再接原有链路。A→I 的相对顺序与编号语义**完全未变**（v9 只在前面插入了
+#   前置链路与准备阶段），因此既有脚本与文档的引用不受影响。
+VALID_STAGES = ["0", "N", "S", "R", "R2",
+                "A", "B", "C", "D", "D2", "E", "F", "G", "G2", "H", "H2",
                 "K", "P", "I"]
 
 STAGE_LABEL = {
+    "0": "准备阶段（各项选择确认 → prepare_plan.json）",
+    "N": "大方向确定（拆解输入 + 匹配关键词群）",
+    "S": "匹配细分专业（抓导师名单 → 归类 → 等用户选择）",
+    "R": "平行检索优质综述（按方向选库 + 综述优先）",
+    "R2": "领域概貌解读（面向本科生）",
     "A": "作者定位与工作目录",
     "B": "启动 CDP 浏览器",
     "C": "抓取 ORCID 全部成果",
@@ -233,6 +306,20 @@ STAGE_LABEL = {
     "P": "PPT 生成（整合 ppt-master）",
     "I": "收尾",
 }
+
+# ★ 解读档位的查询表：阶段 → 决定它档位的选项 key。
+#   两个档位是**参数**而非开关（gates 为空），所以不能用 --check 问，
+#   要用 --tier 问。H 用作者档位；H2 与 R2 都是综述类，共用综述档位。
+TIER_STAGE_KEYS = {
+    "H": "interpret_tier",
+    "H2": "review_interpret_tier",
+    "R2": "review_interpret_tier",
+    # 阶段 P 的素材取自《论文解读》与《研究方向综述》，两个档位都会用到；
+    # 单独查询时返回作者档位（PPT 的文献亮点主要来自它）。
+    "P": "interpret_tier",
+}
+
+TIER_VALUES = ("L1", "L2", "L3")
 
 BOOL_TRUE = {"1", "true", "yes", "y", "on", "是", "要", "需要", "开启", "做"}
 BOOL_FALSE = {"0", "false", "no", "n", "off", "否", "不要", "不需要", "关闭", "不做"}
@@ -289,10 +376,15 @@ def coerce(key: str, raw):
             return False
         raise ValueError(f"{key}: 无法识别的布尔值 {raw!r}（可用 yes/no、true/false、是/否）")
     vals = o["values"]
-    s = str(raw).strip().lower()
-    if s not in vals:
-        raise ValueError(f"{key}: 取值 {raw!r} 不在 {vals} 内")
-    return s
+    s = str(raw).strip()
+    # ★ 大小写不敏感匹配，但返回**规范写法**。解读档位的取值是 L1/L2/L3，
+    #   而 --set interpret_tier=L3 里的 "L3" 若按 .lower() 比对就永远匹配不上
+    #   'L3'（枚举里就是大写），用户会收到"取值不在列表内"这种莫名其妙的话。
+    #   返回规范写法还顺带统一了 l3/L3 两种输入落到同一取值。
+    for v in vals:
+        if s.lower() == str(v).lower():
+            return v
+    raise ValueError(f"{key}: 取值 {raw!r} 不在 {vals} 内")
 
 
 def resolve_gates(plan: dict) -> dict:
@@ -379,6 +471,65 @@ def load() -> dict | None:
         return None
 
 
+def gate_audit() -> list[str]:
+    """门控齐全性自检 —— 每个阶段都有标签、每个闸门都指向真实阶段。
+
+    ★ 为什么要机器自检：阶段 N/S/R/R2 在 v8 加入时**没有同步进闸门表**，
+      于是 `--check N` 返回 2（未知阶段），而 run_all.sh 的 `gate()` 用
+      `if gate N; then` 判定 —— 2 与 3 一样落进 else 分支，该阶段被**静默当成跳过**。
+      这类缺口靠人记得是不行的，必须能被一条命令查出来。
+    """
+    problems = []
+    for s in VALID_STAGES:
+        if s not in STAGE_LABEL:
+            problems.append(f"阶段 {s} 缺 STAGE_LABEL 标签")
+    for o in OPTIONS:
+        rule_stages = {s for rule in (o["gate_rule"] or {}).values() for s in rule}
+        for s in o["gates"]:
+            if s not in VALID_STAGES:
+                problems.append(f"选项 {o['key']} 的 gates 引用了未知阶段 {s}")
+            elif o["gate_rule"] and s not in rule_stages:
+                problems.append(
+                    f"选项 {o['key']} 声明管阶段 {s}，但 gate_rule 未覆盖它"
+                )
+        for s in rule_stages:
+            if s not in VALID_STAGES:
+                problems.append(f"选项 {o['key']} 的 gate_rule 引用了未知阶段 {s}")
+    for s in TIER_STAGE_KEYS:
+        if s not in VALID_STAGES:
+            problems.append(f"TIER_STAGE_KEYS 引用了未知阶段 {s}")
+    return problems
+
+
+def ungated_stages() -> list[str]:
+    """没有任何选项管辖、恒定 run 的阶段。属信息项，不是错误。"""
+    controlled = {s for o in OPTIONS if o["gates"] for s in o["gates"]}
+    return [s for s in VALID_STAGES if s not in controlled]
+
+
+#: 门控表里**已知的语义矛盾**，固化在此以便每次 --audit 都看得见。
+#: ★ 只记录、不自动修：改它会变动既有行为，属于另一件事，须单独决策。
+#:   加进来是因为「文档说 A、规则做 B」这类问题人眼扫一遍表格是发现不了的。
+#:
+#: 当前为空 —— 原第 1 条（`output_format=markdown` 关掉阶段 F，与自身 note 及
+#: `_f_mode="html-only"`/`_translate_output="markdown"` 矛盾）已由用户拍板、
+#: 于 v13.1 修复：该选项不再是闸门，阶段 F 改由 `translate` 单独判定。
+#: 记录见 SKILL.md §9.16。**以后新增条目请连同「为什么不能自动修」一起写清。**
+AUDIT_NOTES: list[str] = []
+
+
+def resolve_tier(plan: dict | None, stage: str) -> tuple[str, str, bool]:
+    """(档位, 选项 key, 是否为缺省回退) —— 供 --tier 查询与各阶段脚本复用。"""
+    key = TIER_STAGE_KEYS[stage]
+    default = BY_KEY[key]["default"]
+    if not plan:
+        return default, key, True
+    value = plan.get(key, default)
+    if value not in TIER_VALUES:
+        return default, key, True
+    return value, key, False
+
+
 def render(plan: dict) -> str:
     L = []
     L.append("准备阶段计划（.work_cdp/prepare_plan.json）")
@@ -398,6 +549,25 @@ def render(plan: dict) -> str:
         mark = "✅ run " if st == "run" else "⏭  skip"
         why = f"   ← 由 {reasons[s]} 关闭" if s in reasons else ""
         L.append(f"  {mark}  阶段 {s:<3} {STAGE_LABEL[s]}{why}")
+
+    # ── 解读档位（参数，不是开关）──────────────────────────────
+    L.append("")
+    L.append("解读档位（参数；用 `--tier <阶段>` 查询，用 `--set <key>=L1|L2|L3` 改）")
+    L.append("─" * 66)
+    for stage, key in TIER_STAGE_KEYS.items():
+        if stage == "P":
+            continue                     # P 只是消费方，不单独列
+        o = BY_KEY[key]
+        v = plan.get(key, o["default"])
+        L.append(f"  · 阶段 {stage:<3} → {v}　（{o['question']}）")
+    L.append(f"      H  = 作者论文卡片；H2 / R2 = 综述类交付物，共用 review_interpret_tier。")
+    L.append("      ★ 三档只差细节量，语气强度一致；规范见 skill：paper-interpretation-writing。")
+
+    ungated = ungated_stages()
+    if ungated:
+        L.append("")
+        L.append(f"  ℹ 恒定执行（无选项管辖）：{'、'.join(ungated)}")
+
     if plan.get("_f_mode") == "html-only":
         L.append("")
         L.append("  ℹ 阶段 F 已开启但 output_format=markdown → 只产出中译 Markdown，不渲染 PDF。")
@@ -405,6 +575,23 @@ def render(plan: dict) -> str:
 
 
 def main() -> int:
+    # ★ --tier 必须**在 get("prepare") 之前**处理：logutil.get() 会往 stdout
+    #   打一行「=== prepare 启动 … ===」，而 --tier 的约定是 stdout 只有档位本身
+    #   （调用方写 `T=$(… --tier H)`）。日志行混进去会让捕获到 "INFO … L2"，
+    #   下游再拿它去比对 "L2" 就永远不相等 —— 而且是静默失败。
+    tier_stage = _arg("tier")
+    if tier_stage:
+        if tier_stage not in TIER_STAGE_KEYS:
+            print(f"✗ 未知阶段 {tier_stage!r}；可查询：{', '.join(TIER_STAGE_KEYS)}",
+                  file=sys.stderr)
+            return 2
+        value, key, fallback = resolve_tier(load(), tier_stage)
+        print(value)                     # stdout 只有这一样东西
+        if fallback:
+            print(f"ℹ 尚无 prepare_plan.json 或取值非法 → 阶段 {tier_stage} 用**默认档位** "
+                  f"{value}（选项 {key}）。建议先跑阶段 0 确认。", file=sys.stderr)
+        return 0
+
     log = get("prepare")
 
     if _arg("show"):
@@ -423,6 +610,32 @@ def main() -> int:
         gate = plan.get("_gates") or {}
         for s in VALID_STAGES:
             print(f"{s}\t{gate.get(s, 'run')}\t{STAGE_LABEL[s]}")
+        print("---interpret_tier---")
+        for stage, key in TIER_STAGE_KEYS.items():
+            if stage == "P":
+                continue
+            value, _, fallback = resolve_tier(plan, stage)
+            note = "（缺省回退）" if fallback else ""
+            print(f"{stage}\t{key}\t{value}{note}")
+        return 0
+
+    if _arg("audit"):
+        problems = gate_audit()
+        print("门控齐全性自检（prepare_stage.gate_audit）")
+        print("─" * 66)
+        print(f"  阶段数：{len(VALID_STAGES)}　选项数：{len(OPTIONS)}")
+        print(f"  无选项管辖、恒定执行：{'、'.join(ungated_stages()) or '（无）'}")
+        print(f"  解读档位查询表：{', '.join(f'{k}→{v}' for k, v in TIER_STAGE_KEYS.items())}")
+        if problems:
+            print("\n✗ 发现缺口：")
+            for p in problems:
+                print(f"  · {p}")
+            return 1
+        print("\n✅ 门控齐全：每个阶段都有标签，每个闸门都指向真实阶段。")
+        if AUDIT_NOTES:
+            print(f"\n⚠️ 已知语义矛盾 {len(AUDIT_NOTES)} 条（只记录，不自动修）：")
+            for note in AUDIT_NOTES:
+                print(f"  · {note}")
         return 0
 
     chk = _arg("check")

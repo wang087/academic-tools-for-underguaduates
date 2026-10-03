@@ -10,16 +10,26 @@
 #   ⑤ 研究方法范式（paradigm）分析
 #   ⑥ 缺卡与限制（如实申报）
 #
+# ★ 解读档位（interpret_tier）：只决定**逐篇卡片的细节量**，不改动报告结构。
+#   优先级：任务包 tasks/*.json → manifest.json → prepare_plan.json → 默认 L2。
+#     L1 精简：定位 + 问题 + 关键信息 + 关键数字表（≤5 行，且**不列图表出处**）；
+#     L2 详细：完整四步卡片（默认档；渲染与引入档位前**逐字节一致**）；
+#     L3 完整：L2 + 把 open_questions 明示为「作者自述局限与待验证问题」
+#              + 卡片末尾一行证据强度提示。
+#   三档只差细节量，不差语气强度；规范见 skill：paper-interpretation-writing
+#   （references/tier-specs.md）。
+#
 # ★ 诚实性优先：缺卡的篇目、仅摘要级的篇目、被截断的正文，全部**显式列出**，
 #   不静默略过。宁可报告看起来「不完整」，也不能让读者以为覆盖了全部。
 #
 # ★ 本脚本**只读本地文件**，不发起任何网络请求。
 #
 # 输入（均在 <WORKDIR>/.work_cdp/interpret/）：
-#   manifest.json      —— interpret_prepare.py 产出
-#   tasks/*.json       —— 单篇任务包（取题录，缺卡时也能列进「缺卡」清单）
+#   manifest.json      —— interpret_prepare.py 产出（顶层含 interpret_tier）
+#   tasks/*.json       —— 单篇任务包（取题录与档位；缺卡时也能列进「缺卡」清单）
 #   results/*.json     —— subagent 产出的解读卡（schema 见子流程手册 § 6）
 # 另读 <WORKDIR>/.work_cdp/crossref_all.json（关键词语料的标题/摘要）
+# 与 <WORKDIR>/.work_cdp/prepare_plan.json（档位回退链的第三级）
 #
 # 产出：
 #   <WORKDIR>/<作者名>_论文解读.md          ⭐ 交付物（单一文件，不再写 _完整版 别名）
@@ -27,6 +37,7 @@
 # 用法：
 #   uv run python interpret_build.py
 #     --families=<families.json>   语义词族合并表（可选；缺省只出单条目频次）
+#     --help                       显示帮助
 #
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
@@ -56,6 +67,36 @@ RESDIR = INDIR / "results"
 AUTHOR = (os.environ.get("PAPER_AUTHOR", "").strip() or WD.name)
 ORCID = os.environ.get("PAPER_ORCID", "").strip()
 AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
+
+PLAN_PATH = CDPDIR / "prepare_plan.json"     # 档位回退链的第三级
+
+# ── 解读档位（interpret_tier）────────────────────────────────
+#   ★ 三档只差**细节量**（L1 ⊂ L2 ⊂ L3），不差语气强度；规范见
+#     skill：paper-interpretation-writing/references/tier-specs.md。
+#   ★ 档位是**参数**不是闸门：三级都读不到就回退默认 L2，绝不因此中断汇总。
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L2"
+TIER_LABEL = {"L1": "精简", "L2": "详细", "L3": "完整"}
+
+USAGE = """阶段 H ④：回收解读卡 → 生成《<作者名>_论文解读.md》（只读本地文件，不联网）
+
+用法：
+  python 流程1/scripts/interpret_build.py [选项]
+
+选项：
+  --families=<json>  语义词族合并表（缺省只出单条目频次）
+  -h, --help         显示本帮助并退出
+
+解读档位（不改报告结构，只改逐篇卡片的细节量）：
+  优先级：任务包 tasks/*.json 的 interpret_tier
+        → manifest.json 的 interpret_tier
+        → prepare_plan.json 的 interpret_tier
+        → 默认 L2（详细）
+  L1 精简：定位 + 本文有效解决了什么问题 + 关键信息 + 关键数字表（≤5 行）
+  L2 详细：完整四步卡片（默认档）
+  L3 完整：L2 + 明示「作者自述局限与待验证问题」+ 末尾一行证据强度提示
+"""
+
 
 REQUIRED = ("doi", "one_line", "problem_solved", "methods",
             "verified_conclusions", "key_20", "quantified_gains",
@@ -127,7 +168,180 @@ def tokenize(text: str) -> list[str]:
     return out
 
 
+# ══════════════════════════════════════════════════════════════
+# 解读档位：解析 + 按档渲染逐篇卡片
+# ══════════════════════════════════════════════════════════════
+
+def _norm_tier(v):
+    """规范化为 L1/L2/L3；非法返回 None（大小写不敏感，返回规范写法）。"""
+    if not isinstance(v, str):
+        return None
+    s = v.strip().upper()
+    return s if s in TIER_VALUES else None
+
+
+def resolve_tier(tasks, man) -> tuple[str, str]:
+    """返回 (档位, 来源)。来源 ∈ packet | manifest | plan | default。
+
+    优先级（与任务书一致）：
+      任务包 tasks/*.json 的 interpret_tier
+      → manifest.json 顶层的 interpret_tier
+      → prepare_plan.json 的 interpret_tier
+      → 默认 L2
+
+    ★ 每一级都做合法性校验而非「有就用」：某一级写了非法值（例如 "L9"）
+      就继续往下找，最后仍落到默认 L2 并说明一句 —— 档位是参数不是闸门，
+      不能因为某个文件写坏了一个字段就让整份报告出不来。
+    """
+    for t in tasks:
+        v = _norm_tier((t.get("packet") or {}).get("interpret_tier"))
+        if v:
+            return v, "packet"
+    v = _norm_tier((man or {}).get("interpret_tier"))
+    if v:
+        return v, "manifest"
+    plan = load_json(PLAN_PATH, None)
+    v = _norm_tier((plan or {}).get("interpret_tier") if isinstance(plan, dict) else None)
+    if v:
+        return v, "plan"
+    print(f"ℹ 未读到解读档位（任务包 / manifest / {PLAN_PATH} 均无有效 interpret_tier）"
+          f"→ 回退**默认 {DEFAULT_TIER}**（{TIER_LABEL[DEFAULT_TIER]}）。", file=sys.stderr)
+    return DEFAULT_TIER, "default"
+
+
+def _card_body(L: list, c: dict, oq_head: str = "待验证的问题 / 局限") -> None:
+    """L2 档卡片正文（四步格式）。
+
+    ★ 这个函数是**逐字节基线**：L2 调用时不得改动任何一行输出，
+      否则默认档的报告会因本次改动而变化。L3 只通过 `oq_head` 换标题、
+      再在末尾追加证据强度提示（见 _card_l3）。
+    """
+    if c.get("one_line"):
+        L.append(f"> **定位**：{one_line(c['one_line'])}\n")
+    if c.get("problem_solved"):
+        L.append(f"**本文有效解决了什么问题**：{one_line(c['problem_solved'])}\n")
+
+    for head, key in (("1. 明确的方法论", "methods"),
+                      ("2. 经过验证的结论", "verified_conclusions"),
+                      ("3. 关键信息（二八原则）", "key_20")):
+        items = as_list(c.get(key))
+        L.append(f"**{head}**\n")
+        if items:
+            for it in items:
+                L.append(f"- {one_line(it)}")
+        else:
+            L.append("- （该字段为空）")
+        L.append("")
+
+    gains = [g for g in as_list(c.get("quantified_gains")) if isinstance(g, dict)]
+    L.append("**4. 优化 / 提升数据**\n")
+    if gains:
+        L.append("| 指标 | 提升 / 结果 | 条件 / 基线 | 出处 |")
+        L.append("|---|---|---|---|")
+        for g in gains:
+            L.append(f"| {one_line(g.get('metric')) or '—'} "
+                     f"| {one_line(g.get('value')) or '—'} "
+                     f"| {one_line(g.get('context')) or '—'} "
+                     f"| {one_line(g.get('source')) or '—'} |")
+    else:
+        L.append("- （原文未给出可量化的提升数据）")
+    L.append("")
+
+    oq = as_list(c.get("open_questions"))
+    if oq:
+        L.append(f"**{oq_head}**\n")
+        for it in oq:
+            L.append(f"- {one_line(it)}")
+        L.append("")
+    tags = as_list(c.get("direction_tags")) + as_list(c.get("paradigm_tags"))
+    if tags:
+        L.append("`" + "` `".join(one_line(x) for x in tags) + "`\n")
+
+
+def _card_l1(L: list, c: dict) -> None:
+    """L1 精简档：只留「定位 + 问题 + 关键信息 + 关键数字表」。
+
+    ★ L1 的「不含」是**硬约束**（tier-specs.md）：不写误差项、样本量、
+      **图表引用**、实验步骤、机制链，也不写作者自述局限。
+      所以这里的数字表**不带「出处」列** —— 那一列装的正是「图 1a / 表 2」
+      这类图表引用，在 L1 属于禁写项。
+    ★ 跳过四节：1. 明确的方法论、2. 经过验证的结论、4. 优化 / 提升数据
+      （由下面的关键数字表替代）、待验证的问题 / 局限。
+    ★ quantified_gains 为空时写一句说明，**不留空表** —— 空表会让读者
+      以为「这篇没有数字」，而这可能只是抓取缺失。
+    """
+    if c.get("one_line"):
+        L.append(f"> **定位**：{one_line(c['one_line'])}\n")
+    if c.get("problem_solved"):
+        L.append(f"**本文有效解决了什么问题**：{one_line(c['problem_solved'])}\n")
+
+    items = as_list(c.get("key_20"))
+    L.append("**关键信息（二八原则）**\n")
+    if items:
+        for it in items:
+            L.append(f"- {one_line(it)}")
+    else:
+        L.append("- （该字段为空）")
+    L.append("")
+
+    gains = [g for g in as_list(c.get("quantified_gains")) if isinstance(g, dict)][:5]
+    L.append("**关键数字**\n")
+    if gains:
+        L.append("| 指标 | 提升 / 结果 | 条件 / 基线 |")
+        L.append("|---|---|---|")
+        for g in gains:
+            L.append(f"| {one_line(g.get('metric')) or '—'} "
+                     f"| {one_line(g.get('value')) or '—'} "
+                     f"| {one_line(g.get('context')) or '—'} |")
+    else:
+        L.append("- （解读卡未提供可量化的关键数字，故本档不列数字表；"
+                 "如需完整数据请按 L2 / L3 档重跑）")
+    L.append("")
+
+
+def _strength_line(c: dict, m: dict) -> str:
+    """L3 档卡片末尾的**证据强度**一行。
+
+    ★ 有 strength_notes / evidence 字段就**引用卡里的事实**（那是 subagent
+      读原文时留下的），不要用本脚本临时编一句话盖过去；
+      两者都没有才退回到按 evidence_source 的说明。
+    ★ 原文的自我限定必须跟到解读里（tier-specs.md「常见错误」）：
+      所以仅摘要级的卡片要明确写清「未通读全文」，不能让人当成全文结论。
+    """
+    notes = as_list(c.get("strength_notes"))
+    if notes:
+        return "> 证据强度：" + "；".join(one_line(x) for x in notes)
+    ev = c.get("evidence")
+    if isinstance(ev, dict):
+        bits = [f"{k}={one_line(v)}" for k, v in ev.items()
+                if v not in (None, "", [], {})]
+        if bits:
+            return "> 证据强度（卡内 evidence 字段）：" + "；".join(bits)
+    elif isinstance(ev, str) and ev.strip():
+        return f"> 证据强度（卡内 evidence 字段）：{one_line(ev)}"
+
+    src = m.get("evidence_source")
+    if src == "fulltext":
+        line = ("> 证据强度：基于**全文**精读；排除性证据与作者自述局限均取自原文，"
+                "作者语气未作升级。")
+        if m.get("text_truncated"):
+            line += "（正文超长，任务包保留开头 60% + 结尾 40%，中段另有全文可查）"
+        return line
+    return ("> 证据强度：**仅基于摘要**，未通读全文；机制细节、样本量与误差项可能缺失，"
+            "引用前请核对原文。")
+
+
+def _card_l3(L: list, c: dict, m: dict) -> None:
+    """L3 完整档：L2 全部内容 + 明示自述局限 + 末尾一行证据强度提示。"""
+    _card_body(L, c, oq_head="作者自述局限与待验证问题")
+    L.append(_strength_line(c, m) + "\n")
+
+
 def main() -> int:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(USAGE)
+        return 0
+
     man = load_json(INDIR / "manifest.json")
     if not man:
         print("✗ 找不到 .work_cdp/interpret/manifest.json")
@@ -142,6 +356,16 @@ def main() -> int:
         card = load_json(rp, None) if rp.exists() else None
         tasks.append({"meta": t, "packet": pkt, "card": card,
                       "result_path": rp})
+
+    # ★ 档位在渲染之前定下来，并随报告开头一起写出去 ——
+    #   读者要能一眼看到「这份报告按哪一档写的」，否则 L1 的省略会被
+    #   误读成「这篇论文没有局限/没有方法」。
+    tier, tier_src = resolve_tier(tasks, man)
+    if tier_src in ("packet", "manifest", "plan"):
+        tier_qualifier = "阶段 0 确认；可在阶段 0 改档"
+    else:
+        tier_qualifier = (f"未读到阶段 0 档位，按默认 {DEFAULT_TIER} 渲染；"
+                          f"可在阶段 0 设置 interpret_tier")
 
     cards = [t for t in tasks if isinstance(t["card"], dict)]
     missing = [t for t in tasks if not isinstance(t["card"], dict)]
@@ -266,8 +490,11 @@ def main() -> int:
                          + (f"（{one_line(g.get('context'))}）" if g.get("context") else ""))
     L.append("")
 
-    # ── ② 逐篇解读（四步格式）────────────────────────────────
+    # ── ② 逐篇解读（四步格式；卡片细节量由档位决定）──────────
     L.append("---\n\n## 二、逐篇解读\n")
+    # ★ 只插入**一行**：末尾不写 "\n"，否则会多出一个空行；
+    #   卡片自身以 "\n### " 开头，正好把它与正文隔开一个空行。
+    L.append(f"> 解读档位：**{tier} {TIER_LABEL[tier]}**（{tier_qualifier}）")
     for t in tasks:
         m = t["meta"]
         c = t["card"] if isinstance(t["card"], dict) else {}
@@ -289,46 +516,14 @@ def main() -> int:
                 L.append(f"**摘要（原文）**：{one_line(pk['abstract'])[:600]}\n")
             continue
 
-        if c.get("one_line"):
-            L.append(f"> **定位**：{one_line(c['one_line'])}\n")
-        if c.get("problem_solved"):
-            L.append(f"**本文有效解决了什么问题**：{one_line(c['problem_solved'])}\n")
-
-        for head, key in (("1. 明确的方法论", "methods"),
-                          ("2. 经过验证的结论", "verified_conclusions"),
-                          ("3. 关键信息（二八原则）", "key_20")):
-            items = as_list(c.get(key))
-            L.append(f"**{head}**\n")
-            if items:
-                for it in items:
-                    L.append(f"- {one_line(it)}")
-            else:
-                L.append("- （该字段为空）")
-            L.append("")
-
-        gains = [g for g in as_list(c.get("quantified_gains")) if isinstance(g, dict)]
-        L.append("**4. 优化 / 提升数据**\n")
-        if gains:
-            L.append("| 指标 | 提升 / 结果 | 条件 / 基线 | 出处 |")
-            L.append("|---|---|---|---|")
-            for g in gains:
-                L.append(f"| {one_line(g.get('metric')) or '—'} "
-                         f"| {one_line(g.get('value')) or '—'} "
-                         f"| {one_line(g.get('context')) or '—'} "
-                         f"| {one_line(g.get('source')) or '—'} |")
+        # ★ 分档渲染。L2 是默认档，走 _card_body（与引入档位前逐字节一致）；
+        #   L1 / L3 是新增形态，各自只改自己那一档的输出。
+        if tier == "L1":
+            _card_l1(L, c)
+        elif tier == "L3":
+            _card_l3(L, c, m)
         else:
-            L.append("- （原文未给出可量化的提升数据）")
-        L.append("")
-
-        oq = as_list(c.get("open_questions"))
-        if oq:
-            L.append("**待验证的问题 / 局限**\n")
-            for it in oq:
-                L.append(f"- {one_line(it)}")
-            L.append("")
-        tags = as_list(c.get("direction_tags")) + as_list(c.get("paradigm_tags"))
-        if tags:
-            L.append("`" + "` `".join(one_line(x) for x in tags) + "`\n")
+            _card_body(L, c)
 
     # ── ③ 关键词统计 ────────────────────────────────────────
     L.append("---\n\n## 三、关键词统计\n")
@@ -418,6 +613,7 @@ def main() -> int:
     p = WD / f"{AUTHOR}_论文解读.md"
     p.write_text(body, encoding="utf-8")
     print("saved:", p)
+    print(f"解读档位：{tier}（{TIER_LABEL[tier]}）｜来源：{tier_src}")
     print(f"已解读 {n_card}/{n_all} 篇 ｜ 全文级 {n_full} 篇 ｜ 缺卡 {len(missing)} 篇")
     if missing:
         print("⚠️ 缺卡清单已写入报告第六节")
