@@ -123,7 +123,7 @@ OPTIONS = [
         #   _translate_output="markdown"、render() 的提示语**五处**相互矛盾：
         #   translate=yes + markdown 会**跳过阶段 F**，用户要了翻译却什么都拿不到。
         #   现改由 `translate` 单独判定阶段 F 是否执行，本项只决定
-        #   「顺带渲染 PDF 与否」（经 `_f_mode` 表达）。详见 §9.16。
+        #   「顺带渲染 PDF 与否」（经 `_f_mode` 表达）。详见 [版本变动.md](版本变动.md)。
         "gates": [],
         "gate_rule": {},
         "note": ("markdown = 只出 .md 交付物（论文列表 / 解读 / 综述），不渲染 PDF；"
@@ -514,7 +514,7 @@ def ungated_stages() -> list[str]:
 #: 当前为空 —— 原第 1 条（`output_format=markdown` 关掉阶段 F，与自身 note 及
 #: `_f_mode="html-only"`/`_translate_output="markdown"` 矛盾）已由用户拍板、
 #: 于 v13.1 修复：该选项不再是闸门，阶段 F 改由 `translate` 单独判定。
-#: 记录见 SKILL.md §9.16。**以后新增条目请连同「为什么不能自动修」一起写清。**
+#: 记录见 [版本变动.md](版本变动.md)。**以后新增条目请连同「为什么不能自动修」一起写清。**
 AUDIT_NOTES: list[str] = []
 
 

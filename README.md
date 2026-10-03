@@ -1,12 +1,12 @@
-# 流程 · 本科生文献检索与科研辅助（v8.0）
+# 流程1 · 本科生文献检索与科研辅助
 
 > ## 📌 目录与术语约定（**默认，无需每次说明**）
 >
-> | 说法 | 指什么 |
-> |---|---|
-> | **"流程" / "本流程"** | 默认指 **`流程1/`**（本目录）。未特别说明时，所有改动与执行都以这里为准 |
-> | **"工作文件夹"** | 仓库根目录 **`scientific-agent-skills/`**（本目录的上一级） |
-> | **"工作根目录文件"** | 如 `研究方法与关键词总表.md`、`skills/` 等，都在**工作文件夹**下 |
+> | 说法                        | 指什么                                                                         |
+> | --------------------------- | ------------------------------------------------------------------------------ |
+> | **"流程" / "本流程"** | 默认指**`流程1/`**（本目录）。未特别说明时，所有改动与执行都以这里为准 |
+> | **"工作文件夹"**      | 仓库根目录**`scientific-agent-skills/`**（本目录的上一级）             |
+> | **"工作根目录文件"**  | 如`研究方法与关键词总表.md`、`skills/` 等，都在**工作文件夹**下      |
 >
 > ⚠️ `流程/`（**无数字后缀**）是旧的 **v7.2** 分支，与 `流程1/`（**v8.0**）已分叉。
 > 除非用户明确点名 `流程/`，否则一切以 `流程1/` 为准。
@@ -31,12 +31,16 @@
 > 2. **不得擅自变动更改** —— 包括但不限于：跳过阶段、改写抓取方式、更换判定标准、
 >    绕过 `scripts/` 里的现成脚本去自编替代品。换作者/换学部时**只传参、不改脚本**。
 > 3. **确需变更时** —— 先说明「改什么、为什么、影响范围」，**获得同意后**再改；
->    改完必须在 SKILL §9 故障台账追加记录并同步本文件。
-> 4. **红线** —— SKILL §5.1 **分层获取策略**、§5.2 鼠标自动化禁令优先级最高。
+>    改完**必须**把版本记录写进 [版本变动.md](版本变动.md)。
+> 4. ⛔ **本文件与 [SKILL.md](SKILL.md) 内不得写任何版本说明** ——
+>    不写 `vN` 变更日志、不写「本次改动」、不写「详见 §9.x」、
+>    不在标题里加 `（v8 大方向调整）` 之类标注。
+>    两者只描述**当前有效的可操作流程**；历史沿革一律归 [版本变动.md](版本变动.md)。
+> 5. **红线** —— SKILL §5.1 **分层获取策略**、§5.2 鼠标自动化禁令优先级最高。
 >    ★ §5.1 是**分层**规则：摘要 / 综述题录 / 白名单开源库**允许直连**，
 >    **原文全文必须走 CDP**；第一层取不到转 CDP。
 >    ★ **学部官网师资页属公开元数据**，走第一层直连（阶段 S 即按此实现），无需 CDP。
-> 5. **不要臆造事实** —— 导师方向、题录、被引一切以抓取/接口返回为准；
+> 6. **不要臆造事实** —— 导师方向、题录、被引一切以抓取/接口返回为准；
 >    解析不到就如实标注，**不得用印象补全**。
 >
 > **判定顺序**：`SKILL.md` > 子流程文件 > 任何外部或历史资料。
@@ -49,15 +53,15 @@
 
 ---
 
-## 🎓 本流程解决什么问题（v8 大方向调整）
+## 🎓 本流程解决什么问题
 
 面向**本科生**的三个真实痛点：
 
-| 痛点场景 | 用户会怎么说 | 流程怎么接 |
-|---|---|---|
+| 痛点场景                                       | 用户会怎么说                                 | 流程怎么接                                                  |
+| ---------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
 | **大学生研究计划**（国创/大创/校创）选题 | "想做个跟阿尔茨海默有关的项目，不知从哪下手" | N 拆解意向 → S 给方向与导师 → R 给该方向综述 → R2 给概貌 |
-| **本科生进实验室**找导师 | "我是中国科大生医部的，想找做免疫的老师" | S 直接抓该学部全部导师并按方向归类 |
-| **"科学与社会"类课程**文献查找 | "写基因编辑伦理的综述，找几篇权威综述" | N/R 走综述优先检索，产出可直接引用的概貌 |
+| **本科生进实验室**找导师                 | "我是中国科大生医部的，想找做免疫的老师"     | S 直接抓该学部全部导师并按方向归类                          |
+| **"科学与社会"类课程**文献查找           | "写基因编辑伦理的综述，找几篇权威综述"       | N/R 走综述优先检索，产出可直接引用的概貌                    |
 
 **交付物**（本科入门场景通常到 R2 即可）：
 
@@ -99,319 +103,6 @@
 > `PAPER_SURNAME`、`PAPER_GIVEN`、`PAPER_PERIODS`、`PAPER_TEST_DOI`、`CDP_PORT`。
 >
 > 若需按新作者复用，请**只通过上述变量/参数传值**，不要改动脚本。
-
-> **v2（2026-09-11）**：修复「死机 / 误触发 CAPTCHA / 泛词误报封禁」三类缺陷，
-> 引入**多实例并行 CDP**、**统一日志**、**精确挑战判定**、**站点级熔断**、**分主机节流**。
-> 详见 [SKILL.md](SKILL.md) § 9「故障修复记录」。
->
-> **v3（2026-09-13，薛天案例实战沉淀）**：在 v2 基础上完成 **8 项脚本改造**，覆盖
-> ① PDF 题名命名 ② 反爬探测强化 ③ Cookie 弹窗自动化 ④ CDP 启动/运行提速
-> ⑤ CAPTCHA 弹窗可靠性 ⑥ 直连禁令固化 ⑦ 中文翻译渲染工具 ⑧ 收尾与索引脚本。
-> 详见下文「v3 脚本改造清单」与 [SKILL.md](SKILL.md) § 9.1。
->
-> **v4（2026-09-14，郭傲案例沉淀）**：新增 **CDP 强制抓取禁令**（最高优先级），
-> **移除「OA 直链纯 HTTP 直接获取」条目**（`fetch_oa_direct.py` 停用）；
-> 新增同名消歧全链路脚本（`orcid_probe` / `disambiguate` / `enrich_crossref_authors`）、
-> 中译素材链脚本（`prep_paper` / `crop_by_images` / `extract_figures` / `jats_to_text` /
-> `translation_build`）与收尾脚本（`verify_pdfs` / `inventory_build`）；
-> 并修复 `download_all_fulltexts.py` 的 **CAPTCHA 弹窗门控**误用。详见
-> 「v4 脚本改造清单」与 [SKILL.md](SKILL.md) § 9.2。
->
-> **v7.1 补充**：新增 `pack_release.py`，把全流程 + 全部依赖打包为可独立运行的
-> `流程1/`（路径重写、依赖随包、sha256 可核验）。包内离线路 23/23 通过，
-> 且自检断言阶段 P **确实用了包内 `vendor/ppt-master`**。详见
-> [SKILL.md](SKILL.md) § 9.5-I。
->
-> **v13（2026-10-03，解读档位整合 · 用户指令）** —— 把 skill
-> `paper-interpretation-writing` 的**三档解读**接进全流程，并补齐门控：
-> ① **阶段 0 新增两个选项**：`interpret_tier`（阶段 H 作者论文，**默认 L2 详细**）、
->    `review_interpret_tier`（阶段 H2/R2 综述类，**默认 L3 完整**）。
->    二者是**参数不是开关**，不控制任何阶段是否执行。
-> ② **新增 `--tier H|H2|R2`**（stdout 只有 `L1|L2|L3`，便于 `$()` 捕获）
->    与 **`--audit`**（门控齐全性自检：每个阶段都有标签、每个闸门都指向真实阶段）。
-> ③ **所有解读模块同步读档**：`interpret_prepare` / `interpret_build`（H）、
->    `refs_prepare` / `refs_build`（H2）、`reviews_prepare` / `reviews_build`（R2）、
->    `ppt_brief`（P）；任务包内嵌 `interpret_tier`，subagent **以任务包为准**。
-> ④ **提示词"三件事"→"四件事"**：任务包路径 / 结果路径 / 只写自己那份 / **档位**。
-> ⑤ **补齐门控表**：阶段 **N / S / R / R2** 此前不在闸门表里 —— `--check N`
->    返回 2（未知阶段），而 `run_all.sh` 的 `gate()` 用 `if` 判定，2 与 3 一样落进
->    else 分支，**被静默当成跳过**。现由新增的 `undergrad_prelude`（默认开）管辖。
-> ⑥ **修正枚举大小写**：`--set interpret_tier=L3` 此前报「取值不在列表内」。
-> ⑦ **`--tier` stdout 保持干净**：移到 `logutil.get()` 之前，否则启动日志混进 stdout，
->    `T=$(… --tier H)` 会捕获 `"INFO … L2"`，下游比对**静默失败**。
-> ⑧ **登记一处既有门控矛盾**（只记录、未改）：`output_format=markdown` 关闭阶段 F，
->    但其说明写着「阶段 F 仍执行，只出中译 Markdown」。见 `AUDIT_NOTES`，**待拍板**。
->
-> **v13.1（2026-10-03，同一批 · 用户拍板）** —— 修掉上面第 ⑧ 条：
-> **`output_format` 不再是闸门**，阶段 F 改由 `translate` 单独判定，本项只决定
-> 「要不要顺带渲染 PDF」。改前 `translate=yes + output_format=markdown` 会
-> **静默跳过阶段 F** —— 用户要了翻译却什么都拿不到、也不报错。
-> 实测影响面**只有这一格**（改为产出中译 Markdown、不渲染 PDF）；
-> 默认组合与其余四格完全不变。`selftest_pipeline.py` 已加**行为级回归守卫**
-> （45 → **47/47**）。详见 [SKILL.md](SKILL.md) § 9.16。
->
-> ⛔ **三档只差细节量，不差断言强度** —— 同一个发现在三档的动词强度必须一致，
-> 且与原文同级。规范定义 / 句式库 / 跨 agent 数据契约 / 离线校验器见 skill
-> **`paper-interpretation-writing`**。详见 [SKILL.md](SKILL.md) § 9.15。
-
-> **v7（2026-09-19，文献综述 / PDF / 参考文献三线整合）** —— 五类改动：
-> ① 新增**阶段 0「准备阶段」**：把「输出格式 / 是否翻译 / 是否反向查参考文献 /
->    是否做 PPT」等只有用户能定的选择前置，落盘 `.work_cdp/prepare_plan.json`，
->    后续每阶段以 `--check` 闸门决定是否执行（含**依赖收敛**）；
-> ② 新增**阶段 D2「反向查找参考文献」**：取 `referenced_works` 倒推综述网络，
->    高质量 = 核心期刊（显式清单）**或**被引 > 200，**优先 Review**；
-> ③ 新增**阶段 G2「代表性文献的参考文献列表」**（GB/T 7714，文章 → 参考文献两部分）；
-> ④ 新增**阶段 H2「去重与相关性整理 → 研究方向综述」**（剔除项逐条留档，不静默丢弃）；
-> ⑤ 新增**阶段 P「PPT 生成」**：整合 ppt-master 并**简化其 Strategist Phase**。
-> 另：解读模块新增**受控标签词表**与**学科通用词族**，消除并行 subagent 的标签漂移。
-> 新增 `selftest_pipeline.py` 端到端自检（联网 33 项 / 离线 18 项），
-> 它挡下过 4 类静态看不出的缺陷。详见 [SKILL.md](SKILL.md) § 9.5。
->
-> **v7.2（2026-09-19，去重 / 知识图谱 / 综述策略 / PPT 接入）** —— 四类改动：
-> ① **消除重复输出**：`论文列表` / `论文解读` / `研究方向综述` 只写**一个文件**，
->    不再另写 `_完整版.md` 别名；
-> ② **新增阶段 K「知识图谱」**（H2 之后、P 之前）：overview（Louvain 上色 + 记忆连接）、
->    词云（剔除 mice 等误导词，聚焦方法与范式）、方向聚类（近 N 年热点）；
->    **SVG 优先 / 失败退 PNG / 背景透明 / 字符清晰**；
-> ③ **综述提取改版**：**被引 200 次不再是硬性要求**，改为「综述 + CNS 及高水平刊物 +
->    近年」加权优先，并为综述取 **OA 全文或详细摘要**以提高置信度；
-> ④ **PPT 接入图谱与方向综述整理**。详见 [SKILL.md](SKILL.md) § 9.5-J。
->
-> **v7.3（2026-09-19，知识图谱可读性修复）** —— 来源：刘波案例实跑。阶段 K 三张图
-> **全部生成成功、自检全绿**，但逐张肉眼验收**没有一张达标**（§9.5-J 那句
-> 「"图标出来了"和"图能读"是两回事」再次复现）。**变更已事先征得用户同意**。六处修复：
-> ① **词云中文包围盒口径**（旧版 `len×0.58×字号` 等于把中文当半角，宽度低估约 40%
->    → 碰撞检测**系统性漏判**；改为逐字符判宽：CJK 1.0×、ASCII 0.55×字号）；
-> ② **方向归类兜底语料**由「仅题名」扩为「题名+摘要+刊名」，画像语料由 `methods`
->    扩为 `methods + key_20`（旧版实测 15 条近 3 年文献**全部「未分类」**）；
-> ③ **overview 综述挂载**：无 review 卡的条目复用关键词兜底，实测**挂上 0 条 → 9 条**，
->    并新增 `attach_stats["how"]` 逐路径报数；
-> ④ **overview 标签避让**（同角度逐级径向外推，放不下则跳过并如实计数）；
-> ⑤ **记忆连接图例不再截断**（旧版每行以 `…` 收尾，「为何要一起读」整列信息白放）；
-> ⑥ **方向聚类只标注每个 (方向,年份) 被引前 3 条**并垂直错开（旧版几十个标签叠成黑线）。
-> 详见 [SKILL.md](SKILL.md) § 9.6（含**仍未解决**项的如实记录：该语料下方向聚类 x 轴
-> 塌缩为单一方向，属归类语义问题，本次未改）。
->
-> **v7.4（2026-09-19，知识图谱绘制改版）** —— 用户指定（并**明确指示本步不受
-> 「不得擅自改动」条款约束**）。两类改动：
-> **A. 方向聚类**：① **补图例**（热点簇配色 + 点大小标尺）；② **补对比面板**
-> （右侧横向条形给出各方向文献数，x 轴刻度带条数）；③ 方向按文献数**降序**；
-> ④ 窗口默认 **3 年 → 5 年**。
-> **B. overview**：⑤ 节点由散点改为**圆角矩形 + 文字内嵌**（flat 填充、**无阴影高光**），
-> 并新增框尺寸估计与**迭代防重叠**；⑥ **保留核心主干**（综述限前 12、方法限前 10 且需被
-> ≥3 篇引用，裁剪数量如实报出）；⑦ **删除显示用标签的「自定义:」前缀**（**仅改图上显示**，
-> 原值仍保留在 `graph_data.json` 与报告中）；⑧ Louvain 社区改用**冷色系色板**避免与
-> 「最紧密综述」的强调橙撞色。
-> **C. 顺带修掉被对比面板暴露出来的归类缺陷**（⛔ 宽画像通吃等 6 项）：IDF 加权 +
-> 按画像规模归一化 + 画像计入全部方向标签 + df 截断 + 词去重 + 噪声词表扩充；
-> 实测方向分布由 `41/1/1/1` 变为跨 5 个方向的 `20/9/9/2/2/2`。
-> 详见 [SKILL.md](SKILL.md) § 9.7（含**仍未解决**项：关键词兜底仍属启发式，
-> 「分子与化学 20」不应被当作权威分类）。
->
-> **v8.0（2026-10-02，本科科研辅助改造）** —— **大方向调整 + 三个阶段新增**。
-> ⚠️ **原有链路（0 → A → … → I）编号、语义、脚本契约全部不变**，
-> 只是不再是默认入口。四类改动：
-> ① **新增阶段 N「大方向确定」**（**无交互**，位于所有环节之前）：把用户一句话意向
->    拆解为 `school / unit / topic / level`，并用**工作文件夹已有文件**
->    （`研究方法与关键词总表.md` + `templates/关键词词族_学科通用.json` +
->    `templates/方法范式标签词表.json`）匹配关键词群，产出中英双语检索词 →
->    `.work_cdp/topic_plan.json`。**不新建关键词表**。
-> ② **阶段 S「匹配细分专业」**：从**学部/学院官网**自动抓取导师名单与研究方向，
->    按方向归类后**停下等用户选择**。
->
->    > ### ★ v11 硬性规定：只从学部官网取，不用学校教师主页系统
->    >
->    > 学校教师主页系统（`faculty.ustc.edu.cn`、`person.zju.edu.cn`）有两个硬伤：
->    >   ① 只登记「已在系统里维护主页」的教师，覆盖面不全；
->    >   ② **大量页面根本没有「研究方向」栏位** —— 实测 USTC 生医部 237 人中
->    >      130 人没有（页签存在但内容是 `<p>暂无内容</p>`）。
->    >
->    > 学部官网由**学院自己维护**，方向/邮箱/职称常直接写在列表页上。
->    > **故统一以学部官网为准。**
->    >
->    > **配置驱动**：学校/学院/栏目/解析规则全在 `templates/学部官网源.json`，
->    > **新增学校不必改脚本**。主脚本 `scripts/harvest_faculty.py`：
->    > ```bash
->    > uv run python 流程1/scripts/harvest_faculty.py --list-units
->    > uv run python 流程1/scripts/harvest_faculty.py --unit zju --out outputs/06_浙大生科院
->    > uv run python 流程1/scripts/harvest_faculty.py --unit ustc:life-med
->    > ```
->    >
->    > 两种列表模板：`star`（列表页已含方向，浙大生科院）/ `fetch`（进详情页，中科大生医部）。
->    >
->    > 实测（2026-10-02）：
->    >
->    > | 学校 | 栏目 | 人数 | 有方向 | 耗时 |
->    > |---|---|---|---|---|
->    > | 浙江大学 生命科学学院 | 12 | **153** | **110（72%）** | 列表 18s + 详情 100s |
->    > | 中国科学技术大学 生命科学与医学部 | 5 | 161 | 112（70%） | — |
->    >
->    > 浙大各栏目抓到的条数与官网「总共 N 条」逐项吻合，分页无遗漏。
->    >
->    > **已弃用**：`harvest_mentors.py`（学校教师主页，默认 `exit 2`）、
->    > `harvest_colleges.py`（功能并入 `harvest_faculty.py`）。
->    > 保留代码供查阅历史数据与回滚，确需运行加 `--allow-deprecated`。
-> ③ **新增阶段 R「平行检索优质综述」**：Google Scholar / PubMed / arXiv
->    **三线并行 + 综述优先**，**复用**工作文件夹下既有 skill
->    （`paper-lookup` / `literature-review` / `research-lookup` /
->    `citation-management` / `scientific-critical-thinking` / `bgpt-paper-search`），
->    **不从头自编检索逻辑**。
->
->    > ### ★ v13：用户给出检索条件后**自动查该领域论文**（PRISMA 系统检索链）
->    >
->    > 四步链，设计参照工作文件夹 `academic-research-skills-3.22.2` 的
->    > `deep-research/agents/bibliography_agent.md`（检索策略六要素 / 两轮筛选 /
->    > 分布偏斜告警）、`references/systematic_review_toolkit.md`（PRISMA 2020）、
->    > `references/source_quality_hierarchy.md`（证据金字塔 + 掠夺性红旗）。
->    >
->    > ```bash
->    > # ① 条件 → 可复现的查询计划（不联网）
->    > uv run python 流程1/scripts/search_plan.py --topic "免疫与感染" \
->    >     --topic-en "innate immunity" --terms-en "NK cell,macrophage" \
->    >     --from-year 2021 --doc-types review --oa-only --out outputs/07_检索
->    >
->    > # ② 多源并行检索 + 归一化去重（复用既有 paginate.py 取数）
->    > uv run python 流程1/scripts/search_run.py --plan outputs/07_检索/search_plan.json
->    >
->    > # ③ 两轮筛选 + PRISMA 计数 + 证据分级（含摘要补齐）
->    > uv run python 流程1/scripts/search_screen.py --raw outputs/07_检索/search_raw.json
->    >
->    > # ④ PRISMA 报告
->    > uv run python 流程1/scripts/search_report.py --screened outputs/07_检索/search_screened.json
->    > ```
->    >
->    > 之后接既有的 `reviews_prepare.py` → 并行 subagent 解读 → `reviews_build.py`。
->    >
->    > **实测**（浙大生科院「免疫与感染」，Europe PMC + OpenAlex + Crossref）：
->    > 识别 **180** → 硬条件后 120 → Pass1 相关性 86 → **纳入 85**；
->    > 摘要补齐 107/130；耗时 检索 42s + 筛选 447s。
->    >
->    > ⚠️ **三个必须知道的局限**（报告里也逐条写明）：
->    > 1. 各源结果均被 `--max-records` 截断，**不是穷尽检索**；
->    > 2. Pass1 是**词面重叠打分，不是语义判断**，换词同义的文献可能漏掉；
->    > 3. 证据级别**仅依据元数据标注**，不代表文献本身质量合格。
->    >
->    > 另一个实测发现：`paginate.py` 请求 Europe PMC 用 `resultType=lite`，
->    > **不含摘要**（180 条里仅约 50 条有摘要）。而 Pass1 依赖题名+摘要，
->    > 故 `search_screen.py` 内置**摘要补齐**（按 DOI 走 `resultType=core`）。
->    > 没有改共享的 `paginate.py`（它有独立测试套件，不宜动）。
-> ④ **新增阶段 R2「领域概貌解读」**：**复用**
->    `subagent-driven-review/SKILL.md` 的并行 subagent 机制，
->    产出面向本科生的《领域概貌.md》（术语速查 / 争议点 / 推荐阅读顺序 / 选题切入点）。
-> 另：确立**目录与术语默认约定**（"流程"默认= `流程1/`，"工作文件夹"= 仓库根），
-> 并补充红线「学部师资页走第一层直连」与「不得臆造事实」。
->
-> **v12.1（2026-10-02，arXiv 取数改 Python）** —— 用户指令 + 环境实测。
-> 本机 DSH 沙箱（`workspace-write`）内命令进程为 **Low 完整性级别**，
-> Schannel/SSPI 的 `AcquireCredentialsHandle` 失败（`SEC_E_NO_CREDENTIALS`），
-> **所有走系统 TLS 栈的 HTTPS 客户端一律不可用**（系统 curl / Git curl / .NET / certutil
-> 实测全挂；打**明文 HTTP 却正常**；对照实验：完整访问下行令牌为 Medium，同一 curl 返回 200）。
-> Python 自带 OpenSSL、不经 SSPI，不受影响。
-> 故把 `route_databases.py` 中**唯一**用 curl 的 arXiv 分支改为 Python：
-> 取数写成 `.work_cdp/arxiv_query.xml`，再交由 `arxiv_atom.py` 读该文件
-> （**不用管道、不用重定向** —— 避免 shell 按控制台编码重编码、破坏非 ASCII 作者名）。
-> **只改这 1 处**，其余 6 个库的生成命令逐字未变。
-> 实测：`py_compile` 通过、`--self-test` 通过、生成命令**原样执行** exit 0（返回 12 条）。
-> 取证见 `直链OA测试/环境取证_curl与TLS.md`；详见 [SKILL.md](SKILL.md) § 9.13。
->
-> **v12.2（2026-10-02，7 个脚本补 UTF-8 流守卫）** —— 用户指令。承接 v12.1：
-> 修 arXiv 命令时发现 `route_databases.py` 在 **GBK 控制台（cp936）** 下崩在 `⛔` 上
-> （`UnicodeEncodeError: 'gbk' codec can't encode character`），连生成命令都打印不出来。
-> 三轮排查后确认**真正完全没有编码保护的只有 8 个**（多数「疑似」是误报：零宽字符只用于
-> 正则/清洗、或早已用内联 `sys.stdout = io.TextIOWrapper(...)` 守卫），最终给
-> **7 个**脚本补上与 `fetch_direct.py` **逐字一致**的 `_fix_streams()`：
-> `check_challenge.py` / `download_all_fulltexts.py` / `extract_figures.py` /
-> `grab_abstracts.py` / `render_html_pdf.py` / `route_databases.py` / `save_pdf_via_browser.py`。
-> 第 8 个 `fetch_oa_direct.py` **未动**（v4 起已停用，且自带 stderr 的 UTF-8 包装）。该守卫
-> 在编码已是 UTF-8 时直接 return，**UTF-8 环境零行为变化**。
-> 实测（`chcp`=936、未设 `PYTHONIOENCODING`）：改前同一命令 exit 1 崩溃、改后 exit 0；
-> 7 个文件 `py_compile` 全通过；「会打印且无守卫」静态归零；动态逐个验证 + 对照组均通过。
-> 详见 [SKILL.md](SKILL.md) § 9.14。
->
-> **v7.5（2026-09-23，overview 画幅与标题改版）** —— 用户指定。**只动 overview
-> （`draw_overview` / `save_fig`），词云与方向聚类未动**：
-> ① 画布由 `17×15` 改为 **16×10（严格 16:10）**，产物实测由 `2048×1610`（1.27:1）
-> 变为 **`4800×3000`（1.6000:1）**，整幅铺放不再留边/被裁；为铺满宽画幅，
-> 径向布局**改为椭圆**（`aspect="auto"`），框尺寸与防重叠换算**按轴分开**
-> （`PT_PER_X` / `PT_PER_Y`）；
-> ② `save_fig()` 新增 `tight` 参数（默认 `True`），overview 用 `tight=False`
-> **按画布原尺寸导出**，画到画布外的文字会被裁掉 —— 记忆连接图注因此移入画布内；
-> ③ 标题由「<作者名> 研究工作知识图谱（overview）」改为 **「<作者名> 研究工作图谱」**，
-> **删除标题下方灰色解释小字**（其内容图例已逐条给出），标题字号 20→26 并加一条
-> 居中短强调线；
-> ④ **输出文件名不变**（`<作者名>_知识图谱_overview.svg|png`）——
-> 该名字被 `selftest_pipeline.py` 与 `ppt_brief.py` 引用。
-> 详见 [SKILL.md](SKILL.md) § 9.8。
->
-> **v7.1（2026-09-19，获取策略分层）** —— 用户修订：
-> 「对于获取**原文**的需求仍然禁止直链抓取；但对于**摘要、综述**或工作文件夹下
-> **验证可行的开源数据库**可以直接获取，减轻压力。若直接获取尝试失败则转向 CDP 获取。」
-> ① §5.1 由「CDP 强制抓取禁令」改写为**分层获取策略**（原文=第二层必须 CDP；
->    摘要/综述题录/白名单开源库=第一层允许直连；**第一层失败转第二层**）；
-> ② 新增 `templates/直连白名单.json`（机器可读、**fail-closed** 执行）与
->    `fetch_direct.py`（多源自动降级）；`--self-test` 断言白名单不含出版社内容站、
->    内容层级只能是 metadata/abstract；
-> ③ 修掉 `fetch_openalex_abstracts.py` **覆盖其它源摘要**的隐患。
-> 实测：示例题录前 12 篇摘要 **12/12 命中、5.6 秒、零浏览器占用**。
-> 详见 [SKILL.md](SKILL.md) § 9.5-H。
->
-> **v6（2026-09-17，流程复核与加固）**：对流程目录做了一次完整复核，逐脚本核对
-> 可执行性与前后契约，并落实四项指示（用本流程 / CDP 弹窗治理 / Cookie 自动关闭 /
-> 论文总结规范）。主要改动：
-> ① 全文目录规范名改为 **`<作者名>_paper_Exports`**（历史目录自动沿用）；
-> ② CDP 启动参数补 **6 个弹窗抑制开关**（崩溃恢复气泡 / 错误对话框 / 重发表单 /
->    搜索引擎选择页 / 翻译气泡），新增 `PAPER_CDP_LEVEL`；
-> ③ Cookie 脚本修 **三处实质缺陷**（固定定位弹窗被误判为不可见 / 只处理首个命中 /
->    shadow DOM 查不到）+ 消除重复点击，并新增**离线自检** `selftest_consent.py`；
-> ④ 新增 `scope.py`，把**同名消歧结果接入下载与著录两侧**（此前 `disambiguated.json`
->    无人消费，消歧等于白跑）；
-> ⑤ 阶段 H 改为**并行 subagent** 执行，`subagent-driven-review/SKILL.md` 已按本流程
->    重写（原为来源不明的第三方技能，含违禁的 HTTP 直取指引）；新增
->    `interpret_prepare.py` / `interpret_build.py`；
-> ⑥ 修复**脚本契约断裂**（`enrich_crossref_authors.py` 读从不产出的 `master.json`、
->    authors 写成字符串致著录崩栈、`inventory_build.py` 同样只认 `master.json`、
->    `run_all.sh` 消歧步骤只打印不执行）等 **40 项**缺陷。
-> 详见 [SKILL.md](SKILL.md) § 9.4（含逐项实测验证记录）。
->
-> **v6.1（2026-09-18，郭傲案例实跑后二次加固）**：实跑暴露了三处**机制性**缺陷
-> （不是笔误，是设计没到位 —— 跑一次不报错，但结果不对或不可靠）：
-> ① **同名消歧重做**：新增**判据⓪ ORCID 溯源**（DOI 出自本人 ORCID 记录即确认，
->    这是 ORCID→Crossref 主路径上唯一可用的强判据）；采集 Crossref 逐作者单位；
->    修 `load_records` 不认 `{doi:记录}`、`author_blocks` 不认字典作者；
->    **取消会静默丢论文的 `drop` 判决**；排除辅助文件避免幽灵候选。
->    实测：候选 13 → 确认 **13**、排除 0、无法判定 0。
-> ② **解读截断改头尾保留**：旧版从头部硬截，**恰好丢掉结论/量化数据/自述局限**
->    （全在结尾）。改为保留**头 60% + 尾 40%**，中段另存 `fulltext/` 可分段补读。
->    实测 5 篇受影响，重派后 **5 篇全部补读了中段**，捞回大量关键数据。
-> ③ **命名稳定性**：任务包/解读卡改为**只由 DOI 命名**。旧版「序号_DOI」在排序
->    变化时会整体重编号 —— 实测重跑一次 prepare 后，**13 份解读卡里 9 份对不上号**
->    （轻则报缺卡，重则把 A 的卡当成 B 的结果）。另加陈旧文件清理与缺年份告警。
-> 详见 [SKILL.md](SKILL.md) § 9.4 I 组。
->
-> **v5（2026-09-14，周丛照案例）**：**脚本去硬编码**。`README.md` / `SKILL.md` / `示例数据/`
-> 中的案例姓名、ORCID、DOI 予以保留（**仅作案例记录，已加注说明**）；
-> 而**所有可执行脚本（`scripts/*.py`、`run_all.sh`）内的作者硬编码信息全部删除**，
-> 改为运行时经命令行参数 / 环境变量传入，缺失时**显式报错退出**（不再静默套用旧案例值）。
-> 涉及：`orcid_extract.py`、`orcid_pages.py`（原写死 ORCID URL）、
-> `parse_orcid.py`（原写死作者名于 SKIP 表）、
-> `check_access.py`（原写死待测 DOI）、
-> `build_list.py`（原写死署名识别词 `liubo_pos`、刊名噪声表、阶段分组 `PERIODS`、
-> 无 DOI 记录的臆造作者）、`disambiguate.py` / `enrich_crossref_authors.py` / `orcid_probe.py`
-> （注释内案例姓名）。新增变量：`PAPER_AUTHOR_NAMES`、`PAPER_NAME_TOKENS`、
-> `PAPER_SURNAME`、`PAPER_GIVEN`、`PAPER_PERIODS`、`PAPER_TEST_DOI`。
->
-> ⛔ **三条最高优先级红线（v7.1 修订）**：
-> **① 分层获取策略（§5.1，优先级最高）** —— **原文全文**（PDF / HTML 正文，**含 OA**）
-> **禁止直连，一律经 CDP**；**摘要、综述题录、以及 `templates/直连白名单.json` 内
-> 已验证的开源数据库允许直连**（`fetch_direct.py`）；**第一层失败转 CDP**。
-> 禁止把白名单外的域名当成"开源库"直接取。
-> **② 出版社内容站禁直连** —— 验证类站点
-> （ScienceDirect/Cell/OUP/SAGE/Wiley/ACS/RSC/Springer/T&F）绝不用 `curl`/`urllib` 直连；
-> **③ 鼠标自动化禁令** —— 绝不用 CDP `Input.*` 事件尝试通过人机验证（实测 `isTrusted=True`
-> 也无效），人机验证一律**转人工**。
->
-> > v4 的「CDP 强制抓取禁令」（全部内容一律走 CDP）已由上方 ① 取代；
-> > 下方章节 ⑥「直连禁令」与 v4 记录保持原样，作历史回溯。
 
 ---
 
@@ -499,14 +190,14 @@
 ## 快速开始
 
 ```bash
-# ⓪ ★ v7：准备阶段 —— 先在对话里收齐选择，再一条命令落盘（决定后续阶段是否执行）
+# ⓪ ★ 准备阶段 —— 先在对话里收齐选择，再一条命令落盘（决定后续阶段是否执行）
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=markdown --set translate=no --set reverse_refs=yes \
     --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes \
     --set interpret_tier=L2 --set review_interpret_tier=L3     # ★ v13 解读档位
 uv run python 流程1/scripts/prepare_stage.py --check-all      # 看每阶段 run/skip + 两处档位
 uv run python 流程1/scripts/prepare_stage.py --audit          # ★ v13 门控齐全性自检
-#   ★ v13 档位查询（stdout 只有 L1|L2|L3，便于 T=$(…) 捕获）：
+#   ★ 档位查询（stdout 只有 L1|L2|L3，便于 T=$(…) 捕获）：
 #     uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
 #     uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
 #     uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
@@ -543,10 +234,10 @@ uv run python 流程1/scripts/enrich_crossref_authors.py     # 姓/名自动取 
 uv run python 流程1/scripts/disambiguate.py \
     --surname="$PAPER_SURNAME" --given="$PAPER_GIVEN" \
     --affil="<单位指纹>" --anchor-doi="$PAPER_ANCHOR_DOI"
-# ⭐ 消歧结果由 scope.py 自动接入下载与著录两侧（v6 起），无需手工过滤
+# ⭐ 消歧结果由 scope.py 自动接入下载与著录两侧，无需手工过滤
 uv run python 流程1/scripts/unpaywall_check.py
 
-# ②.5 ★ v7：反向查找参考文献（闸门：prepare_stage.py --check D2）
+# ②.5 ★ 反向查找参考文献（闸门：prepare_stage.py --check D2）
 #     元数据 API（OpenAlex），零浏览器、零风控、不下载任何 PDF
 uv run python 流程1/scripts/refs_backfill.py --min-citations=200
 #     → 《<作者名>_高质量文献列表.md》＋ .work_cdp/refs/{source_refs,refs_pool,high_quality}.json
@@ -570,7 +261,7 @@ uv run --with pymupdf python 流程1/scripts/crop_by_images.py "<原文PDF>" "<f
 uv run python 流程1/scripts/translation_build.py "<content.json>" "<figs.json>" "<翻译.html>"
 uv run --with pypdf python 流程1/scripts/render_html_pdf.py "<翻译.html>" "<输出PDF>"
 
-# ⑥.5 ★ v7.1：摘要链（**第一层直连优先，缺口转 CDP**）
+# ⑥.5 ★ 摘要链（**第一层直连优先，缺口转 CDP**）
 uv run python 流程1/scripts/fetch_direct.py
 #    ↑ S2 批量 → OpenAlex → Europe PMC → Crossref → PubMed，命中即停
 #    仅对 templates/直连白名单.json 内的域名发请求；表外一律拒绝
@@ -578,7 +269,7 @@ uv run python 流程1/scripts/fetch_direct.py
 #    uv run --with websocket-client python 流程1/scripts/grab_abstracts.py --retry-failed
 
 # ⑦ 论文解读（阶段 H）：组装任务包 → 并行 subagent → 汇总
-#    ★ v13：档位随任务包下发（默认 interpret_tier=L2 详细）。
+#    ★ 档位随任务包下发（默认 interpret_tier=L2 详细）。
 #      L1 精简 = 速览表（不含误差项/样本量/图表/实验步骤）；
 #      L2 详细 = 逐篇卡片（本阶段既有形态）；L3 完整 = 深度解读。
 #      临时覆盖：… interpret_prepare.py --tier L3
@@ -592,23 +283,23 @@ uv run python 流程1/scripts/interpret_build.py            # → 《<作者名>
 # 可选：语义词族合并（把 framework/frameworks、CO2 capture/carbon dioxide capture 并成一族）
 # cp 流程1/templates/关键词词族模板.json "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
 
-# ★ v7：解读前先装**受控标签词表** + **学科通用词族**（消除并行 subagent 的标签漂移）
+# ★ 解读前先装**受控标签词表** + **学科通用词族**（消除并行 subagent 的标签漂移）
 cp 流程1/templates/方法范式标签词表.json     "$PAPER_WORKDIR/.work_cdp/tag_vocabulary.json"
 cp 流程1/templates/关键词词族_学科通用.json   "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
 #   ★ 通用词族表是**底座不是终稿**：与本领域无关的族请删掉，避免报告里出现恒为 0 的噪声行
 
-# ⑧ ★ v7：代表性文献的参考文献列表（闸门：--check G2）
+# ⑧ ★ 代表性文献的参考文献列表（闸门：--check G2）
 uv run python 流程1/scripts/refs_bibliography.py
 #     → 《<作者名>_代表性文献参考文献.md》（**文章 → 参考文献**两部分，GB/T 7714）
 
-# ⑨ ★ v7：去重与方向相关性整理 → 最终列表 → 研究方向综述（闸门：--check H2）
+# ⑨ ★ 去重与方向相关性整理 → 最终列表 → 研究方向综述（闸门：--check H2）
 uv run python 流程1/scripts/refs_curate.py                 # 去重 + 打分 + 剔除（剔除项逐条留档）
 uv run python 流程1/scripts/refs_prepare.py --top=40       # 组装自包含综述任务包
 #    ↑ 同样在**同一条消息内**并行分派 4–6 个 subagent（提示词见
 #      subagent-driven-review/SKILL.md § 7.1 **综述网络版**）
 uv run python 流程1/scripts/refs_build.py                  # → 《<作者名>_研究方向综述.md》
 
-# ⑩ ★ v7：可选 PPT（闸门：--check P）—— 材料自动取自 ⑦ 与 ⑨ 的产物
+# ⑩ ★ 可选 PPT（闸门：--check P）—— 材料自动取自 ⑦ 与 ⑨ 的产物
 uv run python 流程1/scripts/ppt_brief.py --pages=standard
 #     → 生成 design_spec.md / spec_lock.md（**简化 Strategist**）并初始化 ppt-master 项目
 #     余下按 流程1/ppt-integration/SKILL.md：手写 SVG → 质检 0 error → 串行导出
@@ -619,148 +310,9 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
 
 ---
 
-## v3 脚本改造清单（2026-09-13 固化）
-
-> 来源：薛天案例实战。所有改动均已落盘到 `scripts/` 内的对应文件，
-> 本节为**变更台账**，便于后续复用与回溯。
-
-### ① PDF 题名命名（`store.py` + `rename_to_title.py`）
-
-| 项 | 内容 |
-|---|---|
-| 新增函数 | `title_slug(title, maxlen=120)`：题名 → Windows 安全文件名（清理 `\/:*?"<>|` 与控制字符、去尾随 `.`/空格、规避 `CON/PRN/COM1…` 保留名） |
-| 新增函数 | `stem_for(doi, year, title)`：默认 `<year>_<题名>`，题名缺失时回退 `<year>_<DOI slug>` |
-| 新增登记表 | `.work_cdp/pdf_index.json`（`DOI → 实际文件名`），`register_pdf()` 写入、`existing_pdf()` 优先读取 |
-| 兼容性 | `existing_pdf()` 依次尝试：DOI 命名 → 登记表 → 题名命名 → 目录扫描。**改名后不会重复下载** |
-| 新脚本 | `rename_to_title.py`：批量把存量 `<year>_<DOI>.pdf` 改名为 `<year>_<题名>.pdf`；支持 `--dry-run` 预览、`--keep-dois` 保留 DOI 便于核对；同名同大小自动合并去重 |
-| 调用点 | `fetch_oa_direct.py`、`download_all_fulltexts.py` 下载即用题名命名，并在成功后 `register_pdf()` |
-
-### ② 反爬探测强化（`detect.py`）
-
-| 项 | 内容 |
-|---|---|
-| HTTP 真状态 | 探针新增 `navStatus`（读 `performance.getEntriesByType('navigation')[0].responseStatus`），不再只靠页面文本猜 |
-| 组件指纹 | 新增 `botVendor`：扫描 iframe/script/DOM，识别 **Cloudflare Turnstile、DataDome、PerimeterX、Imperva/Incapsula、hCaptcha、reCAPTCHA、GeeTest** |
-| 挑战标记扩充 | 新增 `pardon our interruption`、`are you a human`、`cf-mitigated`、`akamai`、`reference #18`、`异常流量` 等；模糊词（`blocked by`/`forbidden`）仍**只在短页面前部**才算数 |
-| **软拦截分级（关键）** | 探针内新增 `SOFT` 名单（`ray id`、`too many requests`、`rate limit`、`请求过于频繁`、`访问频繁`），命中项由 `hits.softHead` 回传；`classify()` 判为 **CHALLENGE（站点级熔断）**，**不再触发全局停摆**。修复了 PNAS 403 被误判为「IP 封禁」导致整轮中止的问题 |
-| 新增规则 | 5b：`botVendor` + 短页 → challenge；5c：HTTP 429/503 + 短页 → challenge；5d：软拦截 → challenge |
-
-### ③ Cookie 弹窗自动化（`cdp.py`）
-
-| 项 | 内容 |
-|---|---|
-| 容器扩充 | `CONSENT_JS` 的 `BOXES` 从 20 → **40+**：OneTrust、Cookiebot、Quantcast、Osano、Didomi、TrustArc、Usercentrics、CookieYes、Complianz、Iubenda、Klaro、Termly、Axeptio、Evidon、SourcePoint(`#sp_message_container_*`) 及通用 `[class*=cookie-consent]` |
-| iframe 处理 | 同意书常置于 iframe：跨域只隐藏容器；**同源** iframe 深入 `contentDocument` 再找「接受」按钮 |
-| 巡查增强 | DOMContentLoaded + `load` + 12×1.2s 定时 + **滚动/点击后补扫**（部分站点延迟弹窗） |
-| 新增方法 | `CDP.dismiss_consent(timeout=8)`：页面加载完成后再补一刀（注入脚本可能错过晚弹窗）。`download_all_fulltexts.py` 在每次落地判定前调用 |
-
-### ④ CDP 启动与运行提速（`start_edge_cdp.sh` / `cdp_pool.py` / `cdp.py`）
-
-| 项 | 内容 |
-|---|---|
-| 新增档位 | **L3 极速档** = L0 + `--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-service-autorun --disable-client-side-phishing-detection --disable-domain-reliability`（只关后台服务，**不改页面指纹**） |
-| 并行启动 | 两级流程：先**并行拉起全部实例**，再统一探活 → N 实例总启动时间 ≈ 最慢的 1 个。实测 **3 实例冷启动 15s**（原逐个等待 ≥30s） |
-| 探活提速 | `cdp_pool.launch_one()` 轮询 1.0s → **0.25s**；shell 端 `curl --max-time 2` + 0.25s 轮询 |
-| 页面就绪 | `CDP.navigate()` 的 `settle` 改**自适应**：正文 >4000 字符或 citation 元数据就绪即提前返回，最坏仍等满 settle |
-| Python 端同步 | `cdp_pool.LEVELS` 与 shell 档位一致（0/1/2/3），`LEVEL_NAMES` 增加「极速档」；`ensure()` 并行启动 |
-
-### ⑤ CAPTCHA 弹窗可靠性（`download_all_fulltexts.py`）
-
-| 项 | 内容 |
-|---|---|
-| 弹窗不卡死 | `notify_user()` 由 `System.Windows.Forms.MessageBox`（模态、需手点）改为 **`WScript.Shell.Popup`（带 TTL 自动关闭）**；实测调用 **0.01s 非阻塞返回** |
-| 窗口置前 | 新增 `activate_edge_window()`：`Page.bringToFront` 只激活标签页，另用 PowerShell `AppActivate` 抬升 Edge 窗口（验证码窗口能被看见） |
-| 等待循环加固 | `wait_for_manual()` 内 `detect.judge()` 包 try/except（CDP 抖动只警告不中断）、每轮重新置前窗口、提示文案带倒计时 |
-| 三重防卡死 | ① 循环硬上限 `max_wait` ② 每次探针超时（15s）③ 弹窗自身 TTL |
-
-### ⑥ 直连禁令 → v4 升格为「CDP 强制抓取禁令」→ v7.1 改为「分层获取策略」
-
-> **v3（2026-09-13）**：ScienceDirect、Cell Press、OUP、SAGE、Wiley、ACS、RSC、Springer、T&F
-> 等**存在人机验证**的站点，绝不允许用 curl / urllib 直连（含「探活」式请求）。
->
-> **v4（2026-09-14）**：禁令**扩大到全部站点与全部内容抓取** ——
-> **如无特别要求，一律经 CDP 完成；不得自编脚本从 HTTP 直链获取**（**OA 文章同样适用**）。
-> 原 `BROWSER_ONLY` 跳过表所在的 `fetch_oa_direct.py` **整体停用**，
-> 因此不再需要「按域名维护黑名单」——**所有内容获取都只有 CDP 一条路**。
->
-> 仍允许纯 HTTP 的是**元数据 API**（Crossref / ORCID / OpenAlex / Unpaywall / Europe PMC REST），
-> 它们属于 §5.1 分层策略的**第一层**。详见本文件「⛔ 分层获取策略」章节与 v4 清单第 ① 项
-> （v7.1 起该条已由「全部走 CDP」改为分层：原文仍属第二层必须 CDP）。
-
-### ⑦ 中文翻译渲染（`render_html_pdf.py`）
-
-| 项 | 内容 |
-|---|---|
-| 功能 | 翻译 HTML → PDF（Chrome/Edge `--headless=new --print-to-pdf-no-header`），并**校验**页数、体积、首页 CJK 字符数 |
-| 退出码 | 0 成功；1 渲染失败；2 校验不通过（CJK < 50），便于批处理判断 |
-| 配套 | 单篇渲染包一层 `bash .work_cdp/render_one.sh <html> <pdf>`，便于在工具调用受限时以最简命令执行 |
-
-### ⑧ 收尾与索引脚本（工作目录 `.work_cdp/`，非流程脚本）
-
-| 脚本 | 作用 |
-|---|---|
-| `make_inventory.py` | 生成《全文清单.md》：逐篇列全文状态、来源、页数、未获取原因、按阶段统计覆盖率 |
-| `render_rest.py` | 批量渲染尚未产出的中译 PDF（幂等，已存在则跳过） |
-| 交付物索引 | 工作目录下 `薛天_交付物索引.md`（作者名可替换）：交付清单 + 数据核验链 + 复现步骤 + 变更台账 |
 
 ---
 
-## v4 脚本改造清单（2026-09-14 固化）
-
-> 来源：郭傲（Ao Guo，中国科大生医部）案例实战 —— 15 篇论文 / 14 篇全文 / 7 篇中译。
-> 变更台账，详见 [SKILL.md](SKILL.md) § 9.2。
-
-### ① ⛔ CDP 强制抓取禁令（v4 原文；**v7.1 已由「分层获取策略」取代**，此条留存作历史记录）
-
-| 项 | 内容 |
-|---|---|
-| **条款** | **如无特别要求，全部使用 CDP 完成抓取；不得自编脚本从 HTTP 直链获取**目标内容 |
-| **禁止** | `urllib`/`requests`/`curl`/`wget` 直取内容；`curl -I` 探活；以「OA」为由走直链；自建下载器；写进临时脚本 |
-| **允许** | **元数据 API**（Crossref / ORCID / OpenAlex / Unpaywall / Europe PMC REST）与**本地文件处理**不受限 |
-| **判定** | 拿「元数据」→ API；拿「论文内容（PDF/HTML 正文）」→ **CDP** |
-| **影响** | 阶段 E 由「三级优先级」改为**统一走 CDP**；`fetch_oa_direct.py` **停用** |
-
-### ② 同名消歧全链路（`orcid_probe.py` / `disambiguate.py` / `enrich_crossref_authors.py`）
-
-| 项 | 内容 |
-|---|---|
-| 问题 | 作者聚合**普遍过度合并**：OpenAlex 单一 author id 混入无线通信 / 有机化学 / 微电网 / 聚合物 / 空间物理等多个同名者；Europe PMC 亦混入 5+ 位同名者 |
-| 判据 | ① 姓名精确匹配（拒绝 `Anping`→`Ao` 这类前缀误命中）→ ② **本人署名块单位指纹**（最强判据）→ ③ **合作者网络重合**（姓氏+首字母，避免只用姓氏导致 Chen/Zhu/Li 大量误命中） |
-| 关键区分 | 「单位**不匹配**」= 排除依据；「署名块**无单位字段**」= 数据缺失，待复核——**不可混为一谈**（否则漏收真论文） |
-| 姓名解析 | Crossref 返回结构化 `family`/`given`，存为 `authors_struct`；**不要按空格猜「哪段是姓」**（曾把 `Jie Yu` 误成 `Y JIE`、`Dongming He` 误成 `DONGMING H`） |
-| 实测 | 郭傲案例：273 条候选 → 15 篇，零误收；并发现 Sci Rep 2017 实为**三人共同第一作者**，修正上游数据的两人说法 |
-
-### ③ 中译素材链（`prep_paper` / `crop_by_images` / `extract_figures` / `jats_to_text` / `translation_build`）
-
-| 脚本 | 作用 |
-|---|---|
-| `prep_paper.py` | 原文 PDF → **按页分节**文本 + 图注页索引（翻译逐段对照；图注页的**前一页**即主图页） |
-| `crop_by_images.py` | 按页面**位图并集**裁「图-only」主图（Nature/Cell 拼版图；不含正文，也不被 drawings 误导） |
-| `extract_figures.py` | 抽取**内嵌位图**（Extended Data 图），可降采样控体积 |
-| `jats_to_text.py` | **JATS XML → 文本**（Europe PMC `fullTextXML`，仅 `inEPMC=Y`；非 OA 返回 404） |
-| `translation_build.py` | 内容 JSON + 图形 JSON → **图片 base64 内联**的单文件 HTML（headless 渲染不断链） |
-
-### ④ 收尾脚本（`verify_pdfs.py` / `inventory_build.py`）
-
-| 脚本 | 作用 |
-|---|---|
-| `verify_pdfs.py` | `store.validate_pdf` 校验 + **页数合理性**告警（识别补充材料冒充正文） |
-| `inventory_build.py` | 生成《全文清单.md》：分阶段覆盖率 + 逐篇来源/页数/未获取原因 |
-
-### ⑤ ⛔ 修复：CAPTCHA 弹窗门控误用（**重要**）
-
-`download_all_fulltexts.py` 中 `load_landing()` 的门控是：
-
-```python
-if st == CHALLENGE:
-    if max_wait > 0 and wait_for_manual(c, doi, max_wait, log):
-```
-
-`--manual-wait` **默认 0.0**（=关闭），此时该门恒为假 → `notify_user` 弹窗、
-`activate_edge_window` 窗口置前、等待轮询**整条链都不会被调用**，遇挑战静默跳过
-（日志只留 `失败: challenge:title`，**看不出弹窗本应触发**）。
-
-> ✅ **正确用法：一律显式传正值** —— `--manual-wait=5`（单位**分钟**）。
 
 ---
 
@@ -778,20 +330,20 @@ uv run python 流程1/scripts/selftest_pipeline.py --offline
 
 **打包做了什么、没做什么**
 
-| 项 | 说明 |
-|---|---|
-| 路径重写 | 文档与脚本里的 `流程1/…` 全部改写成 `流程1/…`（**幂等**，重复打包不会变成 `流程11/`），逐个记录在 `PACKAGE_MANIFEST.json` |
-| 依赖 | `vendor/ppt-master/`（只带运行时；不含 `.git/`、`projects/`、`docs/assets/`） |
-| 定位 | `ppt_brief.py` **优先**用随包副本，所以包脱离原仓库也能跑；自检会断言这一点 |
-| 未包含 | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）—— 不应随包分发 |
-| 核验 | `PACKAGE_MANIFEST.json` 逐文件 sha256 + 重写清单；`README-PACKAGE.md` 给出一键核验脚本 |
+| 项       | 说明                                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 路径重写 | 文档与脚本里的`流程1/…` 全部改写成 `流程1/…`（**幂等**，重复打包不会变成 `流程11/`），逐个记录在 `PACKAGE_MANIFEST.json` |
+| 依赖     | `vendor/ppt-master/`（只带运行时；不含 `.git/`、`projects/`、`docs/assets/`）                                                    |
+| 定位     | `ppt_brief.py` **优先**用随包副本，所以包脱离原仓库也能跑；自检会断言这一点                                                      |
+| 未包含   | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）—— 不应随包分发                                                           |
+| 核验     | `PACKAGE_MANIFEST.json` 逐文件 sha256 + 重写清单；`README-PACKAGE.md` 给出一键核验脚本                                               |
 
 > ⚠️ **文档改了要重新打包**，否则包里还是旧说明。打包脚本自身也会一起进包，
 > 所以包内可以直接再打一次（`--dest=` 换目录即可）。
 
 ---
 
-## 自检（**v7 起：改动流程后必跑**）
+## 自检（**改动流程后必跑**）
 
 ```bash
 # ① 端到端全流程（推荐）：临时目录里真跑一遍 阶段 0→D2→G2→H→H2→P
@@ -809,30 +361,30 @@ done
 > v7 的端到端自检一共挡下 4 类静态看不出的缺陷 ——
 > `--set` 空格写法被静默忽略、两个 prepare 脚本的 manifest 字段不一致、
 > PPT Spec 的 `Page Count` 与 §IX 页数不等、§X 因缩进落进循环体而重复 4 次。
-> 详见 SKILL §9.5-G。
+> 详见 SKILL [版本变动.md](版本变动.md)。
 
 ---
 
 ## 工具链总览
 
-| 类别 | 工具 | 作用 |
-|---|---|---|
-| 网页 | Cherry `web_fetch` / `web_search` | 作者主页、ORCID 定位 |
-| 标识 | `orcid_probe.py`（API）+ `orcid_extract.py`（**CDP 实抓网页**） | API 拿任职/教育/关键词；网页拿权威成果集合（比 API 更准，去重后） |
-| 题录 | **Crossref API**（`fetch_crossref_all` + `enrich_crossref_authors`） | 期刊/年/卷/期/页/**结构化作者姓名**/DOI 权威核实 |
-| 🆕 消歧 | **`disambiguate.py`** | 姓名精确 + 署名单位指纹 + 合作者网络，剔除同名他人 |
-| 全文 | **CDP 多实例（唯一路径）** | 全文获取一律经真实 Edge；OA 与付费墙同等对待（v4 起取消 HTTP 直取） |
-| 浏览器 | **Edge + CDP（多实例）** | 绕 Cloudflare 抓 ORCID 页面、出版社摘要与全文 |
-| 🆕 中译素材 | `prep_paper` / `crop_by_images` / `extract_figures` / `jats_to_text` / `translation_build` | 原文 → 逐段文本 + 图-only 主图 → 内联图 HTML |
-| 转换 | Cherry `to_markdown` 或 `prep_paper.py` | PDF → Markdown / 按页分节文本 |
-| 导出 | Chrome/Edge `--headless --print-to-pdf`（经 `render_html_pdf.py`） | 中文翻译 HTML → PDF |
-| 校验 | `pypdf`（经 `store.validate_pdf` / `verify_pdfs.py`） | 页数、体积与中文字符嵌入检查 |
-| 🆕 收尾 | `inventory_build.py` | 生成《全文清单.md》（分阶段覆盖率 + 未获取原因） |
-| 日志 | `logutil.py` | 全流程落盘于 `.work_cdp/logs/` |
+| 类别        | 工具                                                                                                 | 作用                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 网页        | Cherry`web_fetch` / `web_search`                                                                 | 作者主页、ORCID 定位                                                |
+| 标识        | `orcid_probe.py`（API）+ `orcid_extract.py`（**CDP 实抓网页**）                            | API 拿任职/教育/关键词；网页拿权威成果集合（比 API 更准，去重后）   |
+| 题录        | **Crossref API**（`fetch_crossref_all` + `enrich_crossref_authors`）                       | 期刊/年/卷/期/页/**结构化作者姓名**/DOI 权威核实              |
+| 🆕 消歧     | **`disambiguate.py`**                                                                        | 姓名精确 + 署名单位指纹 + 合作者网络，剔除同名他人                  |
+| 全文        | **CDP 多实例（唯一路径）**                                                                     | 全文获取一律经真实 Edge；OA 与付费墙同等对待（v4 起取消 HTTP 直取） |
+| 浏览器      | **Edge + CDP（多实例）**                                                                       | 绕 Cloudflare 抓 ORCID 页面、出版社摘要与全文                       |
+| 🆕 中译素材 | `prep_paper` / `crop_by_images` / `extract_figures` / `jats_to_text` / `translation_build` | 原文 → 逐段文本 + 图-only 主图 → 内联图 HTML                      |
+| 转换        | Cherry`to_markdown` 或 `prep_paper.py`                                                           | PDF → Markdown / 按页分节文本                                      |
+| 导出        | Chrome/Edge`--headless --print-to-pdf`（经 `render_html_pdf.py`）                                | 中文翻译 HTML → PDF                                                |
+| 校验        | `pypdf`（经 `store.validate_pdf` / `verify_pdfs.py`）                                          | 页数、体积与中文字符嵌入检查                                        |
+| 🆕 收尾     | `inventory_build.py`                                                                               | 生成《全文清单.md》（分阶段覆盖率 + 未获取原因）                    |
+| 日志        | `logutil.py`                                                                                       | 全流程落盘于`.work_cdp/logs/`                                     |
 
 ---
 
-## 多实例并行 CDP（v2 核心）
+## 多实例并行 CDP
 
 **为什么要多实例**：单实例一旦浏览器退出，脚本无探活机制，后续请求全部
 `WinError 10061` 失败，整批任务报废。一实例一 profile 还天然形成 **Cookie 池**：
@@ -841,29 +393,29 @@ done
 **启动参数档位**（并列，默认全部实例用 **L0 日常档**；缺省档位由 `PAPER_CDP_LEVEL` 指定，
 **启动与崩溃重启同档**）：
 
-| 档位 | 参数 | 何时用 |
-|---|---|---|
-| **L0 日常档（默认）** | port / allow-origins / user-data-dir<br>`--window-size=1280,900`<br>`--no-first-run --no-default-browser-check`<br>`--deny-permission-prompts --disable-notifications`<br>**+ 弹窗抑制 6 项**（见下） | 首选，「像正常打开的浏览器」 |
-| L1 极简档 | 仅 3 个必需参数（**刻意不含弹窗抑制**） | A/B 对照 |
-| L2 扩展档 | L0 + `--lang=zh-CN` | 需中文界面时 |
-| L3 极速档 | L0 + 关闭启动期后台任务 | 推荐；冷启动更快、后台占用更低 |
+| 档位                        | 参数                                                                                                                                                                                          | 何时用                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| **L0 日常档（默认）** | port / allow-origins / user-data-dir`--window-size=1280,900--no-first-run --no-default-browser-check``--deny-permission-prompts --disable-notifications`**+ 弹窗抑制 6 项**（见下） | 首选，「像正常打开的浏览器」   |
+| L1 极简档                   | 仅 3 个必需参数（**刻意不含弹窗抑制**）                                                                                                                                                 | A/B 对照                       |
+| L2 扩展档                   | L0 +`--lang=zh-CN`                                                                                                                                                                          | 需中文界面时                   |
+| L3 极速档                   | L0 + 关闭启动期后台任务                                                                                                                                                                       | 推荐；冷启动更快、后台占用更低 |
 
 **弹窗抑制 6 项（v6 新增，L0/L2/L3 共有）** —— 只关**浏览器自己的对话框**，
 不碰页面 DOM，也不改 `navigator`/`screen` 指纹：
 
-| 参数 | 抑制什么 | 为什么必须 |
-|---|---|---|
-| `--noerrdialogs` | 「页面无响应」等错误对话框 | 模态，会**卡住导航** |
-| `--disable-session-crashed-bubble`<br>`--hide-crash-restore-bubble` | 崩溃后「恢复页面」气泡 | 本流程会 `taskkill /F` 强杀实例，同 profile 下次启动**必然**弹它，遮挡内容并抢焦点（影响人工过验证码）。两代开关名都带，未知开关会被静默忽略 |
-| `--disable-prompt-on-repost` | 「重新提交表单」模态对话框 | 会**直接阻断导航**（`navigate()` 有重试逻辑） |
-| `--disable-search-engine-choice-screen` | 全新 profile 首启的搜索引擎选择页 | 否则首启可能停在选择页 |
-| `--disable-features=Translate,TranslateUI` | 「是否翻译此页面？」气泡 | 英文论文页必现 |
+| 参数                                                            | 抑制什么                          | 为什么必须                                                                                                                                          |
+| --------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--noerrdialogs`                                              | 「页面无响应」等错误对话框        | 模态，会**卡住导航**                                                                                                                          |
+| `--disable-session-crashed-bubble--hide-crash-restore-bubble` | 崩溃后「恢复页面」气泡            | 本流程会`taskkill /F` 强杀实例，同 profile 下次启动**必然**弹它，遮挡内容并抢焦点（影响人工过验证码）。两代开关名都带，未知开关会被静默忽略 |
+| `--disable-prompt-on-repost`                                  | 「重新提交表单」模态对话框        | 会**直接阻断导航**（`navigate()` 有重试逻辑）                                                                                               |
+| `--disable-search-engine-choice-screen`                       | 全新 profile 首启的搜索引擎选择页 | 否则首启可能停在选择页                                                                                                                              |
+| `--disable-features=Translate,TranslateUI`                    | 「是否翻译此页面？」气泡          | 英文论文页必现                                                                                                                                      |
 
 - **正常窗口**：用 `--window-size` 而非 `--start-minimized`（最小化会渲染节流、拖慢加载）。
 - **权限 / 通知弹窗**：`--deny-permission-prompts` + `--disable-notifications`。
 - **Cookie / 同意书弹窗**：**没有**命令行开关；由 `cdp.py` 的 `CONSENT_JS` 页内保守关闭
   （只在已知同意管理容器内操作 → 先点「接受」→ 1.5s 后复查 → 仍在则强制隐藏 → 恢复滚动）。
-  不改任何 navigator/screen 属性。**v6 修了三处实质缺陷**，详见 SKILL §9.4 C 组；
+  不改任何 navigator/screen 属性。**v6 修了三处实质缺陷**，详见 SKILL [版本变动.md](版本变动.md) C 组；
   改动后请跑 `selftest_consent.py` 自检（离线、零网络、真实 Edge）。
 
 ✗ 不用 `--headless`  ✗ 不用 `--disable-blink-features=AutomationControlled`
@@ -878,13 +430,13 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 
 ---
 
-## 核心避坑（详见 SKILL.md § 5 / § 9）
+## 核心避坑（详见 SKILL.md § 5 / [版本变动.md](版本变动.md)）
 
 1. **CDP 403** → 启动必须加 `--remote-allow-origins=*`
 2. **Edge 掉线 / 整批报废** → 用多实例池 + 逐篇探活 + 自动重启
 3. **脚本死机** → 所有 CDP 调用已带硬超时；不再有无限 `recv()`
 4. **误触发 CAPTCHA** → 判定改用 `detect.judge()`；**绝不**用文本长度当判据
-4b. 🆕 **CAPTCHA 弹窗不触发** → `--manual-wait` **默认 0.0**，此时 `if max_wait > 0 and wait_for_manual(...)` 恒为假，**整条弹窗链都不会被调用**（日志只留 `失败: challenge:title`）。**一律显式传正值**，如 `--manual-wait=5`（单位分钟）
+   4b. 🆕 **CAPTCHA 弹窗不触发** → `--manual-wait` **默认 0.0**，此时 `if max_wait > 0 and wait_for_manual(...)` 恒为假，**整条弹窗链都不会被调用**（日志只留 `失败: challenge:title`）。**一律显式传正值**，如 `--manual-wait=5`（单位分钟）
 5. **泛词误报封禁** → 封禁判定用精确短语；正文里的 `forbidden` / `blocked by` 不再误伤
 6. **Git Bash 杀进程报错** → `MSYS_NO_PATHCONV=1 taskkill /PID <pid> /T /F`
 7. **中文打印乱码** → 统一用 `logutil.py`（内部 `errors="replace"`，不会中断流程）
@@ -935,7 +487,6 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 26. 🆕 **`run_all.sh` 的消歧步骤只 `echo` 不执行** → 「不可省」的步骤实际从未运行。
     **已修**（真调用，判据取自 `PAPER_SURNAME`/`PAPER_GIVEN`/`PAPER_AFFIL_TOKENS`/
     `PAPER_ANCHOR_DOI`；缺项时明确告警并说明后果）
-
 27. 🆕 **消歧在主路径上无从施加** → ORCID→Crossref 是主路径，而判据依赖**逐作者单位**，
     偏偏 Crossref **只有少数出版社存缴单位**（实测 13 篇里仅 2 篇）。只靠单位指纹，
     消歧必然全部落到「数据缺失」而空转。**已修**：新增**判据⓪ ORCID 溯源**
@@ -962,14 +513,14 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 
 ### 一、禁止清单（红线，不得触碰）
 
-| # | 禁止行为 | 说明 |
-|---|---|---|
-| 1 | 用 `Input.*` 点击 Turnstile / reCAPTCHA / hCaptcha 的**复选框或验证组件** | 单次、循环均禁止 |
-| 2 | 合成 `mouseMoved` 轨迹模拟**滑块 / 拼图 / 按住**手势 | 属绕过安全机制 |
-| 3 | 对验证页做**批量 / 循环 / 退避式试探点击** | 即「反复试探」，直接升级为封禁 |
-| 4 | 用页内 JS 伪造（`element.click()`、改写 `isTrusted`、劫持验证回调） | 既无效又违规 |
-| 5 | 把人工验证环节「自动化」以提升流程自动化率 | 本流程对此**只做转人工** |
-| 6 | 将上述任一行为写入脚本、宏、定时任务 | 含「实验性」「一次性」尝试 |
+| # | 禁止行为                                                                         | 说明                           |
+| - | -------------------------------------------------------------------------------- | ------------------------------ |
+| 1 | 用`Input.*` 点击 Turnstile / reCAPTCHA / hCaptcha 的**复选框或验证组件** | 单次、循环均禁止               |
+| 2 | 合成`mouseMoved` 轨迹模拟**滑块 / 拼图 / 按住**手势                      | 属绕过安全机制                 |
+| 3 | 对验证页做**批量 / 循环 / 退避式试探点击**                                 | 即「反复试探」，直接升级为封禁 |
+| 4 | 用页内 JS 伪造（`element.click()`、改写 `isTrusted`、劫持验证回调）          | 既无效又违规                   |
+| 5 | 把人工验证环节「自动化」以提升流程自动化率                                       | 本流程对此**只做转人工** |
+| 6 | 将上述任一行为写入脚本、宏、定时任务                                             | 含「实验性」「一次性」尝试     |
 
 ### 二、允许范围（边界，避免误伤）
 
@@ -990,6 +541,7 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
                                  mouseup   isTrusted=True  (97,61)
                                  click     isTrusted=True  (97,61)
 ```
+
 （复现脚本：`.work_cdp/test_input_events.py`，**本地页面、零网络请求**，仅作技术取证）
 
 **结论**：CDP 走浏览器**输入管线**注入，事件属性与真人点击**完全无法区分**。
@@ -997,11 +549,11 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 
 ### 四、禁止依据 2：反爬判定不依赖那一次点击
 
-| 判定维度 | 反爬实际看什么 | 为什么自动点击过不了 |
-|---|---|---|
-| 协议 / 环境痕迹 | CDP 会话存在性、`Runtime.enable` 时序侧信道、自动化框架特征 | 与「点得像不像」无关 |
-| 行为生物特征 | 轨迹加速度/抖动/停顿、悬停犹豫、直线度、间隔规律性 | **单点瞬移点击**是最典型异常样本 |
-| 风险评分 | IP 信誉、UA/字体/WebGL 一致性、请求频次 | 勾选框常只是 UI 摆设，**评分不过点了也照样循环/拒绝** |
+| 判定维度        | 反爬实际看什么                                                | 为什么自动点击过不了                                        |
+| --------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| 协议 / 环境痕迹 | CDP 会话存在性、`Runtime.enable` 时序侧信道、自动化框架特征 | 与「点得像不像」无关                                        |
+| 行为生物特征    | 轨迹加速度/抖动/停顿、悬停犹豫、直线度、间隔规律性            | **单点瞬移点击**是最典型异常样本                      |
+| 风险评分        | IP 信誉、UA/字体/WebGL 一致性、请求频次                       | 勾选框常只是 UI 摆设，**评分不过点了也照样循环/拒绝** |
 
 ### 五、禁止依据 3：代价不可承受
 
@@ -1022,27 +574,27 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 
 ---
 
-## ⛔ 分层获取策略（v7.1，**最高优先级** —— 优先级高于其余所有禁令）
+## ⛔ 分层获取策略（**最高优先级** —— 优先级高于其余所有禁令）
 
 > **用户要求**
 > · v4（2026-09-14）：「如无特别要求，全部使用 CDP 完成抓取。」
 > · **v7.1（2026-09-19）修订**：「对于获取**原文**的需求仍然禁止直链抓取；
->   但是对于**摘要、综述**或工作文件夹下**验证可行的开源数据库**可以直接获取，
->   减轻压力。同时若直接获取尝试失败则转向 CDP 获取。」
+> 但是对于**摘要、综述**或工作文件夹下**验证可行的开源数据库**可以直接获取，
+> 减轻压力。同时若直接获取尝试失败则转向 CDP 获取。」
 >
 > **一句话**：**拿"原文"走 CDP；拿"摘要 / 综述题录 / 白名单开源库"直接取，
 > 取不到再转 CDP。**
 
 ### 一、分层表（**这张表就是全部规则**）
 
-| 层 | 内容类别 | 获取方式 | 实现 |
-|---|---|---|---|
-| **第一层** | 元数据（题录 / 作者 / 被引数 / 参考文献关系） | ✅ **允许直连** | `fetch_crossref_all.py` / `orcid_probe.py` / `unpaywall_check.py` / `refs_backfill.py` |
-| **第一层** | **摘要** | ✅ **允许直连** | `fetch_direct.py`（多源自动降级） |
-| **第一层** | **综述**（题录 / 摘要级） | ✅ **允许直连** | 同上（综述的**正文**属第二层） |
-| **第一层** | 白名单内的**开源数据库** | ✅ **允许直连** | `templates/直连白名单.json` |
-| **第二层** | **原文全文**（PDF / HTML 正文），**含 OA** | ⛔ **禁止直连，一律走 CDP** | `download_all_fulltexts.py` / `save_pdf_via_browser.py` |
-| **回退** | 第一层尝试失败 | ➡️ **转向 CDP** | `direct_failed.json` → `grab_abstracts.py --retry-failed` |
+| 层               | 内容类别                                               | 获取方式                         | 实现                                                                                           |
+| ---------------- | ------------------------------------------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **第一层** | 元数据（题录 / 作者 / 被引数 / 参考文献关系）          | ✅**允许直连**             | `fetch_crossref_all.py` / `orcid_probe.py` / `unpaywall_check.py` / `refs_backfill.py` |
+| **第一层** | **摘要**                                         | ✅**允许直连**             | `fetch_direct.py`（多源自动降级）                                                            |
+| **第一层** | **综述**（题录 / 摘要级）                        | ✅**允许直连**             | 同上（综述的**正文**属第二层）                                                           |
+| **第一层** | 白名单内的**开源数据库**                         | ✅**允许直连**             | `templates/直连白名单.json`                                                                  |
+| **第二层** | **原文全文**（PDF / HTML 正文），**含 OA** | ⛔**禁止直连，一律走 CDP** | `download_all_fulltexts.py` / `save_pdf_via_browser.py`                                    |
+| **回退**   | 第一层尝试失败                                         | ➡️**转向 CDP**           | `direct_failed.json` → `grab_abstracts.py --retry-failed`                                 |
 
 > **判定分界**：这次请求要**不要拿"论文正文"**？
 > 拿正文 → **必须 CDP**；不拿正文（摘要/题录/结构化元数据）→ **第一层直连**，取不到再转 CDP。
@@ -1081,13 +633,13 @@ uv run python 流程1/scripts/fetch_direct.py
 
 ### 四、第二层（原文）仍然禁止直连
 
-| # | 禁止行为 |
-|---|---|
+| # | 禁止行为                                                                                                              |
+| - | --------------------------------------------------------------------------------------------------------------------- |
 | 1 | 自编脚本直链下载**原文全文**（`urllib`/`requests`/`curl`/`wget`/`Invoke-WebRequest`，含"临时试一下"） |
-| 2 | 用 `curl -I` / `HEAD` 对**出版社内容站**做探活或状态码探测 |
-| 3 | 以「OA / 开放获取」为由走纯 HTTP 直取**全文** —— **OA 全文也走 CDP** |
-| 4 | 自建下载器 / 第三方下载工具 |
-| 5 | 把**白名单外**的域名当作"开源库"直接取 |
+| 2 | 用`curl -I` / `HEAD` 对**出版社内容站**做探活或状态码探测                                                   |
+| 3 | 以「OA / 开放获取」为由走纯 HTTP 直取**全文** —— **OA 全文也走 CDP**                                    |
+| 4 | 自建下载器 / 第三方下载工具                                                                                           |
+| 5 | 把**白名单外**的域名当作"开源库"直接取                                                                          |
 
 **依据**：
 
@@ -1110,18 +662,6 @@ uv run python 流程1/scripts/fetch_direct.py
 
 ---
 
-## 🚫 直连禁令（v3；已被上方 v4 禁令吸收，保留作历史条目）
-
-> **用户明确要求（2026-09-13）**：ScienceDirect、Cell Press、OUP、SAGE、Wiley、ACS、RSC、
-> Springer、T&F 等**存在人机验证**的站点，**绝不允许**用 `curl` / `urllib` 等直连方式访问，
-> **包括「探活」式的 HEAD/GET 请求**。
->
-> ⚠️ **该项自 v4 起曾扩大到全部站点；v7.1 起改为分层**（见上方「分层获取策略」：
-> 原文仍禁直连；摘要/综述题录/白名单开源库允许直连）。
-> 且其代码载体 `fetch_oa_direct.py` 已停用；本条仅作历史回溯。
->
-> - 连通性/状态判断一律交给浏览器：`detect.judge()` 返回的 `navStatus` 即真实 HTTP 状态。
-> - 违规示例（**严禁**）：`curl -I https://www.sciencedirect.com/...`、用 `urllib` 试状态码。
 
 ---
 
@@ -1136,13 +676,14 @@ uv run python 流程1/scripts/fetch_direct.py
 
 **一旦出现下列任一信号，立即终止本次任务的全部后续网络尝试：**
 
-| 信号 | 典型文案 |
-|---|---|
+| 信号                 | 典型文案                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------- |
 | **地址被封禁** | `此地址已被封禁`、`Your IP has been blocked`、`Access Denied`、`您已被阻止访问` |
-| 站点级封禁 | `Forbidden`（短拦截页）、`unusual traffic from your network` |
-| 账号级封禁 | `Your account has been suspended`、`访问受限` |
+| 站点级封禁           | `Forbidden`（短拦截页）、`unusual traffic from your network`                        |
+| 账号级封禁           | `Your account has been suspended`、`访问受限`                                       |
 
 **处置流程（不可跳过）：**
+
 1. **立即停止** —— 终止脚本进程，不再发出任何请求（含重试、含换站点）
 2. **永久跳过** —— 被封站点在后续所有批次中不再尝试
 3. **如实报告** —— 向用户说明站点、原因、影响范围
@@ -1239,6 +780,7 @@ ppt-master/projects/<项目名>/
 > 也可用 `PAPER_EXPORTS_DIR` 显式指定完整路径。
 
 **原则**：
+
 1. 新增内容一律**新建文件**，不覆盖用户既有文件（除非用户明确要求）。
 2. 残缺/异常产物**不删除**，改名后保留（如 `【补充材料】…`），便于回溯。
 3. 中译 PDF 与源 PDF 命名规则不同：源文件用**论文标题**，译文用**刊名缩写 + 年份**
@@ -1255,15 +797,15 @@ ppt-master/projects/<项目名>/
 > `origin`），把个人科研流程（含 88.8 MB 第三方 vendor）混进去，会污染上游历史、
 > 且存在**误 push** 风险。独立仓库给出同样的回滚能力，零外部影响。
 
-| 项 | 值 |
-|---|---|
-| 仓库位置 | `流程1/.git/`（约 1.4 MB） |
-| 分支 | `main` |
-| 首次提交 | `chore: 建立 流程1 版本控制基线` |
-| 入库范围 | 文档 + `scripts/`(59) + `templates/` + `示例数据/` + 子流程，共 **84 个文件 / ~4.4 MB** |
-| **不入库** | `vendor/`（第三方拷贝快照 88.8 MB，含 9.1 MB 生成物）—— 见 `.gitignore` |
-| 换行策略 | `core.autocrlf=false`（本目录 CRLF/LF 混杂，**按磁盘原样存储**，避免全量「已修改」） |
-| 提交身份 | 仓库级 `流程1 (local) <flow1@localhost>` —— **仅本地**，改法见下 |
+| 项               | 值                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| 仓库位置         | `流程1/.git/`（约 1.4 MB）                                                                       |
+| 分支             | `main`                                                                                           |
+| 首次提交         | `chore: 建立 流程1 版本控制基线`                                                                 |
+| 入库范围         | 文档 +`scripts/`(59) + `templates/` + `示例数据/` + 子流程，共 **84 个文件 / ~4.4 MB** |
+| **不入库** | `vendor/`（第三方拷贝快照 88.8 MB，含 9.1 MB 生成物）—— 见 `.gitignore`                      |
+| 换行策略         | `core.autocrlf=false`（本目录 CRLF/LF 混杂，**按磁盘原样存储**，避免全量「已修改」）       |
+| 提交身份         | 仓库级`流程1 (local) <flow1@localhost>` —— **仅本地**，改法见下                          |
 
 ### 日常用法
 
@@ -1300,4 +842,3 @@ git -C 流程1 commit --amend --reset-author --no-edit   # 顺便改写首次提
 cd 流程1 && git add vendor/ && git commit -m "chore: 纳入 vendor 快照"
 ```
 
-（注意：那会一次性写入约 88 MB 二进制。）

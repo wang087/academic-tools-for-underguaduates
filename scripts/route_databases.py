@@ -136,7 +136,7 @@ def build_plan(db_key: str, db: dict, terms: list[str], review_filter: str) -> d
                .replace("(", "%28").replace(")", "%29").replace(":", "%3A"))
         url = (f"https://export.arxiv.org/api/query?"
                f"search_query={enc}&max_results=12")
-        # ★ v12.1（2026-10-02）：取数由 curl 改为 Python（stdlib urllib）。见 SKILL §9.13。
+        # ★ v12.1（2026-10-02）：取数由 curl 改为 Python（stdlib urllib）。见 SKILL [版本变动.md](版本变动.md)。
         #   ① curl 走系统 TLS 栈（Schannel/SSPI）：在低完整性令牌的受限环境里
         #      `AcquireCredentialsHandle` 失败（SEC_E_NO_CREDENTIALS），整条命令直接不可用；
         #      Python 自带 OpenSSL、不经 SSPI，实测同一环境返回 200。
