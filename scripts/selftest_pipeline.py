@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
@@ -106,6 +107,35 @@ def run(script: str, wd: pathlib.Path, args: list[str] | None = None,
         print(f"\n──── {script} {' '.join(args or [])} ────")
         print(out[-4000:])
     return p.returncode, out
+
+
+def run_split(script: str, wd: pathlib.Path, args: list[str] | None = None,
+              verbose: bool = False, timeout: int = 300):
+    """跑脚本并**分别**返回 (returncode, stdout, stderr)。
+
+    ★ 为什么不能复用 `run()`：它把 stdout 与 stderr 合并成一份输出，而
+      `prepare_stage.py --tier` 的契约恰恰是「**stdout 里恰好只有档位**」——
+      合并之后就再也分不清"stdout 干净"和"日志行混进来了"，
+      而这正是本条自检要挡的失败模式（调用方写 `T=$(… --tier H)`，
+      拿到 "INFO … L2" 后与 "L2" 比对永远不相等，且**静默**）。
+    """
+    env = dict(os.environ)
+    env["PAPER_WORKDIR"] = str(wd)
+    env["PAPER_AUTHOR"] = AUTHOR
+    cmd = [sys.executable, str(SDIR / script)] + (args or [])
+    try:
+        p = subprocess.run(cmd, cwd=str(REPO), env=env, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout)
+        rc, out, err = p.returncode, p.stdout or "", p.stderr or ""
+    except subprocess.TimeoutExpired as e:
+        rc = 124
+        out = e.stdout or ""
+        err = f"⏱ 超时（{timeout}s）"
+    if verbose:
+        print(f"\n──── {script} {' '.join(args or [])} ────")
+        print((out + err)[-4000:])
+    return rc, out, err
 
 
 def make_fixture_cards(wd: pathlib.Path, verbose: bool) -> None:
@@ -209,6 +239,26 @@ def ppt_projects_dir() -> pathlib.Path:
 
 
 def main() -> int:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        # ★ 为什么要有 --help：本脚本没有 argparse，参数靠 `--x in sys.argv` 判定，
+        #   所以在加上这个分支之前 `--help` 会被**当成正常运行**——直接跑一遍
+        #   全流程（联网模式下还会真的发网络请求）。一个查询开关不该有副作用。
+        print(
+            "用法：python 流程1/scripts/selftest_pipeline.py [选项]\n"
+            "\n"
+            "全流程自检（阶段 0 → D2 → G2 → H → H2 → K → P），在临时工作目录里跑，\n"
+            "不碰任何真实案例数据。含解读档位（--tier / --set / --audit）集成检查。\n"
+            "\n"
+            "选项：\n"
+            "  --offline          跳过联网环节（D2 / G2 / P 的联网部分）\n"
+            "  --limit=N          D2 只处理前 N 篇作者论文（默认 4）\n"
+            "  --keep             保留临时工作目录（默认跑完删除）\n"
+            "  --verbose          打印每个脚本的完整输出\n"
+            "  -h, --help         显示本帮助\n"
+            "\n"
+            "退出码：0 = 全部通过；1 = 有失败项；2 = 找不到示例题录")
+        return 0
+
     verbose = "--verbose" in sys.argv
     offline = "--offline" in sys.argv
     keep = "--keep" in sys.argv
@@ -246,8 +296,39 @@ def main() -> int:
         check("闸门已解析", plan.get("_gates", {}).get("D2") == "run"
               and plan.get("_gates", {}).get("F") == "skip",
               f"F={plan.get('_gates', {}).get('F')}（translate=no 应跳过）")
-        check("output_format=markdown 时 F 为 html-only",
+        # ★ v13.1：本用例是 output_format=markdown **且 translate=no** → 阶段 F 由
+        #   translate 关闭（output_format 已不再是闸门），故 _f_mode=off。
+        #   改前这条的标签写「F 为 html-only」而断言写 off —— 标签描述意图、
+        #   断言锁实际行为，二者矛盾正是 §9.16 那处缺陷留下的痕迹。
+        check("output_format=markdown 且 translate=no → F 关闭（_f_mode=off）",
               plan.get("_f_mode") == "off", f"_f_mode={plan.get('_f_mode')}")
+
+        # ★ v13.1 回归守卫（行为级）：output_format **不再**决定阶段 F 是否执行。
+        #   改前这一组合会被静默跳过 —— 用户要了翻译却什么都拿不到，且不报错。
+        #   若有人把 F 闸门加回 output_format，下面第一条会立刻失败。
+        #   ⚠️ `--set` 是**整份重写**（未指定的项一律回落到默认值），
+        #      所以这里改完必须把本次自检后续步骤依赖的计划**原样重建**。
+        run("prepare_stage.py", wd, [
+            "--set", "output_format=markdown", "--set", "translate=yes"], verbose=verbose)
+        rc_md, _ = run("prepare_stage.py", wd, ["--check", "F"], verbose=verbose)
+        check("translate=yes + output_format=markdown → 阶段 F 仍执行（v13.1 修复）",
+              rc_md == 0, f"--check F 退出码={rc_md}（应为 0=执行）")
+        plan_md = json.loads(
+            (wd / ".work_cdp" / "prepare_plan.json").read_text(encoding="utf-8"))
+        check("该组合下 _f_mode=html-only（只出中译 Markdown，不渲染 PDF）",
+              plan_md.get("_f_mode") == "html-only",
+              f"_f_mode={plan_md.get('_f_mode')}")
+        run("prepare_stage.py", wd, [
+            "--set", "output_format=markdown", "--set", "translate=no",
+            "--set", "reverse_refs=yes", "--set", "make_ppt=yes",
+            "--set", "refs_bibliography=yes", "--set", "curate_review=yes",
+            "--set", "ppt_pages=short"], verbose=verbose)
+        # ★ 解读档位（v9）默认值：阶段 0 未显式指定时必须落到 L2 / L3
+        check("prepare_plan.json 含两个档位键且默认 L2 / L3",
+              plan.get("interpret_tier") == "L2"
+              and plan.get("review_interpret_tier") == "L3",
+              f"interpret_tier={plan.get('interpret_tier')!r} "
+              f"review_interpret_tier={plan.get('review_interpret_tier')!r}")
 
         rc, _ = run("prepare_stage.py", wd, ["--check", "D2"], verbose=verbose)
         check("--check D2 返回 0（执行）", rc == 0)
@@ -272,6 +353,91 @@ def main() -> int:
             "--set", "reverse_refs=yes", "--set", "refs_bibliography=yes",
             "--set", "curate_review=yes", "--set", "make_ppt=yes",
             "--set", "ppt_pages=short"], verbose=verbose)
+
+        # ── 阶段 0 · 解读档位（v9）：--tier / --set / --audit ────
+        print("\n【阶段 0 · 解读档位】--tier 查询 / 改档 / --audit")
+        # ★ 最重要的三条：① --tier 退出码 0；② stdout **去空白后恰好**是
+        #   L1/L2/L3（防日志行混入后调用方静默拿到 "INFO … L2"）；
+        #   ③ 未知阶段退出码 2（而不是静默当成跳过）。
+        for stage, key in (("H", "interpret_tier"),
+                           ("H2", "review_interpret_tier"),
+                           ("R2", "review_interpret_tier")):
+            rc_t, so, _ = run_split("prepare_stage.py", wd, ["--tier", stage],
+                                    verbose=verbose)
+            val = so.strip()
+            check(f"--tier {stage} 退出码 0 且 stdout 恰为 L1/L2/L3",
+                  rc_t == 0 and val in ("L1", "L2", "L3"),
+                  f"rc={rc_t} stdout={val!r}（阶段 0 现值 {plan.get(key)!r}）")
+
+        rc_t, so_h, _ = run_split("prepare_stage.py", wd, ["--tier", "H"], verbose=verbose)
+        check("--tier stdout 无日志杂质（无换行 / 无 '===' 前缀）",
+              "\n" not in so_h.strip() and "===" not in so_h,
+              f"stdout={so_h!r}")
+
+        rc_t, _, _ = run_split("prepare_stage.py", wd, ["--tier", "ZZ"], verbose=verbose)
+        check("--tier ZZ（未知阶段）退出码 2", rc_t == 2, f"rc={rc_t}")
+
+        # 改档：L1 → --tier H 返回 L1；L3 → 返回 L3；小写 l2 也接受为 L2
+        run("prepare_stage.py", wd, ["--set", "interpret_tier=L1"], verbose=verbose)
+        _, so1, _ = run_split("prepare_stage.py", wd, ["--tier", "H"], verbose=verbose)
+        run("prepare_stage.py", wd, ["--set", "interpret_tier=L3"], verbose=verbose)
+        _, so3, _ = run_split("prepare_stage.py", wd, ["--tier", "H"], verbose=verbose)
+        check("改档生效：interpret_tier=L1 → L1；=L3 → L3",
+              so1.strip() == "L1" and so3.strip() == "L3",
+              f"L1→{so1.strip()!r} L3→{so3.strip()!r}")
+        run("prepare_stage.py", wd, ["--set", "interpret_tier=l2"], verbose=verbose)
+        plan_lc = json.loads((wd / ".work_cdp" / "prepare_plan.json").read_text(encoding="utf-8"))
+        _, so2, _ = run_split("prepare_stage.py", wd, ["--tier", "H"], verbose=verbose)
+        check("档位大小写不敏感：--set interpret_tier=l2 被接受为 L2",
+              plan_lc.get("interpret_tier") == "L2" and so2.strip() == "L2",
+              f"plan={plan_lc.get('interpret_tier')!r} stdout={so2.strip()!r}")
+
+        rc_a, so_a, se_a = run_split("prepare_stage.py", wd, ["--audit"], verbose=verbose)
+        check("--audit 退出码 0（门控齐全）", rc_a == 0,
+              ((so_a or se_a).strip().splitlines() or [""])[-1][:88])
+
+        # ★ `--set` 每次都会把**未显式给出的选项**重建为默认值，所以改档测试
+        #   必须把下游依赖的选项一并复原，否则后面的 H/H2/P 会静默落回默认闸门。
+        run("prepare_stage.py", wd, [
+            "--set", "reverse_refs=yes", "--set", "refs_bibliography=yes",
+            "--set", "curate_review=yes", "--set", "make_ppt=yes",
+            "--set", "ppt_pages=short",
+            "--set", "interpret_tier=L2", "--set", "review_interpret_tier=L3"],
+            verbose=verbose)
+        _, so_r, _ = run_split("prepare_stage.py", wd, ["--tier", "H"], verbose=verbose)
+        check("档位已复原为默认（H→L2）", so_r.strip() == "L2", f"stdout={so_r.strip()!r}")
+
+        # ── 阶段 P 读档位的容错：缺失 / 非法都只提示、不报错退出 ──
+        probe_wd = tmp / "_tier_probe"
+        (probe_wd / ".work_cdp").mkdir(parents=True, exist_ok=True)
+        probe = probe_wd / "_tier_probe.py"
+        probe.write_text(
+            "import json, sys\n"
+            f"sys.path.insert(0, {str(SDIR)!r})\n"
+            "import ppt_brief\n"
+            "print(json.dumps(ppt_brief.load_tiers(), ensure_ascii=False, sort_keys=True))\n",
+            encoding="utf-8")
+        env_p = dict(os.environ)
+        env_p["PAPER_WORKDIR"] = str(probe_wd)
+        env_p["PAPER_AUTHOR"] = AUTHOR
+        want_default = '{"interpret_tier": "L2", "review_interpret_tier": "L3"}'
+        pr = subprocess.run([sys.executable, str(probe)], cwd=str(REPO), env=env_p,
+                            capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", timeout=120)
+        check("无 prepare_plan.json 时档位回退 L2/L3 且不报错退出",
+              pr.returncode == 0 and (pr.stdout or "").strip() == want_default
+              and "回退默认" in (pr.stderr or ""),
+              f"rc={pr.returncode} stdout={(pr.stdout or '').strip()[-64:]!r} "
+              f"stderr有提示={'回退默认' in (pr.stderr or '')}")
+        (probe_wd / ".work_cdp" / "prepare_plan.json").write_text(
+            json.dumps({"interpret_tier": "LL", "review_interpret_tier": 3}),
+            encoding="utf-8")
+        pr2 = subprocess.run([sys.executable, str(probe)], cwd=str(REPO), env=env_p,
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=120)
+        check("档位非法（LL / 数字）时同样回退且不报错退出",
+              pr2.returncode == 0 and (pr2.stdout or "").strip() == want_default,
+              f"rc={pr2.returncode} stdout={(pr2.stdout or '').strip()[-64:]!r}")
 
         # ── 阶段 D2：反向查找参考文献 ─────────────────────────
         print("\n【阶段 D2】反向查找参考文献")
@@ -343,6 +509,36 @@ def main() -> int:
         rc, out = run("interpret_prepare.py", wd, [], verbose=verbose)
         check("阶段 H ① 任务包生成", rc == 0
               and (wd / ".work_cdp" / "interpret" / "manifest.json").exists())
+
+        # ★ 任务包必须带 interpret_tier：subagent **只认任务包**，不自己去问
+        #   阶段 0（见 subagent-driven-review § 6.0）。若 interpret_prepare.py
+        #   尚未接入该字段，**记为待接入而不判失败** —— 该脚本此刻可能正由
+        #   另一位 agent 修改，本自检不替它决定实现进度。
+        iman = wd / ".work_cdp" / "interpret" / "manifest.json"
+        if iman.exists():
+            im = json.loads(iman.read_text(encoding="utf-8"))
+            _, tier_h, _ = run_split("prepare_stage.py", wd, ["--tier", "H"],
+                                     verbose=verbose)
+            want_tier = tier_h.strip() or "L2"
+            man_tier = im.get("interpret_tier")
+            pkts = sorted((wd / ".work_cdp" / "interpret" / "tasks").glob("*.json"))
+            pkt_tiers = []
+            for p in pkts:
+                try:
+                    pkt_tiers.append(json.loads(p.read_text(encoding="utf-8"))
+                                     .get("interpret_tier"))
+                except Exception:
+                    pkt_tiers.append(None)
+            if man_tier is None and not any(pkt_tiers):
+                check("解读任务包含 interpret_tier（待 interpret_prepare.py 接入）",
+                      True, "manifest.json 与任务包都还没有该字段 → 记为**待接入**，不判失败")
+            else:
+                bad = [p.name for p, t in zip(pkts, pkt_tiers) if t != want_tier]
+                check("manifest.json 与每个任务包的 interpret_tier == 阶段 0 档位",
+                      man_tier == want_tier and not bad,
+                      f"manifest={man_tier!r} 期望={want_tier!r} "
+                      + (f"不符的任务包：{bad[:3]}" if bad else f"（{len(pkts)} 个任务包）"))
+
         make_fixture_cards(wd, verbose)
         rc, out = run("interpret_build.py", wd, [], verbose=verbose)
         rep = wd / f"{AUTHOR}_论文解读.md"
@@ -428,7 +624,16 @@ def main() -> int:
         PROJ = ppt_projects_dir()
         ppts = sorted(PROJ.glob(f"{AUTHOR}*"))
         before = set(ppts)
-        rc, out = run("ppt_brief.py", wd, ["--pages=short"], verbose=verbose)
+        # ★ 项目名带本次运行的唯一后缀：`project_manager.py init` 用
+        #   `<项目名>_<画布>_<YYYYMMDD>` 作目录名，**同名当天已存在就直接报错**
+        #   退出。上一次自检中断（或带 --keep）留下的同名目录会让本项永远失败，
+        #   而且失败原因看起来像"PPT 阶段坏了"，与改动无关。
+        #   加后缀后每次运行都有自己的目录，`{AUTHOR}*` 的 glob 与清理逻辑不变。
+        run_tag = time.strftime("%H%M%S")
+        rc, out = run("ppt_brief.py", wd,
+                      ["--pages=short",
+                       f"--project-name={AUTHOR}_文献汇报_自检{run_tag}"],
+                      verbose=verbose)
         after = set(sorted(PROJ.glob(f"{AUTHOR}*")))
         new = sorted(after - before)
         check("阶段 P 执行成功", rc == 0, (out.strip().splitlines() or [""])[-1][:90])
@@ -454,6 +659,32 @@ def main() -> int:
                   "知识图谱" in spec_txt and "| user | Existing |" in spec_txt)
             n_img = len(list((proj / "images").glob("*知识图谱*")))
             check("图谱已复制进项目 images/", n_img >= 1, f"{n_img} 张")
+
+            # ★ 档位必须落到**三份产物**上：source md / design_spec.md /
+            #   spec_lock.md。否则读材料的人无从知道"写浅了"是档位约定
+            #   还是漏写，而 spec_lock.md 的档位行还必须是合法 `- ` 数据行
+            #   （它是严格 schema，多一个 `##` 段就会被判 unknown section）。
+            plan_p = json.loads((wd / ".work_cdp" / "prepare_plan.json")
+                                .read_text(encoding="utf-8"))
+            wa = plan_p.get("interpret_tier") or "L2"
+            wr = plan_p.get("review_interpret_tier") or "L3"
+            lock_txt = (proj / "spec_lock.md").read_text(encoding="utf-8")
+            sdir = proj / "sources"
+            src_txt = ""
+            if sdir.is_dir():
+                cands = sorted(sdir.glob("*.md"))
+                if cands:
+                    src_txt = cands[0].read_text(encoding="utf-8")
+            marks = {"design_spec.md": f"作者论文解读 {wa}" in spec_txt
+                     and f"研究方向综述 {wr}" in spec_txt,
+                     "spec_lock.md": f"作者论文解读 {wa}" in lock_txt
+                     and f"研究方向综述 {wr}" in lock_txt,
+                     "source md": f"作者论文解读 {wa}" in src_txt
+                     and f"研究方向综述 {wr}" in src_txt}
+            check("档位记录进 source md / design_spec.md / spec_lock.md",
+                  all(marks.values()),
+                  f"阶段 0 档位 H={wa} H2={wr}；"
+                  + "、".join(f"{k}={'✓' if v else '✗'}" for k, v in marks.items()))
             if not keep:
                 shutil.rmtree(proj, ignore_errors=True)
         else:

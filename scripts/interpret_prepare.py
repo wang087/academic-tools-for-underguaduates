@@ -16,18 +16,26 @@
 #   abstracts_openalex.json（可选）      —— 摘要语料
 #   disambiguated.json（可选）           —— 同名他人排除名单（scope.py）
 #   .work_cdp/pdf_index.json（可选）     —— DOI → 文件名 登记表
+#   prepare_plan.json（可选）            —— 阶段 0 计划；读其中的 interpret_tier（解读档位）
 # 全文 PDF：<WORKDIR>/<作者名>_paper_Exports/*.pdf
 #
 # 产出：
-#   <WORKDIR>/.work_cdp/interpret/tasks/<NN>_<doi-slug>.json   单篇任务包
-#   <WORKDIR>/.work_cdp/interpret/manifest.json                任务清单 + 统计
+#   <WORKDIR>/.work_cdp/interpret/tasks/<NN>_<doi-slug>.json   单篇任务包（含 interpret_tier）
+#   <WORKDIR>/.work_cdp/interpret/manifest.json                任务清单 + 统计（含 interpret_tier）
+#
+# 解读档位（L1 精简 / L2 详细 / L3 完整）：
+#   ★ 档位是**参数**，不是闸门 —— 读不到就用默认 L2，绝不因此中断。
+#   优先级：命令行 --tier → prepare_plan.json 的 interpret_tier → 默认 L2。
+#   档位语义见 skill：paper-interpretation-writing（三档只差细节量，不差语气强度）。
 #
 # 用法：
 #   uv run --with pypdf python interpret_prepare.py
+#     --tier=L1|L2|L3        解读档位（覆盖 prepare_plan.json；缺省走计划文件）
 #     --max-chars=60000      单篇正文截断上限（超出即截断并标注）
 #     --only=<DOI,DOI>       只准备指定 DOI
 #     --no-text              只出题录与摘要（不读 PDF）
 #     --limit=N              只准备前 N 篇（按年份升序）
+#     --help                 显示帮助
 #
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
@@ -57,6 +65,38 @@ TASKDIR = OUTDIR / "tasks"
 RESDIR = OUTDIR / "results"
 FULLDIR = OUTDIR / "fulltext"        # 超长论文的完整文本（任务包只带「头+尾」）
 FIGDIR = pathlib.Path(os.environ.get("PAPER_INTERPRET_FIGURES_DIR", str(OUTDIR / "figures")))
+PLAN_PATH = CDPDIR / "prepare_plan.json"     # 阶段 0 的单一事实源：档位从这里读
+
+# ── 解读档位（interpret_tier）────────────────────────────────
+#   ★ 三档只差**细节量**（L1 ⊂ L2 ⊂ L3），不差语气强度；规范见
+#     skill：paper-interpretation-writing/references/tier-specs.md。
+#   ★ 档位是**参数**不是闸门：计划文件缺失或取值非法一律回退默认 L2 并说明一句，
+#     绝不因此中断整个阶段 H。只有命令行**显式**给错才报错退出（那是拼写错误，
+#     静默接受会让人以为改档生效了）。
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L2"
+TIER_LABEL = {"L1": "精简", "L2": "详细", "L3": "完整"}
+
+USAGE = """阶段 H ①：为并行 subagent 组装单篇解读任务包（只读本地文件，不联网）
+
+用法：
+  python 流程1/scripts/interpret_prepare.py [选项]
+
+选项：
+  --tier=L1|L2|L3  解读档位（覆盖 prepare_plan.json 里的 interpret_tier）
+                   L1 精简 / L2 详细（默认） / L3 完整
+  --max-chars=N    单篇正文截断上限（默认 60000）
+  --only=DOI,DOI   只准备指定 DOI
+  --no-text        只出题录与摘要（不读 PDF）
+  --limit=N        只准备前 N 篇（按年份升序）
+  -h, --help       显示本帮助并退出
+
+档位优先级：--tier → <WORKDIR>/.work_cdp/prepare_plan.json 的 interpret_tier → 默认 L2
+
+产出：
+  <WORKDIR>/.work_cdp/interpret/tasks/*.json    单篇任务包（每个都带 interpret_tier）
+  <WORKDIR>/.work_cdp/interpret/manifest.json   任务清单 + 统计（含 interpret_tier）
+"""
 
 
 def _arg(name: str, default=None):
@@ -64,6 +104,76 @@ def _arg(name: str, default=None):
         if a.startswith(f"--{name}="):
             return a.split("=", 1)[1]
     return default
+
+
+def _tier_arg():
+    """取 `--tier` 的原始值；未给返回 None。
+
+    ★ 两种写法都认（`--tier L3` 与 `--tier=L3`）：只认 `=` 形式时，
+      `--tier L3` 会被静默忽略、档位退回计划文件 —— 用户以为改了档其实没改。
+      这与 prepare_stage.py `_arg()` 的取舍一致（见那里的注释）。
+    """
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a.startswith("--tier="):
+            return a.split("=", 1)[1]
+        if a == "--tier":
+            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                return argv[i + 1]
+            return ""            # 裸 --tier 无值 → 交给 resolve_tier 报错
+    return None
+
+
+def _norm_tier(v):
+    """规范化为 L1/L2/L3；非法返回 None。
+
+    ★ 大小写不敏感但**返回规范写法**：`--tier l2` 落到 "L2"，
+      否则下游按 "L2" 比对时永远不相等（prepare_stage.coerce 同款处理）。
+    """
+    if not isinstance(v, str):
+        return None
+    s = v.strip().upper()
+    return s if s in TIER_VALUES else None
+
+
+def load_plan():
+    """读 prepare_plan.json；缺失或无法解析返回 None（不报错 —— 它只是可选输入）。"""
+    if not PLAN_PATH.exists():
+        return None
+    try:
+        d = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def resolve_tier(cli_raw) -> tuple[str, str]:
+    """返回 (档位, 来源)。来源 ∈ cli | plan | default | invalid-cli。
+
+    优先级：命令行 --tier → prepare_plan.json 的 interpret_tier → 默认 L2。
+    """
+    if cli_raw is not None:
+        t = _norm_tier(cli_raw)
+        if t:
+            return t, "cli"
+        return "", "invalid-cli"
+
+    plan = load_plan()
+    if plan is None:
+        raw = None
+        why = f"未读到可用的 {PLAN_PATH}（缺失或无法解析）"
+    else:
+        raw = plan.get("interpret_tier")
+        if raw is None:
+            why = f"{PLAN_PATH} 里没有 interpret_tier 字段"
+        else:
+            why = f"{PLAN_PATH} 的 interpret_tier 取值非法：{raw!r}"
+    t = _norm_tier(raw)
+    if t:
+        return t, "plan"
+    print(f"ℹ {why} → 解读档位回退**默认 {DEFAULT_TIER}**（{TIER_LABEL[DEFAULT_TIER]}）。"
+          f"可用 --tier L1|L2|L3 指定，或先跑阶段 0 确认。", file=sys.stderr)
+    return DEFAULT_TIER, "default"
 
 
 def load_records() -> dict:
@@ -215,10 +325,21 @@ def my_position(authors, tokens) -> str:
 
 
 def main() -> int:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(USAGE)
+        return 0
+
     max_chars = int(_arg("max-chars", "60000") or 60000)
     only = [d.strip().lower() for d in (_arg("only", "") or "").split(",") if d.strip()]
     no_text = "--no-text" in sys.argv
     limit = int(_arg("limit", "0") or 0)
+
+    # ★ 档位在**任何文件检查之前**解析：它只影响任务包内容，不该被题录缺失拦住。
+    tier, tier_src = resolve_tier(_tier_arg())
+    if tier_src == "invalid-cli":
+        print(f"✗ --tier 取值非法：{_tier_arg()!r}；可用：{'、'.join(TIER_VALUES)}"
+              f"（L1 精简 / L2 详细 / L3 完整）", file=sys.stderr)
+        return 2
 
     if not (CDPDIR / "crossref_all.json").exists() and not (CDPDIR / "master.json").exists():
         print("✗ 找不到题录总表 .work_cdp/crossref_all.json")
@@ -315,6 +436,9 @@ def main() -> int:
 
         packet = {
             "seq": seq,
+            # ★ 档位随任务包**一起下发**：subagent 不必再去问阶段 0，
+            #   下游 interpret_build.py 也据此选渲染档位（见其 resolve_tier）。
+            "interpret_tier": tier,
             "doi": doi,
             "title": title,
             "journal": rec.get("journal") or rec.get("short_journal") or "",
@@ -377,6 +501,9 @@ def main() -> int:
     (OUTDIR / "manifest.json").write_text(
         json.dumps({"workdir": str(WD), "exports": str(exports),
                     "max_chars": max_chars, "count": len(manifest),
+                    # ★ 档位写进清单顶层：任务包被清理或换版时，
+                    #   汇总脚本仍能从这里读到本轮用的档位（回退链的第二级）。
+                    "interpret_tier": tier,
                     "fulltext": n_full, "abstract_only": n_abs,
                     "tasks": manifest}, ensure_ascii=False, indent=1),
         encoding="utf-8")
@@ -388,6 +515,12 @@ def main() -> int:
     n_empty = sum(1 for m in manifest
                   if not m["text_chars"] and not m["abstract_chars"])
     print(f"\n✅ 已生成 {len(manifest)} 个任务包 → {TASKDIR}")
+    print(f"   解读档位：{tier}（{TIER_LABEL[tier]}）")
+    if tier_src == "cli":
+        print("   （来源：命令行 --tier 覆盖了阶段 0 的选择）")
+    elif tier_src == "default":
+        print(f"   （来源：默认值 —— 未读到阶段 0 的档位；"
+              f"建议在阶段 0 用 `--set interpret_tier={tier}` 确认）")
     print(f"   全文级 {n_full} 篇 ｜ 仅摘要 {n_abs} 篇")
     if n_trunc:
         print(f"   ℹ {n_trunc} 篇正文超长：任务包**保留开头 60% + 结尾 40%**"

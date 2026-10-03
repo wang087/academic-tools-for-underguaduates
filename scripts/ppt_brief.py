@@ -102,6 +102,27 @@ CANVAS = {
 
 PAGE_BUDGET = {"short": (10, 14), "standard": (16, 22), "long": (24, 32)}
 
+# ══════════════════════════════════════════════════════════════
+# 解读档位（v9）—— 阶段 0 决定「素材写多深」，阶段 P 只**如实引用**
+#
+#   `interpret_tier`         阶段 H（作者论文）用       默认 L2
+#   `review_interpret_tier`  阶段 H2 / R2（综述类）用    默认 L3
+#
+#   ★ 档位不是开关，而是**参数**（阶段 0 的选项 gates 为空），所以不能用
+#     `prepare_stage.py --check` 问，要读 `prepare_plan.json` 或 `--tier`。
+#   ★ 档位只改变素材的**细节量**，不改变断言强度（见 skill
+#     `paper-interpretation-writing`）。低档位会让 PPT 少掉一整个维度
+#     （如 L1 的解读卡没有 `methods`），所以必须**在产物里写明**，
+#     而不是静默少写一节。
+#   ★ 缺失 / 非法时回退默认值并**在 stderr 提示**，绝不因此中断阶段 P ——
+#     档位是"素材深度的说明"，不是生成 PPT 的前置条件。
+# ══════════════════════════════════════════════════════════════
+TIER_DEFAULTS = {"interpret_tier": "L2", "review_interpret_tier": "L3"}
+TIER_VALUES = ("L1", "L2", "L3")
+TIER_STAGE_LABEL = {"interpret_tier": "作者论文解读（阶段 H）",
+                    "review_interpret_tier": "研究方向综述（阶段 H2 / R2）"}
+
+
 # 日期不参与逻辑，只写进 §I；用文件系统时间而不是当前时间，便于复现
 def today() -> str:
     import datetime
@@ -128,6 +149,38 @@ def load_json(p: pathlib.Path, default=None):
 def one_line(v, n: int = 0) -> str:
     s = re.sub(r"\s+", " ", str(v or "")).strip()
     return (s[:n - 1] + "…") if (n and len(s) > n) else s
+
+
+def load_tiers() -> dict:
+    """读阶段 0 确认的解读档位；缺失 / 非法时回退默认值**并提示，但不报错退出**。
+
+    ★ 为什么回退而不报错：档位只决定"素材写多深"，缺了它 PPT 照样能做
+      （用默认档位即可）。让它中断阶段 P 是把一个**说明性参数**升格成硬依赖，
+      代价远大于收益。但**必须提示** —— 静默用默认值会让人以为阶段 0 已确认过。
+    ★ 大小写不敏感：`l2` / `L2` 都接受，统一成规范写法。
+    """
+    plan = load_json(CDPDIR / "prepare_plan.json", {}) or {}
+    out = {}
+    for key, default in TIER_DEFAULTS.items():
+        raw = plan.get(key)
+        if isinstance(raw, str) and raw.strip().upper() in TIER_VALUES:
+            out[key] = raw.strip().upper()
+            continue
+        why = "prepare_plan.json 里没有该键" if key not in plan else f"取值非法：{raw!r}"
+        print(f"⚠ 解读档位 {key} 不可用（{why}）→ 回退默认 {default}"
+              f"［{TIER_STAGE_LABEL[key]}］。"
+              f"如需改档：python 流程1/scripts/prepare_stage.py --set {key}={default}",
+              file=sys.stderr)
+        out[key] = default
+    return out
+
+
+def tier_line(tiers: dict) -> str:
+    """材料来源说明处的那一行档位记录（design_spec / source md / 控制台共用）。"""
+    t = tiers or dict(TIER_DEFAULTS)
+    return (f"> 素材档位：作者论文解读 {t.get('interpret_tier', 'L2')}；"
+            f"研究方向综述 {t.get('review_interpret_tier', 'L3')}"
+            f"（阶段 0 确认，可在阶段 0 改档）")
 
 
 def find_ppt_dir(explicit: str = "") -> pathlib.Path | None:
@@ -185,6 +238,11 @@ def collect_highlights() -> list[dict]:
                 "key_20": [one_line(x) for x in (c.get("key_20") or [])][:3],
                 "gains": [g for g in (c.get("quantified_gains") or []) if isinstance(g, dict)][:2],
                 "direction_tags": c.get("direction_tags") or [],
+                # ★ 记录卡里**实际**有几条方法论：档位是"预期"，
+                #   卡里有没有这个字段是"事实"。L1 按规范恒为 []（属约定），
+                #   而 L2/L3 下为空则说明素材真的缺 —— 两者必须能区分，
+                #   否则产物会把"作者没做方法"和"低档位不写方法"混为一谈。
+                "n_methods": len(c.get("methods") or []),
                 "is_review_source": False,
             })
     out.sort(key=lambda x: -(x.get("year") or 0))
@@ -231,6 +289,44 @@ def collect_review() -> dict:
         "conclusions": [one_line(x) for c in cards
                         for x in (c.get("verified_conclusions") or [])][:6],
     }
+
+
+def material_limits(highlights, review, tiers) -> dict:
+    """按**档位 + 卡内实际字段**列出「素材受限」之处，供产物如实声明。
+
+    ★ 返回 {'author': [...], 'review': [...]}：分来源，因为两类受限要写在
+      不同的页面上（作者受限写在亮点页，综述受限写在网络 / 缺口页）。
+    ★ 为什么不只按档位判断：档位是**预期**，卡里到底有没有那个字段是**事实**。
+      两者不一致时（档位 L2/L3 但 `methods` 全空）必须按事实说明 —— 否则
+      PPT 的亮点页会静默少掉一个维度，读者会误以为"作者没做方法"。
+    ★ 低档位本就不写某些字段（L1 的 `methods` 恒为 `[]`，见
+      `paper-interpretation-writing/references/tier-specs.md`）—— 这是**约定**，
+      不是缺卡，措辞必须与"真的缺"区分开。
+    ★ 这一节的存在就是为了落实「不要静默产出空页」：宁可少一页并写明原因，
+      也不让读者对着空白页猜。
+    """
+    t = tiers or dict(TIER_DEFAULTS)
+    author, rv = [], []
+
+    if t.get("interpret_tier") == "L1":
+        author.append("作者论文解读按 L1 产出：按档位规范不含「方法论」清单、"
+                      "误差项与样本量 —— 亮点页只写定位、主要成就与结论性数字，"
+                      "**不补写方法学内容**")
+    elif highlights and not any(h.get("n_methods") for h in highlights):
+        author.append("作者论文解读卡的 `methods` 全为空（与档位 "
+                      f"{t.get('interpret_tier', 'L2')} 的预期不符）—— "
+                      "亮点页给不出方法线；如需方法学内容，"
+                      "请把 `interpret_tier` 提到 L2/L3 后重跑阶段 H")
+
+    if t.get("review_interpret_tier") == "L1":
+        rv.append("研究方向综述按 L1 产出：结论与缺口只留最硬的几条 —— "
+                  "综述网络页的结论 / 缺口密度相应偏低（属档位约定，非缺卡）")
+    if review.get("cards") and not review.get("conclusions") \
+            and not review.get("gaps"):
+        rv.append("综述解读卡里既没有已验证结论也没有自述局限 —— "
+                  "缺口页会如实写「未收集到自述局限」，不代填")
+
+    return {"author": author, "review": rv}
 
 
 def png_size(p: pathlib.Path) -> tuple[int, int]:
@@ -338,7 +434,8 @@ def collect_direction_review() -> dict:
     return by_dir
 
 
-def build_source_md(highlights, review, title, graphs=None, dirmap=None) -> str:
+def build_source_md(highlights, review, title, graphs=None, dirmap=None,
+                    tiers=None) -> str:
     """给 ppt-master 的 source（Markdown）。它会被 Step 1/2 原样导入。"""
     L = [f"# {title} —— 汇报材料", ""]
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
@@ -346,6 +443,13 @@ def build_source_md(highlights, review, title, graphs=None, dirmap=None) -> str:
         L.append(f"> ORCID：{ORCID}")
     L.append("> 本材料由《流程》作者论文分析流水线自动汇编，"
              "内容取自《{}_论文解读.md》与《{}_研究方向综述.md》。".format(AUTHOR, AUTHOR))
+    # ★ 材料来源说明处记录两个档位：读这份材料的人（以及下游 agent）
+    #   必须知道每个来源写到了多深，否则会把"档位低"误读成"作者没做"。
+    L.append(tier_line(tiers))
+    limits = material_limits(highlights, review, tiers)
+    for group, key in (("作者论文解读", "author"), ("研究方向综述", "review")):
+        for note in limits[key]:
+            L.append(f"> ⚠ **素材受限（{group}）**：{note}")
     L.append("")
 
     L.append("## 一、作者文献亮点")
@@ -479,7 +583,7 @@ PALETTE = [
 
 
 def build_slides(highlights, review, pages_budget, title="",
-                 graphs=None, dirmap=None) -> list[tuple[str, list[str]]]:
+                 graphs=None, dirmap=None, tiers=None) -> list[tuple[str, list[str]]]:
     """按素材实际能支撑的量生成页面清单。
 
     ★ 为什么页数要**由内容倒推**而不是直接写预算上限：
@@ -492,6 +596,11 @@ def build_slides(highlights, review, pages_budget, title="",
     # 固定页：封面 / 地图 / 综述规模 / 缺口 / 结论 = 5；其余额度分给亮点页
     FIXED = 5
     n_h = max(1, min(len(highlights), n_high - FIXED - 2)) if highlights else 0
+
+    # ★ 素材受限说明：按**档位 + 卡内实际字段**算出来，写进对应页。
+    #   低档位（L1）会让亮点页缺「方法论」、让缺口页只剩少数几条 ——
+    #   这是档位约定，但**必须写在页上**，否则读者会当成"作者没做 / 没局限"。
+    limits = material_limits(highlights, review, tiers)
 
     p1, p2, p3, p4 = [], [], [], []
 
@@ -515,7 +624,7 @@ def build_slides(highlights, review, pages_budget, title="",
     ]))
 
     if highlights:
-        for h in highlights[:n_h]:
+        for i_h, h in enumerate(highlights[:n_h]):
             blk = [
                 f"#### Slide @ - 亮点：{one_line(h['title'], 40)}", "",
                 "- **Audience move**: 不了解该工作 → 记住它解决了什么问题",
@@ -530,6 +639,11 @@ def build_slides(highlights, review, pages_budget, title="",
                 blk.append(f"- **量化**: {g.get('metric', '')} = {g.get('value', '')}"
                            f"（{g.get('context', '')}）")
             blk.append(f"- **来源**: {h.get('venue') or '—'} {h.get('year') or ''}")
+            # ★ 素材受限只写在**第一张**亮点页上：写在每一张会变成噪音，
+            #   而漏写则会让"方法线缺失"被误读成"作者没做方法"。
+            if i_h == 0:
+                for note in limits["author"]:
+                    blk.append(f"- **素材受限**: {note}")
             blk.append("")
             p2.append("\n".join(blk))
     else:
@@ -590,8 +704,8 @@ def build_slides(highlights, review, pages_budget, title="",
         "- **Title**: 还没解决的问题", "",
         "- **Core message**: 以下缺口全部来自文献作者自述，非本流程推断",
         "- **Content**: " + ("；".join(review["gaps"]) if review["gaps"]
-                            else "（未收集到自述局限）"), "",
-    ]))
+                            else "（未收集到自述局限）"),
+    ] + [f"- **素材受限**: {note}" for note in limits["review"]] + [""]))
     p4.append("\n".join([
         "#### Slide @ - 结论页", "",
         "- **Audience move**: 听完 → 带走一句话",
@@ -654,7 +768,7 @@ def tagline_or(review) -> str:
 
 
 def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
-                    review, audience, graphs=None) -> str:
+                    review, audience, graphs=None, tiers=None) -> str:
     fmt, vb = CANVAS[canvas_key]
     n_pages = sum(len(b) for _, b in parts)
     tagline = tagline_or(review)
@@ -793,6 +907,13 @@ def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
     L.append("")
     L.append("---")
     L.append("")
+    # ★ 材料来源说明处记录档位 + 素材受限。design_spec 是执行者唯一的
+    #   版面依据，档位信息落在这里，才能让"少写的部分"有据可查。
+    L.append(tier_line(tiers))
+    limits = material_limits(highlights, review, tiers)
+    for group, key in (("作者论文解读", "author"), ("研究方向综述", "review")):
+        for note in limits[key]:
+            L.append(f"> ⚠ **素材受限（{group}）**：{note}")
     L.append(f"> **素材来源**：`{source_rel}`（本 Spec 的全部事实均取自该文件，"
              "不引入外部新事实）。")
     L.append("> **生成方式**：由《流程》阶段 P 的 `ppt_brief.py` **确定性生成**，"
@@ -802,8 +923,9 @@ def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
     return "\n".join(L)
 
 
-def gen_spec_lock(title, canvas_key, n_pages, audience) -> str:
+def gen_spec_lock(title, canvas_key, n_pages, audience, tiers=None) -> str:
     fmt, vb = CANVAS[canvas_key]
+    t = tiers or dict(TIER_DEFAULTS)
     L = []
     L.append("<!-- ppt-master-schema: spec-lock/v1 -->")
     L.append("# Execution Lock")
@@ -859,6 +981,16 @@ def gen_spec_lock(title, canvas_key, n_pages, audience) -> str:
              "event attributes, `<iframe>`")
     L.append("- HTML named entities in text; write typography as raw Unicode and "
              "escape XML reserved characters")
+    # ★ 为什么档位写在 `## forbidden` 段里：spec_lock.md 是**严格 schema**
+    #   （`x-markdown.strict_lines`）—— 多一个 `##` 段会被 project_manager 判为
+    #   `unknown section`，往 `## communication` 里加字段会被判为
+    #   `unknown field`（都已实测）。`forbidden` 是唯一允许任意 `- ` 行的段，
+    #   它同时会被 page_context 当作**本项目附加约束**传给下游 —— 正好合适：
+    #   档位在这里的语义就是一条禁令（不得超出素材深度补写）。
+    L.append("- 素材档位（阶段 0 确认，可在阶段 0 改档）："
+             f"作者论文解读 {t.get('interpret_tier', 'L2')} / "
+             f"研究方向综述 {t.get('review_interpret_tier', 'L3')} —— "
+             "不得超出该档位的素材深度自行补写内容；素材没有的部分如实留白，不代填")
     L.append("")
     return "\n".join(L)
 
@@ -919,11 +1051,97 @@ def self_test() -> int:
 
     assert PAGE_BUDGET["short"][1] == 14 and PAGE_BUDGET["long"][0] == 24
     print("页数预算：通过")
+
+    # ── 解读档位（v9）──────────────────────────────────────────
+    assert TIER_DEFAULTS == {"interpret_tier": "L2", "review_interpret_tier": "L3"}
+    tl = tier_line({"interpret_tier": "L1", "review_interpret_tier": "L3"})
+    assert tl.startswith("> 素材档位：") and "L1" in tl and "L3" in tl
+    print("档位行：通过（默认 L2 / L3，文案含两个档位）")
+
+    # 低档位必须在**产物里**如实说明素材受限，不能静默少写
+    lim_l1 = material_limits(hl, review, {"interpret_tier": "L1",
+                                          "review_interpret_tier": "L1"})
+    assert lim_l1["author"] and lim_l1["review"], lim_l1
+    assert "方法论" in lim_l1["author"][0]
+    # L2/L3 且卡里确有方法 → 不应报"素材受限"
+    hl_m = [dict(hl[0], n_methods=3)]
+    lim_ok = material_limits(hl_m, review, TIER_DEFAULTS)
+    assert not lim_ok["author"], lim_ok
+    # L2/L3 但卡里方法全空 → 必须按**事实**报出来
+    lim_gap = material_limits(hl, review, TIER_DEFAULTS)
+    assert lim_gap["author"] and "methods" in lim_gap["author"][0], lim_gap
+    # 综述卡非空却既无结论也无缺口 → 如实说明，不代填
+    lim_rv = material_limits([], {"cards": [{}], "conclusions": [], "gaps": []},
+                            TIER_DEFAULTS)
+    assert lim_rv["review"], lim_rv
+    print("素材受限申报：通过（按档位 + 卡内实际字段，分来源给出）")
+
+    # 档位必须落到三份产物上：source md / design_spec / spec_lock
+    tiers = {"interpret_tier": "L1", "review_interpret_tier": "L3"}
+    src = build_source_md(hl, review, "测试标题", tiers=tiers)
+    assert "素材档位：作者论文解读 L1；研究方向综述 L3" in src, "source md 未记录档位"
+    assert "素材受限" in src, "source md 未申报素材受限"
+    ds_t = gen_design_spec("测试标题", "ppt169", parts, "sources/x.md",
+                           hl, review, "课题组", tiers=tiers)
+    assert "素材档位：作者论文解读 L1；研究方向综述 L3" in ds_t, "design_spec 未记录档位"
+    assert "素材受限" in ds_t, "design_spec 未申报素材受限"
+    # ★ 档位说明不得挤进 §I 的表格区（自带断言禁止 §I 出现 "]"，这里再钉一次）
+    assert "]" not in ds_t.split("## I.")[1].split("## II.")[0]
+    # 页数契约在带档位参数时依然成立
+    d_t = int(re.search(r"\|\s*Page Count\s*\|\s*(\d+)\s*\|", ds_t).group(1))
+    a_t = len(re.findall(r"^#### Slide \d+", ds_t, re.M))
+    assert d_t == a_t, (d_t, a_t)
+    lock_t = gen_spec_lock("测试标题", "ppt169", 12, "课题组", tiers=tiers)
+    assert "素材档位" in lock_t and "作者论文解读 L1" in lock_t, "spec_lock 未记录档位"
+    # ★ spec_lock 是严格 schema（phase_context/project_manager 都会解析）：
+    #   新加的档位行必须是合法 `- ` 数据行，且不能引入新段。
+    for ln in lock_t.splitlines():
+        if not ln.strip() or ln.startswith("<!--"):
+            continue
+        assert ln.startswith(("# ", "## ", "- ")), f"非法行：{ln!r}"
+    assert len(re.findall(r"^## ", lock_t, re.M)) == \
+        len(re.findall(r"^## ", lock, re.M)), "spec_lock 段数被改变（schema 会判 unknown section）"
+    assert "[fill" not in lock_t
+    # 低档位必须出现在页面上（不静默产出"没写方法"的亮点页）
+    p_l1 = build_slides(hl, review, PAGE_BUDGET["short"], title="测试标题",
+                        tiers=tiers)
+    assert any("素材受限" in b for _, bs in p_l1 for b in bs), "低档位未写进任何页面"
+    print("档位落到产物：通过（source md / design_spec / spec_lock / §IX 页面各就位）")
     print("\n✅ 自检全部通过")
     return 0
 
 
 def main() -> int:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        # ★ 为什么要有 --help：这个脚本的参数不少（含 --dry-run / --self-test），
+        #   而在它之前 `--help` 会**落进主流程**去读工作目录、报"素材为空"并退出 2
+        #   —— 一个查询型开关把调用方引到了"流程出错"的结论上。
+        print(
+            "用法：python 流程1/scripts/ppt_brief.py [选项]\n"
+            "\n"
+            "阶段 P：把阶段 H 的解读卡与阶段 H2 的综述结果汇编成 ppt-master 的\n"
+            "source，并**确定性生成** design_spec.md / spec_lock.md（简化 Strategist）。\n"
+            "素材档位（interpret_tier / review_interpret_tier）读自阶段 0 的\n"
+            "  <PAPER_WORKDIR>/.work_cdp/prepare_plan.json；缺失或非法时回退\n"
+            "  L2 / L3 并在 stderr 提示，不报错退出。\n"
+            "\n"
+            "选项：\n"
+            "  --ppt-dir=<路径>      ppt-master 仓库根（默认自动探测）\n"
+            "  --project-name=<名>   项目名（默认 <作者名>_文献汇报）\n"
+            "  --title=<标题>        PPT 标题（默认「<作者名> 研究工作汇报」）\n"
+            "  --pages=short|standard|long   页数预算（默认读 prepare_plan.json\n"
+            "                       的 ppt_pages，再默认 standard）\n"
+            "  --canvas=ppt169|ppt43         画布格式（默认 ppt169）\n"
+            "  --lang=zh-CN          内容语言\n"
+            "  --audience=<文本>     受众描述\n"
+            "  --dry-run             只打印将要写什么，不落盘、不调 ppt-master\n"
+            "  --no-graphs           不接入阶段 K 的图谱与方向综述整理\n"
+            "  --self-test           纯逻辑自检（不联网、不落盘）\n"
+            "  -h, --help            显示本帮助\n"
+            "\n"
+            "环境变量：PAPER_WORKDIR / PAPER_AUTHOR / PAPER_AFFIL / PAPER_ORCID /\n"
+            "          PPT_MASTER_DIR")
+        return 0
     if "--self-test" in sys.argv:
         return self_test()
 
@@ -934,6 +1152,11 @@ def main() -> int:
     if pages not in PAGE_BUDGET:
         print(f"✗ --pages 取值 {pages!r} 不在 {list(PAGE_BUDGET)} 内")
         return 2
+    # ★ 档位在任何产物之前先解析：缺失/非法只提示不中断（见 load_tiers）。
+    tiers = load_tiers()
+    print(f"素材档位：作者论文解读 {tiers['interpret_tier']}；"
+          f"研究方向综述 {tiers['review_interpret_tier']}"
+          f"（来自阶段 0 的 prepare_plan.json；改档见 prepare_stage.py --set）")
     canvas = _argval("canvas", "ppt169")
     if canvas not in CANVAS:
         print(f"✗ --canvas 取值 {canvas!r} 不在 {list(CANVAS)} 内")
@@ -956,6 +1179,12 @@ def main() -> int:
         print("  请先跑阶段 H 与阶段 H2，再执行本阶段。")
         return 2
     print(f"素材：论文亮点 {len(highlights)} 条；综述解读卡 {len(review['cards'])} 条")
+    # ★ 素材受限如实打印到 stdout，让人**在生成阶段就知道**哪一段会薄，
+    #   而不是等拿到 PPT 才发现少了一节。
+    _limits = material_limits(highlights, review, tiers)
+    for _g, _k in (("作者论文解读", "author"), ("研究方向综述", "review")):
+        for _note in _limits[_k]:
+            print(f"ℹ 素材受限（{_g}）：{_note}")
 
     # ── v7.2：接入阶段 K 的图谱 + 方向综述整理 ──────────────────
     graphs = [] if "--no-graphs" in sys.argv else collect_graphs()
@@ -967,15 +1196,16 @@ def main() -> int:
           + ("（无 review 卡 → 需先跑阶段 H2 ② ③）" if not dirmap else ""))
 
     source_md = build_source_md(highlights, review, title,
-                                graphs=graphs, dirmap=dirmap)
+                                graphs=graphs, dirmap=dirmap, tiers=tiers)
     n_low, n_high = PAGE_BUDGET[pages]
     parts = build_slides(highlights, review, PAGE_BUDGET[pages], title=title,
-                         graphs=graphs, dirmap=dirmap)
+                         graphs=graphs, dirmap=dirmap, tiers=tiers)
     n_pages = sum(len(b) for _, b in parts)
     spec = gen_design_spec(title, canvas, parts,
                            f"sources/{AUTHOR}_汇报材料.md",
-                           highlights, review, audience, graphs=graphs)
-    lock = gen_spec_lock(title, canvas, n_pages, audience)
+                           highlights, review, audience, graphs=graphs,
+                           tiers=tiers)
+    lock = gen_spec_lock(title, canvas, n_pages, audience, tiers=tiers)
     if n_pages < n_low:
         print(f"ℹ 素材只支撑 {n_pages} 页（{pages} 档预算 {n_low}–{n_high} 页）—— "
               f"**按实际页数写 Spec**，不补内容凑页数。"
@@ -1063,7 +1293,9 @@ def main() -> int:
     print(f"\n项目路径：{proj_path}")
     journal("P", "ppt.brief", project=str(proj_path), canvas=canvas,
             n_pages=n_pages, n_highlights=len(highlights),
-            n_review_cards=len(review["cards"]), validate_ok=ok, lang=lang)
+            n_review_cards=len(review["cards"]), validate_ok=ok, lang=lang,
+            interpret_tier=tiers["interpret_tier"],
+            review_interpret_tier=tiers["review_interpret_tier"])
     log.info(f"✓ 阶段 P（材料与 Spec 生成）完成 → {proj_path}")
     return 0
 

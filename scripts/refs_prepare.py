@@ -25,7 +25,15 @@
 #     --top=40            只准备相关性最高的前 N 条（0=全部；默认 0）
 #     --only=DOI1,DOI2    只准备指定 DOI
 #     --max-chars=12000   摘要超长时的截断上限（摘要一般远小于此）
+#     --tier=L1|L2|L3     覆盖综述解读档位（可选；缺省读
+#                         `.work_cdp/prepare_plan.json` 的 review_interpret_tier，
+#                         再退回**默认 L3**）
 #     --self-test         纯逻辑自检（不联网）
+#
+# ★ 综述解读档位（阶段 H2 用 `review_interpret_tier`）
+#   档位是**参数不是闸门**：计划文件缺失或取值非法时只提示并回退 L3，不中断流程。
+#   本脚本只负责把档位**如实带进每个任务包与 manifest**（供 refs_build 与 subagent 读取），
+#   不改变任何既有渲染行为。语义见 skill：`paper-interpretation-writing`。
 #
 # 可移植配置：PAPER_WORKDIR / PAPER_AUTHOR
 # ─────────────────────────────────────────────────────────────
@@ -86,11 +94,100 @@ TPL = _HERE.parent / "templates"
 AUTHOR = (os.environ.get("PAPER_AUTHOR", "").strip() or WD.name)
 
 
+# ══════════════════════════════════════════════════════════════
+# 综述解读档位（阶段 H2 / R2 共用 `review_interpret_tier`）
+#
+# ★ 为什么这四个脚本各存一份助手函数而**不互相 import**：
+#   本流程的脚本彼此 import 会带来模块级副作用与 stdout 重包的坑
+#   （见 `_fix_streams` 的注释：中间层 wrapper 被 GC 会关掉底层 buffer）。
+#   档位解析只有几十行，自包含更稳，也避免 refs_build → refs_prepare 的方向反转。
+#
+# ★ 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
+#   计划文件缺失/损坏/取值非法只能提示 + 回退默认，绝不报错退出。
+# ══════════════════════════════════════════════════════════════
+TIER_KEY = "review_interpret_tier"          # prepare_plan.json 里的键
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L3"                         # 综述类交付物的默认档位
+TIER_LABELS = {"L1": "精简", "L2": "详细", "L3": "完整"}
+PLAN_PATH = CDPDIR / "prepare_plan.json"    # 阶段 0 的单一事实源
+
+
+def normalize_tier(raw) -> str:
+    """把任意输入规范化成 L1/L2/L3（大小写不敏感）；无法识别返回空串。"""
+    s = str(raw or "").strip().upper()
+    return s if s in TIER_VALUES else ""
+
+
+def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
+    """读阶段 0 的 `review_interpret_tier`。
+
+    返回 (档位, 提示语)；提示语非空表示发生了**回退**（调用方负责打到 stderr）。
+    """
+    p = plan_path or PLAN_PATH
+    if not p.exists():
+        return DEFAULT_TIER, (f"⚠ 找不到 {p}（阶段 0 未跑？）→ "
+                              f"综述解读档位回退默认 {DEFAULT_TIER}")
+    try:
+        plan = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return DEFAULT_TIER, (f"⚠ {p.name} 解析失败（{e}）→ "
+                              f"综述解读档位回退默认 {DEFAULT_TIER}")
+    raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
+    got = normalize_tier(raw)
+    if not got:
+        return DEFAULT_TIER, (f"⚠ {p.name} 的 {TIER_KEY}={raw!r} 非法"
+                              f"（应为 L1/L2/L3）→ 回退默认 {DEFAULT_TIER}")
+    return got, ""
+
+
+def _tier_arg() -> tuple[str, bool]:
+    """取 `--tier` 的原始值 + 是否给出。**同时认 `--tier=L3` 与 `--tier L3`。**
+
+    ★ 为什么两种都要认：只认 `=` 形式时，`--tier L3` 会被**静默忽略** ——
+      用户明确给的档位被丢掉，比报错严重得多（同 prepare_stage._arg 的教训）。
+      裸 `--tier`（后面没有值）返回空串，由调用方判为非法值。
+    """
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a.startswith("--tier="):
+            return a.split("=", 1)[1], True
+        if a == "--tier":
+            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                return argv[i + 1], True
+            return "", True
+    return "", False
+
+
 def _argval(name, default=None):
     for a in sys.argv[1:]:
         if a.startswith(f"--{name}="):
             return a.split("=", 1)[1]
     return default
+
+
+# 本脚本用轻量手写参数解析（`--k=v`），没有 argparse —— 因此必须自己认 `--help`，
+# 否则 `--help` 会被**静默忽略**并当成一次正常组装去跑（实测退出码 2 且信息误导）。
+USAGE = """\
+阶段 H2 ②：为 review（研究方向综述）组装自包含任务包
+
+用法：
+  uv run python 流程1/scripts/refs_prepare.py [选项]
+
+选项：
+  --top=N            只准备相关性最高的前 N 条（0=全部；默认 0）
+  --only=DOI1,DOI2   只准备指定 DOI
+  --max-chars=N      摘要超长时的截断上限（默认 12000）
+  --tier=L1|L2|L3    覆盖综述解读档位（缺省读 .work_cdp/prepare_plan.json 的
+                     review_interpret_tier，再退回默认 L3；也认 `--tier L3`）
+  --self-test        纯逻辑自检（不联网）
+  -h, --help         显示本帮助
+
+输入：<WORKDIR>/.work_cdp/refs/final_list.json
+产出：<WORKDIR>/.work_cdp/refs/tasks/<doi_slug>.json
+      <WORKDIR>/.work_cdp/refs/manifest.json
+
+可移植配置：PAPER_WORKDIR / PAPER_AUTHOR
+"""
 
 
 def load_json(p: pathlib.Path, default=None):
@@ -130,6 +227,25 @@ def authors_str(authors) -> str:
 def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(USAGE)
+        return 0
+
+    # ── 档位：命令行 > prepare_plan.json > 默认 L3 ──────────────
+    # ★ 放在最前面：非法 --tier 直接退出 2，不产生任何中间产物。
+    tier_raw, tier_given = _tier_arg()
+    if tier_given:
+        tier = normalize_tier(tier_raw)
+        if not tier:
+            print(f"✗ --tier 取值 {tier_raw!r} 非法；只能是 "
+                  f"{' / '.join(TIER_VALUES)}", file=sys.stderr)
+            return 2
+        tier_src, tier_note = "命令行 --tier", ""
+    else:
+        tier, tier_note = plan_tier()
+        tier_src = f"{PLAN_PATH.name} · {TIER_KEY}" if not tier_note else "默认回退"
+    if tier_note:
+        print(tier_note, file=sys.stderr)
 
     log = get("refs")
     top = int(_argval("top", "0") or 0)
@@ -186,6 +302,7 @@ def main() -> int:
             n_full += 1
         task = {
             "schema": "refs-review/v1",
+            "interpret_tier": tier,          # ★ 综述解读档位（供 subagent 与 refs_build）
             "seq": i,
             "id": r.get("id") or "",
             "doi": r.get("doi") or "",
@@ -262,6 +379,7 @@ def main() -> int:
     (REFDIR / "manifest.json").write_text(json.dumps({
         "author": AUTHOR,
         "generated_from": str(REFDIR / "final_list.json"),
+        "interpret_tier": tier,              # ★ 档位随清单落盘，下游无需再猜
         "n_tasks": len(manifest),
         "n_with_abstract": n_abs,
         "tasks": manifest,
@@ -270,6 +388,8 @@ def main() -> int:
     print(f"✅ 已生成 {len(manifest)} 个综述任务包 → {TASKDIR}")
     print(f"   含摘要：{n_abs}/{len(manifest)}　｜　**含 OA 全文：{n_full}/{len(manifest)}**"
           + ("（全文级证据，置信度高于摘要级）" if n_full else ""))
+    print(f"   解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）"
+          f"　综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
     if stale:
         print(f"   已清理陈旧任务包 {len(stale)} 个：{', '.join(stale[:6])}"
               + ("…" if len(stale) > 6 else ""))
@@ -286,7 +406,8 @@ def main() -> int:
     print("下一步：**在同一条消息内**并行分派 4–6 个 subagent（每篇一个），")
     print("        提示词模板见 流程1/subagent-driven-review/SKILL.md §7（综述网络版）；")
     print("        跑完再执行 refs_build.py 汇总。")
-    journal("H2", "refs.prepare", n_tasks=len(manifest), n_with_abstract=n_abs)
+    journal("H2", "refs.prepare", n_tasks=len(manifest), n_with_abstract=n_abs,
+            interpret_tier=tier)
     log.info(f"✓ 阶段 H2 ②（综述任务包）完成 → {TASKDIR}")
     return 0
 
@@ -342,6 +463,13 @@ def self_test() -> int:
     assert set(REQUIRED_FULL) <= set(OUTPUT_SCHEMA), set(REQUIRED_FULL) - set(OUTPUT_SCHEMA)
     assert set(REQUIRED) <= set(REQUIRED_FULL)
     print(f"schema 自洽：通过（{len(REQUIRED)} 个必需字段 + 2 个综述网络字段）")
+
+    # ★ 档位：取值规范化 + 计划文件缺失时的回退（档位是参数不是闸门，不许报错）
+    assert normalize_tier("l3") == "L3" and normalize_tier("L9") == ""
+    assert normalize_tier(None) == "" and normalize_tier(" L2 ") == "L2"
+    miss_tier, miss_note = plan_tier(pathlib.Path("__no_such_plan__.json"))
+    assert miss_tier == DEFAULT_TIER == "L3" and miss_note
+    print(f"解读档位：通过（规范化 + 缺失回退 {DEFAULT_TIER}）")
 
     # ★ 关键不变量：文件名只由内容决定 —— 同一篇在任何排序下都必须同名
     a = [{"doi": "10.1/x"}, {"doi": "10.1/y"}]

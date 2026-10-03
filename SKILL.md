@@ -144,6 +144,44 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 >    **OA 全文（Europe PMC）或详细摘要**，输出证据层级以提高 review 置信度。
 > ④ **PPT 接入图谱与方向综述整理**：图谱自动进 §VIII 与 §IX，方向综述整理成页。
 >
+> **v13 变更（2026-10-03，解读档位整合 · 用户指令）** —— 把 skill
+> `paper-interpretation-writing` 的**三档解读**接进全流程，并补齐门控：
+> ① **新增两个阶段 0 选项**：`interpret_tier`（阶段 H 作者论文，**默认 L2**）与
+>    `review_interpret_tier`（阶段 H2/R2 综述类，**默认 L3**）。
+>    二者是**参数不是开关**，不控制任何阶段是否执行。
+> ② **新增档位查询与门控自检**：`prepare_stage.py --tier H|H2|R2`
+>    （stdout 只有 `L1|L2|L3`，便于 `$()` 捕获）与 `--audit`（门控齐全性自检）。
+> ③ **所有解读模块同步**：`interpret_prepare` / `interpret_build`（阶段 H）、
+>    `refs_prepare` / `refs_build`（H2）、`reviews_prepare` / `reviews_build`（R2）、
+>    `ppt_brief`（P）一律读取并下发档位；任务包内嵌 `interpret_tier`，
+>    subagent **以任务包为准**。
+> ④ **提示词由"三件事"扩为"四件事"**：任务包路径 / 结果路径 / 只写自己那份 / **档位**。
+>    少了档位，同一批 subagent 会各写各的深度。
+> ⑤ **补齐门控表**：阶段 **N / S / R / R2** 此前**没有进闸门表** ——
+>    `--check N` 返回 2（未知阶段），而 `run_all.sh` 的 `gate()` 用 `if` 判定，
+>    2 与 3 一样落进 else 分支，该阶段被**静默当成跳过**。现新增
+>    `undergrad_prelude`（默认开）管辖这四个阶段；`--audit` 会持续守住这类缺口。
+> ⑥ **修正枚举取值大小写**：`--set interpret_tier=L3` 此前会报「取值不在列表内」
+>    （`coerce` 把输入 `.lower()` 后与大写枚举比对，永远匹配不上）。现改为
+>    大小写不敏感匹配、返回规范写法。
+> ⑦ **`--tier` 的 stdout 保持干净**：把该分支移到 `logutil.get()` **之前**，
+>    否则「=== prepare 启动 …」日志行会混进 stdout，`T=$(… --tier H)` 捕获到
+>    `"INFO … L2"`，下游比对 `"L2"` 会**静默失败**。
+> ⑧ **登记一处既有门控矛盾**（只记录、未改）：`output_format=markdown` 会关闭
+>    阶段 F，但其自身说明与闸门表都写着「阶段 F 仍执行，只出中译 Markdown」。
+>    见 `prepare_stage.py` 的 `AUDIT_NOTES` 与阶段 0 章节的 ⚠️ 块，**待拍板**。
+>
+> > ⚠️ 原有链路（阶段 0 → A → … → I）**脚本契约与产物约定不变**；
+> > **阶段 H 的 L2 档渲染输出与改动前逐字节一致**（L2 就是默认档）。
+> > 详见 §9.15。
+>
+> **v13.1（2026-10-03，同一批 · 用户拍板）** —— 修掉上面第 ⑧ 条登记的矛盾：
+> `output_format` **不再是闸门**，阶段 F 改由 `translate` 单独判定，
+> 本项只决定「要不要顺带渲染 PDF」。实测影响面**只有一格**
+> （`translate=yes + markdown`：由静默跳过改为产出中译 Markdown，不渲染 PDF）；
+> 默认组合与其余四格完全不变。`selftest_pipeline.py` 已加**行为级回归守卫**
+> （45 → **47/47**）。详见 §9.16。
+
 > **v8 变更（2026-10-02，本科科研辅助改造）** —— **大方向调整 + 三个阶段新增**。
 > 用户指示：本流程由"作者论文分析"转向**适用于本科生文献检索处理及科研辅助的 Agent**。
 > ① **新增阶段 N「大方向确定」**（**无交互**）：拆解用户输入为
@@ -211,8 +249,14 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 #     （不落盘也能跑，但后续阶段会**保守地跳过**可选环节并提示）
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=markdown --set translate=no --set reverse_refs=yes \
-    --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes
-uv run python 流程1/scripts/prepare_stage.py --check-all     # 看闸门
+    --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes \
+    --set interpret_tier=L2 --set review_interpret_tier=L3      # ★ v13 解读档位
+uv run python 流程1/scripts/prepare_stage.py --check-all     # 看闸门 + 两处档位
+uv run python 流程1/scripts/prepare_stage.py --audit         # ★ v13 门控齐全性自检
+#   ★ 档位查询（stdout 只有 L1|L2|L3，便于 $() 捕获）：
+#     uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
+#     uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
+#     uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
 
 # 0) 约定环境变量（所有脚本共用的可移植配置）
 export PAPER_WORKDIR="<工作目录>/<作者名>"      # 作者工作目录
@@ -1003,6 +1047,12 @@ uv run python 流程1/scripts/reviews_prepare.py \
 **执行方式**：**复用 `subagent-driven-review/SKILL.md` 的同一套并行机制**
 （其 §7.2 提示词模板、解读卡 schema、质量控制全部适用）。
 
+> ★ **v13 档位**：本阶段用 **`review_interpret_tier`，默认 `L3`（完整）**。
+> 理由：领域概貌是**独立成篇**的交付物，本科生要据此判断"这个方向在解决什么问题、
+> 哪些还有争议"，低档会丢掉排除性证据与作者语气限定。
+> 查询 `prepare_stage.py --tier R2`（且**阶段 0 的档位确认同时覆盖 R2**）。
+> ⛔ L3 在这里 = 论证链完整 **加上** 术语都要解释，不是"可以说得更肯定"。
+
 ```bash
 # ① 组装任务包（见阶段 R①）
 uv run python 流程1/scripts/reviews_prepare.py \
@@ -1113,39 +1163,91 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 | 4 | **是否绘制知识图谱**（overview / 词云 / 方向聚类）？ | 是 / 否 | **是** |
 | 5 | 方向聚类看最近几年？ | 2 / 3 / 5 | 3 |
 | 6 | **是否制作相关 PPT**（文献亮点解读 + 综述结果 + 图谱）？ | 是 / 否 | 否 |
-| 7 | 是否输出「有代表性文献」的参考文献列表（GB/T 7714）？ | 是 / 否 | 是 |
-| 8 | 是否对反向查得的文献做去重与相关性整理，并据此产出 review？ | 是 / 否 | 是 |
-| 9 | PPT 目标页数（简化 Strategist 用，无需再交互） | `short`/`standard`/`long` | `standard` |
+| 7 | **是否执行本科科研辅助前置链路**（阶段 N / S / R / R2）？ | 是 / 否 | **是** |
+| 8 | **★ 论文解读档位**（阶段 H，作者本人的论文） | `L1` / `L2` / `L3` | **`L2`** |
+| 9 | **★ 综述解读档位**（阶段 H2 研究方向综述 / 阶段 R2 领域概貌） | `L1` / `L2` / `L3` | **`L3`** |
+| 10 | 是否输出「有代表性文献」的参考文献列表（GB/T 7714）？ | 是 / 否 | 是 |
+| 11 | 是否对反向查得的文献做去重与相关性整理，并据此产出 review？ | 是 / 否 | 是 |
+| 12 | PPT 目标页数（简化 Strategist 用，无需再交互） | `short`/`standard`/`long` | `standard` |
+
+> ### ★ v13：为什么档位也要在阶段 0 问
+>
+> 档位决定解读写多深，而**解读是这套流程最贵的产物**（并行 subagent 逐篇精读）。
+> 跑到阶段 H 才发现用户只要一份速览表，等于把几十万字符的精读白做了一遍；
+> 反过来，跑完才发现要进综述，则要**整批重派**。
+> 所以档位与「要不要做 PPT」同级：属于**只有用户能定、且影响下游全部解读阶段**的选择。
+>
+> - **默认 `interpret_tier=L2`（详细）**：阶段 H 的产物是**逐篇卡片**，
+>   正是 L2 的目标形态。要恢复到旧版等深的全量解读，选 `L3`。
+> - **默认 `review_interpret_tier=L3`（完整）**：阶段 H2 与 R2 都是
+>   **独立成篇**的综述类交付物，低档会丢掉排除性证据与作者语气限定 ——
+>   而那正是综述读者最需要的部分。
+> - ⛔ **三档只差细节量，不差断言强度**：同一个发现在三档的动词强度一致，
+>   且与原文同级。这一点在阶段 H 的 L1 上最容易被违反（"表格要好看"）。
+> - 规范定义、句式库与离线校验器见 skill **`paper-interpretation-writing`**。
+> - 两个档位是**参数不是开关**（不控制任何阶段是否执行），
+>   所以用 `--tier` 查询、用 `--set` 修改。
 
 ```bash
 # 收齐答案后一条命令落盘（非交互）
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=both --set translate=yes --set reverse_refs=yes \
     --set make_ppt=yes --set refs_bibliography=yes --set curate_review=yes \
-    --set ppt_pages=standard
+    --set ppt_pages=standard \
+    --set interpret_tier=L2 --set review_interpret_tier=L3
 
 # 全默认（保守：只出 Markdown，不翻译、不做 PPT，但做综述网络）
 uv run python 流程1/scripts/prepare_stage.py --defaults
 
-# 查看当前计划 / 查看全部闸门
+# 查看当前计划 / 查看全部闸门 + 两处档位
 uv run python 流程1/scripts/prepare_stage.py --show
 uv run python 流程1/scripts/prepare_stage.py --check-all
 
 # 单阶段闸门：退出码 0 = 执行；3 = 已按准备计划跳过（附原因）
 uv run python 流程1/scripts/prepare_stage.py --check translate
+
+# ★ v13 档位查询：stdout **只有** L1|L2|L3，便于 T=$(… --tier H) 捕获
+uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
+uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
+uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
+
+# ★ v13 门控齐全性自检（每个阶段都有标签、每个闸门都指向真实阶段）
+uv run python 流程1/scripts/prepare_stage.py --audit
 ```
+
+> ### ✅ v13.1：已修掉「`output_format` 关掉阶段 F」这处门控矛盾
+>
+> **矛盾**：`output_format=markdown` 的 `gate_rule` 关闭阶段 F，但该选项自己的 note、
+> `translate` 的 note、`_f_mode="html-only"`、`_translate_output="markdown"`、
+> `--show` 的提示语 —— **五处**都假定它**不关** F（该由 `translate` 判定）。
+> 后果：`translate=yes` + `output_format=markdown` 时阶段 F 被**静默跳过**，
+> **用户要了翻译却什么都拿不到，也不报错**。
+>
+> **修法（用户拍板）**：`output_format` 不再是闸门（`gates`/`gate_rule` 置空），
+> 变成**纯参数**——阶段 F 由 `translate` 单独判定，本项只在 F 执行时决定
+> 「要不要顺带渲染 PDF」（经 `_f_mode` 表达）。
+>
+> **影响面经实测限定为一格**：只有 `translate=yes + markdown` 从 skip 变 run
+> （`_f_mode=html-only`，产出中译 Markdown 不渲染 PDF）；其余五种组合
+> （含默认的 `markdown + translate=no`）行为完全不变。
+>
+> `selftest_pipeline.py` 已加**行为级回归守卫**（该组合 `--check F` 必须退出 0、
+> `_f_mode` 必须为 `html-only`），有人把闸门加回 `output_format` 会立刻失败。
+> 详见 §9.16。
 
 **闸门解析规则（`prepare_stage.py` 自动完成，无需人工推导）**
 
 | 选项 | 关掉它 → 这些阶段跳过 |
 |---|---|
-| `translate=no` | 阶段 F 整体跳过 |
-| `output_format=markdown` | 阶段 F 只出中译 Markdown，**不渲染 PDF**（阶段 F 仍执行） |
+| `undergrad_prelude=no` | 阶段 **N / S / R / R2** 跳过（不影响原有链路 A→I；两条链路相互独立） |
+| `translate=no` | 阶段 F 整体跳过（**这是唯一决定 F 是否执行的选项**） |
+| `output_format` | **不控制任何阶段** —— 纯参数：阶段 F 执行时决定要不要顺带渲染 PDF（`markdown` → 只出中译 Markdown；`pdf`/`both` → 另渲染 PDF） |
 | `reverse_refs=no` | 阶段 **D2 / G2 / H2** 全部跳过（下游依赖上游，自动收敛） |
 | `refs_bibliography=no` | 阶段 G2 跳过（但不影响 D2 / H2） |
 | `curate_review=no` | 阶段 H2 跳过 |
 | `make_graphs=no` | 阶段 K 跳过（PPT 仍可做，但不会带图谱） |
 | `make_ppt=no` | 阶段 P 跳过 |
+| `interpret_tier` / `review_interpret_tier` | **不控制任何阶段是否执行** —— 参数，只决定解读写多深 |
 
 > **依赖收敛要点**：`reverse_refs=no` 时，即使 `refs_bibliography=yes`、
 > `curate_review=yes`，G2 与 H2 也会被**自动关掉**并在计划里写明
@@ -1565,6 +1667,31 @@ uv run python 流程1/scripts/refs_bibliography.py
 > 论文数 ≥10 时用**并行 subagent** 逐篇精读；<10 篇可由主 agent 顺序完成，
 > 但**下面的解读规范完全一致**。
 
+> ### ★ v13：解读档位（本阶段默认 **L2 详细**）
+>
+> 解读按**三个档位**产出，档位由**阶段 0 确认**，落盘 `interpret_tier`：
+>
+> | 档位 | 内容 | 本阶段形态 |
+> |---|---|---|
+> | L1 精简 | 一句话定位 + 主要成就 + 关键位点与结论数字（2–5 个）；**不含**误差项 / 样本量 / 图表引用 / 实验步骤 | 速览表，适合放进 PPT 与一览表 |
+> | **L2 详细（默认）** | 另加误差项、样本量、有限实验过程、排除性证据、局限 | 逐篇卡片，即本阶段既有形态 |
+> | L3 完整 | 另加完整论证链、机制细节、逐条局限、作者语气标注 | 深度解读，适合单篇代表作 |
+>
+> ⛔ **三档只差细节量，不差断言强度。** 同一个发现在三档里的动词强度必须一致，
+> 且与原文同级 —— L1 不因为地方小就把原文的「提示」写成「证实」。
+>
+> ⚠️ **L1 的下游代价（选档前必读）**：阶段 H 的**关键词统计**、
+> 阶段 K 的**知识图谱与词云**、以及 `refs_curate.py` 的**方向相关性打分**
+> 都从解读卡的 `methods` / `key_20` / 标签里取语料。
+> **L1 不写方法清单**（`methods` 留空），这三处会明显变薄 ——
+> 属于预期内的取舍，不是缺陷。**若后续要做知识图谱，建议 `L2` 起步。**
+> 已核实：这些消费者读的是 `interpret/results/*.json` **卡片**，
+> 不是渲染后的 Markdown，所以改档**不会**让它们解析失败。
+>
+> 改档：`uv run python 流程1/scripts/prepare_stage.py --set interpret_tier=L3`
+> 查询：`uv run python 流程1/scripts/prepare_stage.py --tier H`
+> 规范：skill `paper-interpretation-writing`（档位规范 / 句式库 / 数据契约 / 离线校验器）
+
 **两步命令**：
 
 ```bash
@@ -1580,9 +1707,12 @@ uv run python 流程1/scripts/fetch_direct.py                     # 第一层：
 #   uv run --with websocket-client python 流程1/scripts/grab_abstracts.py --retry-failed
 #   再重跑 fetch_direct.py 把 CDP 结果折进统一产物
 #   （fetch_openalex_abstracts.py 仍可用，是 OpenAlex 单源版，且已改为不覆盖其它源）
-uv run --with pypdf python 流程1/scripts/interpret_prepare.py   # ② 组装自包含任务包
+#   ★ v13：档位会随任务包一起下发；也可临时覆盖：
+uv run --with pypdf python 流程1/scripts/interpret_prepare.py   # ② 组装自包含任务包（含 interpret_tier）
+#      uv run --with pypdf python 流程1/scripts/interpret_prepare.py --tier L3
 #   ③ 同一条消息内并行分派 4–6 个 subagent（每篇一个，各写各的 result.json）
-uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总成报告
+#      ★ 提示词必须写死四件事：任务包路径 / 结果路径 / 「只写你自己那份」/ **档位**
+uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总成报告（按档位渲染）
 ```
 
 > **① 为什么不能省**：没有全文的篇目（付费墙/403/国内不可达）**只能靠摘要解读**。
@@ -1702,6 +1832,11 @@ uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总�
 > **执行手册**：本阶段的解读部分同样按
 > `流程1/subagent-driven-review/SKILL.md` 执行（**同一套并行 subagent 机制**），
 > 只是把"解读一位作者的论文"换成"解读一个方向的综述网络"。
+>
+> ★ **v13 档位**：本阶段用 **`review_interpret_tier`，默认 `L3`（完整）**。
+> 综述网络的结论建立在"这条文献在网络里干什么"之上，
+> 需要完整的排除性证据与证据强度标注才能判断；低档会把这些丢掉。
+> 查询 `prepare_stage.py --tier H2`。任务包内含 `interpret_tier`，subagent 以它为准。
 
 **为什么要有这一步**：阶段 D2 输出的是**原始候选池**（138 条很常见），
 里面混着三类东西 —— 重复条目、网络边缘的偶发引用、
@@ -3287,6 +3422,253 @@ crashpad_client_win.cc:456] OpenProcess: Access is denied. (0x5)
 > **改前已备份**：`%TEMP%\流程1_scripts_backup_<时间戳>\`（61 个文件 + SKILL.md + README.md）。
 > ⚠️ `流程1/` 在本仓库 git 中**未被跟踪**（`?? 流程1/`），即**没有版本控制兜底** ——
 > 这是备份存在的原因，也建议后续把 `流程1/` 纳入 git。
+
+---
+
+## 9.15 解读档位整合（2026-10-03，v13，**用户指令**）
+
+### 9.15-A 来源与授权
+
+**用户指令**：把 skill `paper-interpretation-writing` 整合进 `流程1/`，
+改动**原有所有解读模块**使之匹配；核查阶段 0 确认环节并**添加解读档位确认**；
+检查各门控是否齐全。**默认**：综述类解读 subagent 用**档位 3**，
+作者论文解读按**确认的档位**走。
+
+按本流程 §「硬性要求」第 3 条，改动已先说明「改什么、为什么、影响范围」，
+本条即台账记录；`README.md` 已同步。
+
+### 9.15-B 改了什么（15 个文件）
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/prepare_stage.py` | 新增 3 个选项（`undergrad_prelude` / `interpret_tier` / `review_interpret_tier`）；`VALID_STAGES` 补 `0 N S R R2`；`--tier` 查询；`--audit` 门控自检；`gate_audit()`/`ungated_stages()`/`resolve_tier()`/`AUDIT_NOTES`；修 `coerce` 枚举大小写 |
+| `scripts/interpret_prepare.py` | 读档（`--tier` → plan → 默认 L2）并写入每个任务包与 manifest；`--help` |
+| `scripts/interpret_build.py` | 三级档位解析 + 分档渲染（`_card_body`=L2 基线、`_card_l1`、`_card_l3`、`_strength_line`）；报告头档位声明 |
+| `scripts/refs_prepare.py` / `refs_build.py` | 阶段 H2：读 `review_interpret_tier`，写入任务包/manifest，报告头声明 |
+| `scripts/reviews_prepare.py` / `reviews_build.py` | 阶段 R2：同上 |
+| `scripts/ppt_brief.py` | 记录两个档位并写入产物；素材受限时如实标注 |
+| `scripts/selftest_pipeline.py` | 新增档位相关自检项 |
+| `subagent-driven-review/SKILL.md` | 新增 **§6.0 解读档位**（字段×档位表）；§7 / §7.1 / §7.2 三个提示词模板加档位块；「三件事」→**四件事**；§8 增 3 条风险行；§10 增 4 条检查项 |
+| `SKILL.md` | v13 变更块；§0 快速开始；阶段 0 / H / H2 / R2 四处；本条台账 |
+| `README.md` | v13 变更块；快速开始；阶段 H 注释 |
+| `完整链路.md` | R2 任务包含档位；H vs R2 档位来源对照 |
+| `ppt-integration/SKILL.md` | 素材档位记录与「素材受限如实说明」 |
+| `run_all.sh` | `[0.6]` 只读打印两处档位（**不改行为**） |
+
+### 9.15-C 档位语义（唯一的规范来源）
+
+三档**只差细节量，不差断言强度**。规范定义、句式库、跨 agent 数据契约与
+离线校验器全部在 skill `paper-interpretation-writing`；本流程只引用，不复制其内容
+（避免两处口径漂移）。默认值：
+
+| 阶段 | 选项 | 默认 | 理由 |
+|---|---|---|---|
+| H（作者论文） | `interpret_tier` | **L2 详细** | 产物《论文解读.md》是**逐篇卡片**，正是 L2 的目标形态。选 L3 可恢复到与旧版等深 |
+| H2 / R2（综述类） | `review_interpret_tier` | **L3 完整** | 两者都是**独立成篇**的综述类交付物；低档会丢掉排除性证据与作者语气限定 |
+
+### 9.15-D 顺带修掉的四个缺陷（都已实测复现 → 修复 → 复验）
+
+| # | 缺陷 | 症状 | 修法 |
+|---|---|---|---|
+| 1 | **阶段 N/S/R/R2 不在闸门表里** | `--check N` 返回 **2**（未知阶段）；`run_all.sh` 的 `gate()` 用 `if` 判定，**2 与 3 一样落进 else**，该阶段被**静默当成跳过** | 补进 `VALID_STAGES` + `STAGE_LABEL`，新增 `undergrad_prelude`（默认开）管辖；`--audit` 持续守住 |
+| 2 | **枚举取值大小写不敏感缺失** | `--set interpret_tier=L3` 报「取值 'L3' 不在 ['L1','L2','L3'] 内」—— `coerce` 把输入 `.lower()` 后与**大写**枚举比对，永远匹配不上 | 改为逐项大小写不敏感比对并**返回规范写法** |
+| 3 | **`--tier` 的 stdout 被日志污染** | `logutil.get()` 先打「=== prepare 启动 … ===」到 stdout；`T=$(… --tier H)` 捕获到 `"INFO … L2"`，下游比对 `"L2"` **静默失败** | 把 `--tier` 分支移到 `get("prepare")` **之前** |
+| 4 | **`interpret_prepare/build` 的 `--help` 会掉进正常流程** | `--help` 不被识别 → 继续执行 → 因缺题录而退出 2 | 显式 `--help/-h` → 打印用法退出 0 |
+
+### 9.15-E 验证（离线，无浏览器）
+
+**① L2 逐字节基线（最关键）** —— 用 `git show HEAD:scripts/interpret_build.py` 取旧版，
+与改后脚本在**同一工作目录**下对同一 fixture 各跑一次：
+
+| 数据集 | 结果 |
+|---|---|
+| 自建 6 篇夹具 | 除**新增的那一行档位声明**外，SHA256 **完全一致** |
+| 仓库 `示例数据/crossref_all.json`（77 条）+ 真实词族模板（20 张卡、64 KB 报告） | 除该行外 **64347 字节完全相同**（差值 77 字节恰为该行） |
+
+> 即：**默认档（L2）的卡片渲染逐字节未变**；唯一差异是任务书要求新增的报告头档位声明行。
+
+**② 档位全链路**（在 `%TEMP%` 独立工作目录，用真实示例数据 77 条）：
+
+| 检查 | 结果 |
+|---|---|
+| 阶段 0 默认 → `--tier H` / `H2` / `R2` | `L2` / `L3` / `L3`，stdout **只有档位本身** ✅ |
+| `--set interpret_tier=l3`（小写） | 接受并规范化为 `L3` ✅ |
+| `--set interpret_tier=L9` | 明确报错 ✅ |
+| `interpret_prepare.py` 默认 | `manifest` 与全部 **77** 个任务包均为 `L2`，**0 个缺字段** ✅ |
+| 阶段 0 设 `L3` → 重跑 prepare | `manifest` 与任务包全部变 `L3`（无需 `--tier`）✅ |
+| `--tier L1` 覆盖 | `manifest` 与任务包变 `L1` ✅ |
+| 删掉 `prepare_plan.json` 后重跑 | 回退 `L2` + stderr 一句提示，**不报错退出** ✅ |
+| `--tier L9`（prepare 的 CLI） | 退出码 **2**，提示可用取值 ✅ |
+| `prepare_stage.py --audit` | 门控齐全，退出码 **0** ✅ |
+
+**②-b 阶段 H2 / R2（综述类四个脚本）** —— 与阶段 H 分开验证：
+
+| 检查 | 结果 |
+|---|---|
+| `refs_prepare.py` 无 plan | 回退 **L3**，`manifest` 与任务包均 `L3` ✅ |
+| 阶段 0 设 `review_interpret_tier=L1` → 重跑 | `manifest` 与任务包均变 **L1** ✅ |
+| `reviews_prepare.py` 无 plan / `--tier L2` | `L3` / `L2`，任务包同步 ✅ |
+| `reviews_build.py` 汇总（任务包 L2） | 报告头写出 `> 解读档位：**L2 详细**…`，摘要标注**来源 = task packet** ✅ |
+| 四个脚本 `--help` / `-h` | 均退出 **0**（**改动前 `--help` 会被静默忽略并当正常流程跑**，与 9.15-D-4 同类）✅ |
+| **既有渲染 A/B 对拍** | `refs_build` 报告 **0 行删除/改写**，仅新增 2 行（空行 + banner）；`reviews_build` 仅新增 1 行 banner；两边 manifest 与任务包的结构 diff **恰为** `+interpret_tier` ✅ |
+| 反向对照（L1 ↔ L3 重渲染） | 报告除 banner 标签外**逐行相同** —— 证明**未引入 L1/L2 差异化渲染**，符合「本次只做读档→下发→声明」的范围 ✅ |
+
+**②-c 阶段 P**：`ppt_brief.py` 自检通过；离线全流程自检确认档位
+落到 `source md` / `design_spec.md` / `spec_lock.md` **三份产物**，
+且 `spec_lock.md` 的**严格 schema 仍通过** `ppt-master` 自家 `validate`
+（档位行只写在允许任意 `- ` 行的 `## forbidden` 段，不新增 `##` 段）。
+`spec_lock.md` 的 schema 约束是实测出来的：新增 `##` 段 → `unknown section`（退出 1）；
+往 `## communication` 加字段 → `unknown field`（退出 1）。
+
+**③ 未验证项（如实列出）**
+
+1. **端到端离线自检已跑并全绿**：`selftest_pipeline.py --offline` → **45/45 通过，退出 0**，
+   且 `vendor/ppt-master/projects/` **无残留**（前后快照一致）。
+   但该场景里 `reverse_refs` 是关的（输出显示 `D2=3 P=3`），**所以它没有覆盖阶段 H2**；
+   阶段 H2/R2 由上面的 ②-b 单独验证。
+2. **L3 的「证据强度」行措辞是实现自定**：规范只要求 L3 有该声明，未规定逐篇卡片句式。
+   优先引用卡内 `strength_notes`，其次 `evidence`，都没有才按 `evidence_source` 写。
+3. **`fulltext` 集成路径未端到端跑**（夹具无 PDF、环境无 pypdf），仅做函数级分支核对。
+4. **L1 的两处渲染口径判断**（由实现方定，可一行改回）：不输出
+   `direction_tags`/`paradigm_tags` 标签行；关键数字表**不设「出处」列**
+   —— 依据是 tier-specs.md 把「图表引用」列为 L1 禁写项。
+   标签仍**正常参与**报告三/四/五节的统计（统计取自卡片字段，不取渲染文本）。
+5. **`build` 类脚本没有 `--tier`**（`interpret_build` / `refs_build` / `reviews_build`）：
+   改档只能走阶段 0 或 prepare 侧的 `--tier`，再经任务包流转。
+   如需 build 也能命令行覆盖，另开一批。
+6. **联网版全流程未跑**（本次刻意避免）：`selftest_pipeline.py` 的联网档会启动 CDP
+   并访问出版社站点。
+
+### 9.15-F 已知限制与待决策
+
+> **① 待决策（未改）**：`output_format=markdown` 的 `gate_rule` **关闭阶段 F**，
+> 但该选项的 note 与闸门表都写着「阶段 F 仍执行，只出中译 Markdown」。
+> 按现行规则，**markdown 用户即使 `translate=yes` 也拿不到中译**。
+> 已固化进 `prepare_stage.py` 的 `AUDIT_NOTES`，每次 `--audit` 都会打印。
+> **两条路**：(a) 去掉 `output_format` 对 F 的闸门（改由 `translate` 判定，
+> PDF 与否由 `_f_mode` 表达）；(b) 改文档。**未拍板前不动。**
+
+> **② L1 的下游代价（预期内，非缺陷）**：阶段 H 的关键词统计、阶段 K 的知识图谱与词云、
+> `refs_curate.py` 的方向相关性打分，都从解读卡的 `methods`/`key_20`/标签取语料。
+> L1 留空 `methods`，这三处会明显变薄。**需要知识图谱时建议 L2 起步。**
+> 已核实：这些消费者读 `interpret/results/*.json` **卡片**而非渲染后的 Markdown，
+> 因此改档**不会**导致它们解析失败。
+
+> **③ 另一处口径约束**：阶段 H2/R2 的档位与阶段 H **独立**（`review_interpret_tier`
+> vs `interpret_tier`）。若把综述档位调到 L1，`refs_build`/`reviews_build` 目前
+> **仍按 L3 全量渲染**（本次只做「读档 → 下发 → 声明」，未做低档渲染）。
+> 需要低档综述渲染时另开一批。
+
+### 9.15-G 版本控制状态（**纠正 §9.14 的过时结论**）
+
+§9.14 写「`流程1/` 在本仓库 git 中未被跟踪（`?? 流程1/`），即**没有版本控制兜底**」。
+**该结论已过时**：`流程1/` 现在**是独立的 git 仓库**（`流程1/.git`），
+已有两个提交建立基线（`795f5ed` 建立基线、`e776b0f` 说明独立仓库用法）。
+本次改动**有 diff 可回溯**，无需再手工备份到 `%TEMP%`。
+
+> **两个层级别混淆**（实测澄清，两句话都对，取决于在哪个仓库里跑 `git status`）：
+>
+> | 层级 | 事实 |
+> |---|---|
+> | **内层**（在 `流程1/` 里跑） | **跟踪**：本次改动 15 个文件全部可见（`git -C 流程1 status --porcelain` 有 15 行） |
+> | **外层**（在仓库根跑） | **忽略**：`.git/info/exclude:12` 写着 `/流程1/`，注释说明「已在其中自建独立 git 仓库，故父仓库这里只做忽略，不做跟踪」 |
+>
+> 所以「`git diff --stat` 看不到本次改动」这句**只在外层成立**；
+> 要看本次改动的 diff，必须在 `流程1/` 目录里跑 `git status` / `git diff`。
+
+> 本次实测同时澄清了两条**环境假象**（此前被当成缺陷）：
+> - 本机 `bash` 是 **WSL 的 bash**（`C:\WINDOWS\system32\bash.exe`），只认 `/mnt/c/…` 路径；
+>   传 Windows 路径必然 `No such file or directory`。
+> - 仓库里的 shell 脚本是 **CRLF** 行尾，WSL bash 会报 `$'{\r'` 语法错。
+>   把 `run_all.sh` 与 `scientific-schematics/scripts/example_usage.sh` 转成 LF 后
+>   `bash -n` **均退出 0** —— 所以 `tests/_meta` 里那两条 `shell_scripts` 失败
+>   是**环境假象，不是脚本缺陷**。
+
+### 9.15-H 本次的两处「行为增量」与一次误操作（如实申报）
+
+| 项 | 说明 |
+|---|---|
+| `--help` 新增到 `ppt_brief.py` / `selftest_pipeline.py` | 这两个脚本原本**没有 argparse**，`--help` 会**落进主流程真实执行**（`selftest_pipeline.py --help` 甚至会跑完全流程并发起网络请求）。为满足「`--help` 退出 0」这条验收标准而加。**唯一行为增量**，仅影响 `-h/--help` 输入 |
+| 阶段 P 自检项目名加唯一后缀 | 原固定名会在 `project_manager.py init` 同名时 `FileExistsError` 退出，导致阶段 P 自检**恒失败**（与本次改动无关）。加 `_自检<HHMMSS>` 后每次互不干扰；`{AUTHOR}*` glob 与清理逻辑未改 |
+| ⚠️ **一次误触发的联网运行** | 加 `--help` **之前**，为验收跑了 `selftest_pipeline.py --help`，导致**全流程真实执行**（访问了 OpenAlex / Crossref）。**仓库无残留**（临时目录已删、未新建 ppt-master 项目目录，`vendor/ppt-master/projects/` 仍只有两个既有目录）。此事如实记录，供后续判断该脚本是否应默认拦截未识别的 `--*` 参数 |
+| 未清理的既有残留 | `vendor/ppt-master/projects/自检作者_文献汇报_ppt169_20261003`（今日 00:16，**本次改动之前**就在）会让阶段 P 自检恒失败。**未删除**（不属于本次改动范围）——**建议清理或改名** |
+
+> **建议**：给 `selftest_pipeline.py` 加一个「未知 `--xxx` 参数 → 直接报错退出 3」的
+> 守卫，避免任何人（或 agent）误敲参数就触发一次联网全流程。本次未顺手加，
+> 因为它又是一处行为增量。
+
+---
+
+## 9.16 修掉「`output_format` 关掉阶段 F」门控矛盾（2026-10-03，v13.1，**用户拍板**）
+
+### 9.16-A 缺陷是什么
+
+`output_format=markdown` 的 `gate_rule` 把阶段 F 置为 `skip`，**而 `translate` 未参与该判定**。
+后果：`translate=yes` + `output_format=markdown` 时阶段 F 被**静默跳过** ——
+**用户明确要了中文翻译，却什么都拿不到，且不报错。**
+
+实测矩阵（改前，`_translate_output` 由 `build_plan` 计算）：
+
+| `output_format` | `translate` | 阶段 F | `_translate_output` | 关闭者 |
+|---|---|---|---|---|
+| markdown | no | skip | off | output_format |
+| **markdown** | **yes** | **skip** ← 缺陷 | **markdown** ← 自相矛盾 | **output_format** |
+| pdf | no | skip | off | translate |
+| pdf | yes | run | html+pdf | — |
+| both | no | skip | off | translate |
+| both | yes | run | html+pdf | — |
+
+第 2 行里，同一份 `prepare_plan.json` 一边记着「应产出中译 Markdown」，
+一边把执行该产出的阶段 F 关掉。
+
+### 9.16-B 为什么判定「规则错、文档对」（5 处独立证据）
+
+一整套为「translate=yes + markdown → 只出中译 Markdown」准备的机制，
+因这条闸门**全部不可达**：
+
+| # | 证据 | 状态 |
+|---|---|---|
+| 1 | `translate` 选项的 note 明写该路径 | 描述了一个走不通的行为 |
+| 2 | `_translate_output = "markdown"` | **死代码**：只有该路径赋值，赋值后 F 必 skip |
+| 3 | `_f_mode = "html-only"` | **死代码**：需 F=run 且 fmt=markdown，二者互斥 |
+| 4 | `render()` 的 `ℹ 阶段 F 已开启但 output_format=markdown → …` | **永不打印**：只在 `_f_mode=="html-only"` 时输出 |
+| 5 | `selftest_pipeline.py` 那条断言 | **标签写「F 为 html-only」、断言写 `_f_mode == "off"`** —— 标签留着意图，断言锁着实际行为 |
+
+一个需求在五处留下痕迹却无路径可达 → 判为**疏忽**，非设计。
+
+### 9.16-C 改法与影响面
+
+- `output_format` 的 `gates` / `gate_rule` **置空**，与两个解读档位选项一样成为**纯参数**；
+  只被 `_f_mode` 消费。阶段 F 的 run/skip 现**只由 `translate` 判定**。
+- `AUDIT_NOTES` 清空（原第 1 条即本项），并在代码注释里保留「为什么不能自动修」的说明。
+- `prepare_stage.py` 的 `--show` 文案与 `output_format` 的 note 同步改写。
+
+**影响面（实测，非推断）**：六种组合中**只有一格变化**——
+
+| 组合 | 改前 | 改后 |
+|---|---|---|
+| **`translate=yes` + `markdown`** | F=skip，**什么都不产出** | **F=run，`_f_mode=html-only`，产出中译 Markdown（不渲染 PDF）** |
+| `markdown` + `translate=no`（**默认组合**） | skip | skip（**不变**） |
+| `pdf`/`both` + `translate=no` | skip | skip（**不变**） |
+| `pdf`/`both` + `translate=yes` | run，html+pdf | run，html+pdf（**不变**） |
+
+> **副作用（正向）**：`_translate_output="markdown"`、`_f_mode="html-only"`、
+> `--show` 的那条提示语**三处死代码同时复活为活路径**。
+
+### 9.16-D 验证
+
+| 项 | 结果 |
+|---|---|
+| 六格矩阵复测 | 第 2 行 `F=run` / `--check F` 退出码 **0** / `_f_mode=html-only` / `_translate_output=markdown`；其余五格逐项与改前一致 ✅ |
+| `selftest_pipeline.py --offline` | **47/47 通过，退出 0**（45 → 47：新增 2 条）✅ |
+| 新增的 2 条是**行为级回归守卫** | ① `translate=yes + markdown` 时 `--check F` 必须退出 0；② 该组合 `_f_mode` 必须为 `html-only`。**有人把 F 闸门加回 `output_format` 会立刻失败** ✅ |
+| `--audit` | 门控齐全，`AUDIT_NOTES` 已空；阶段 G 如实出现在「恒定执行」列表中 ✅ |
+| `vendor/ppt-master/projects/` | 前后快照一致，无残留 ✅ |
+
+> ⚠️ **写这条自检时踩到的坑（已记入代码注释）**：`prepare_stage.py --set` 是
+> **整份重写** —— 未指定的选项一律回落到默认值，**不是增量合并**。
+> 所以回归守卫改完 `output_format`/`translate` 后，必须把本次自检后续步骤依赖的计划
+> **原样重建**，否则后面几十条断言会因计划被改而连锁失败。
 
 ---
 

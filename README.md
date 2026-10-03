@@ -122,6 +122,38 @@
 > 且自检断言阶段 P **确实用了包内 `vendor/ppt-master`**。详见
 > [SKILL.md](SKILL.md) § 9.5-I。
 >
+> **v13（2026-10-03，解读档位整合 · 用户指令）** —— 把 skill
+> `paper-interpretation-writing` 的**三档解读**接进全流程，并补齐门控：
+> ① **阶段 0 新增两个选项**：`interpret_tier`（阶段 H 作者论文，**默认 L2 详细**）、
+>    `review_interpret_tier`（阶段 H2/R2 综述类，**默认 L3 完整**）。
+>    二者是**参数不是开关**，不控制任何阶段是否执行。
+> ② **新增 `--tier H|H2|R2`**（stdout 只有 `L1|L2|L3`，便于 `$()` 捕获）
+>    与 **`--audit`**（门控齐全性自检：每个阶段都有标签、每个闸门都指向真实阶段）。
+> ③ **所有解读模块同步读档**：`interpret_prepare` / `interpret_build`（H）、
+>    `refs_prepare` / `refs_build`（H2）、`reviews_prepare` / `reviews_build`（R2）、
+>    `ppt_brief`（P）；任务包内嵌 `interpret_tier`，subagent **以任务包为准**。
+> ④ **提示词"三件事"→"四件事"**：任务包路径 / 结果路径 / 只写自己那份 / **档位**。
+> ⑤ **补齐门控表**：阶段 **N / S / R / R2** 此前不在闸门表里 —— `--check N`
+>    返回 2（未知阶段），而 `run_all.sh` 的 `gate()` 用 `if` 判定，2 与 3 一样落进
+>    else 分支，**被静默当成跳过**。现由新增的 `undergrad_prelude`（默认开）管辖。
+> ⑥ **修正枚举大小写**：`--set interpret_tier=L3` 此前报「取值不在列表内」。
+> ⑦ **`--tier` stdout 保持干净**：移到 `logutil.get()` 之前，否则启动日志混进 stdout，
+>    `T=$(… --tier H)` 会捕获 `"INFO … L2"`，下游比对**静默失败**。
+> ⑧ **登记一处既有门控矛盾**（只记录、未改）：`output_format=markdown` 关闭阶段 F，
+>    但其说明写着「阶段 F 仍执行，只出中译 Markdown」。见 `AUDIT_NOTES`，**待拍板**。
+>
+> **v13.1（2026-10-03，同一批 · 用户拍板）** —— 修掉上面第 ⑧ 条：
+> **`output_format` 不再是闸门**，阶段 F 改由 `translate` 单独判定，本项只决定
+> 「要不要顺带渲染 PDF」。改前 `translate=yes + output_format=markdown` 会
+> **静默跳过阶段 F** —— 用户要了翻译却什么都拿不到、也不报错。
+> 实测影响面**只有这一格**（改为产出中译 Markdown、不渲染 PDF）；
+> 默认组合与其余四格完全不变。`selftest_pipeline.py` 已加**行为级回归守卫**
+> （45 → **47/47**）。详见 [SKILL.md](SKILL.md) § 9.16。
+>
+> ⛔ **三档只差细节量，不差断言强度** —— 同一个发现在三档的动词强度必须一致，
+> 且与原文同级。规范定义 / 句式库 / 跨 agent 数据契约 / 离线校验器见 skill
+> **`paper-interpretation-writing`**。详见 [SKILL.md](SKILL.md) § 9.15。
+
 > **v7（2026-09-19，文献综述 / PDF / 参考文献三线整合）** —— 五类改动：
 > ① 新增**阶段 0「准备阶段」**：把「输出格式 / 是否翻译 / 是否反向查参考文献 /
 >    是否做 PPT」等只有用户能定的选择前置，落盘 `.work_cdp/prepare_plan.json`，
@@ -470,8 +502,14 @@
 # ⓪ ★ v7：准备阶段 —— 先在对话里收齐选择，再一条命令落盘（决定后续阶段是否执行）
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=markdown --set translate=no --set reverse_refs=yes \
-    --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes
-uv run python 流程1/scripts/prepare_stage.py --check-all      # 看每阶段 run/skip
+    --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes \
+    --set interpret_tier=L2 --set review_interpret_tier=L3     # ★ v13 解读档位
+uv run python 流程1/scripts/prepare_stage.py --check-all      # 看每阶段 run/skip + 两处档位
+uv run python 流程1/scripts/prepare_stage.py --audit          # ★ v13 门控齐全性自检
+#   ★ v13 档位查询（stdout 只有 L1|L2|L3，便于 T=$(…) 捕获）：
+#     uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
+#     uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
+#     uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
 
 export PAPER_WORKDIR="D:/UserData/Desktop/<作者名>"
 export CDP_PORT=9222
@@ -540,6 +578,11 @@ uv run python 流程1/scripts/fetch_direct.py
 #    uv run --with websocket-client python 流程1/scripts/grab_abstracts.py --retry-failed
 
 # ⑦ 论文解读（阶段 H）：组装任务包 → 并行 subagent → 汇总
+#    ★ v13：档位随任务包下发（默认 interpret_tier=L2 详细）。
+#      L1 精简 = 速览表（不含误差项/样本量/图表/实验步骤）；
+#      L2 详细 = 逐篇卡片（本阶段既有形态）；L3 完整 = 深度解读。
+#      临时覆盖：… interpret_prepare.py --tier L3
+#    ★ 三档只差细节量，不差断言强度；规范见 skill paper-interpretation-writing
 uv run --with pypdf python 流程1/scripts/interpret_prepare.py
 #    ↑ 产出 .work_cdp/interpret/tasks/*.json（题录+摘要+正文，自包含）
 #    然后在**同一条消息内**并行分派 4–6 个 subagent，每篇一个，
@@ -1153,6 +1196,8 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 │   └── 全文清单.md                        #   逐篇获取状态 + 来源 + 页数 + 未获取原因
 ├── <作者名>_论文列表.md                     # ⭐ 规范交付名（GB/T 7714-2015 + DOI + 原文链接）
 ├── <作者名>_论文解读.md                     # ⭐ 时间线 / 逐篇四步 / 关键词 / 方向 / 范式
+│                                            #   ★ v13：按 interpret_tier 渲染（默认 L2 详细；
+│                                            #     L1 = 定位+成就+关键数字速览，L3 = 加逐条局限与证据强度）
 ├── <作者名>_交付物索引.md                   # 交付总览 + 数据核验链 + 复现步骤
 ├── <作者名>_论文翻译_<刊><年>_中文版.pdf     # 全文中译（保留章节/图注/表注）
 ├── <作者名>_高质量文献列表.md               # ⭐v7 阶段 D2：反向查得的综述网络（综述优先）

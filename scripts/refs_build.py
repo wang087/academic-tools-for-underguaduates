@@ -17,6 +17,11 @@
 # ★ 诚实性优先：缺卡的篇目、仅摘要级的篇目全部**显式列出**，不静默略过。
 # ★ 本脚本**只读本地文件**，不发起任何网络请求。
 #
+# ★ 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
+#   **不改任何既有渲染行为**（默认 L3，等于现状）。读取优先级：
+#   task packet → manifest.json → .work_cdp/prepare_plan.json → 默认 "L3"。
+#   档位是参数不是闸门，读不到只回退、不报错。语义见 skill：`paper-interpretation-writing`。
+#
 # 输入（<WORKDIR>/.work_cdp/refs/）：
 #   manifest.json     refs_prepare.py 产出
 #   tasks/*.json      任务包（缺卡时也能列进「缺卡」清单）
@@ -92,6 +97,70 @@ AUTHOR = (os.environ.get("PAPER_AUTHOR", "").strip() or WD.name)
 ORCID = os.environ.get("PAPER_ORCID", "").strip()
 AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
 
+
+# ══════════════════════════════════════════════════════════════
+# 综述解读档位（阶段 H2 / R2 共用 `review_interpret_tier`）
+#
+# ★ 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
+# ★ 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
+#   档位改变的是细节量，而 L1/L2 的差异化渲染属于后续批次。
+# ★ 这里自包含一份助手而不 import refs_prepare：汇聚器与组装器的方向反转会带来
+#   模块级副作用（见 _fix_streams 注释），几十行自包含更稳。
+# ══════════════════════════════════════════════════════════════
+TIER_KEY = "review_interpret_tier"
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L3"                         # 综述类交付物的默认档位
+TIER_LABELS = {"L1": "精简", "L2": "详细", "L3": "完整"}
+PLAN_PATH = CDPDIR / "prepare_plan.json"
+
+
+def normalize_tier(raw) -> str:
+    """把任意输入规范化成 L1/L2/L3（大小写不敏感）；无法识别返回空串。"""
+    s = str(raw or "").strip().upper()
+    return s if s in TIER_VALUES else ""
+
+
+def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
+    """读阶段 0 的 `review_interpret_tier`（返回 (档位, 提示语)；提示语非空=发生了回退）。"""
+    p = plan_path or PLAN_PATH
+    if not p.exists():
+        return DEFAULT_TIER, f"找不到 {p}"
+    try:
+        plan = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return DEFAULT_TIER, f"{p.name} 解析失败（{e}）"
+    raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
+    got = normalize_tier(raw)
+    if not got:
+        return DEFAULT_TIER, f"{p.name} 的 {TIER_KEY}={raw!r} 非法"
+    return got, ""
+
+
+def resolve_tier(tasks: list, man: dict | None) -> tuple[str, str]:
+    """档位优先级：**task packet → manifest → prepare_plan.json → 默认 L3**。
+
+    返回 (档位, 来源说明)。任务包是 prepare 阶段逐条落盘的事实，
+    比 manifest 更贴近「这篇文献当时按什么档位解读」；两者都没有才回头看阶段 0 计划。
+    """
+    for t in tasks or []:
+        got = normalize_tier((t.get("packet") or {}).get("interpret_tier"))
+        if got:
+            return got, "task packet"
+    got = normalize_tier((man or {}).get("interpret_tier"))
+    if got:
+        return got, "manifest.json"
+    got, why = plan_tier()
+    if not why:
+        return got, PLAN_PATH.name
+    return got, f"默认回退（{why}）"
+
+
+def tier_banner(tier: str) -> str:
+    """报告开头那一行档位说明（**只是新增一行，不改任何既有内容**）。"""
+    return (f"解读档位：**{tier} {TIER_LABELS.get(tier, '')}**"
+            f"（综述类默认 L3；可在阶段 0 改档）")
+
+
 # 与 refs_prepare.REQUIRED_FULL 保持一致（此处独立声明，避免 import 副作用）
 REQUIRED = ("doi", "one_line", "problem_solved", "methods",
             "verified_conclusions", "key_20", "quantified_gains",
@@ -109,6 +178,26 @@ def load_json(p: pathlib.Path, default=None):
     except Exception as e:
         print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
         return default
+
+
+# 本脚本用 `--self-test` 这一轻量开关，没有 argparse —— 因此必须自己认 `--help`，
+# 否则 `--help` 会被**静默忽略**并当成一次正常汇总去跑（实测退出码 2 且信息误导）。
+USAGE = """\
+阶段 H2 ③：回收综述解读卡 → 生成《<作者名>_研究方向综述.md》
+
+用法：
+  uv run python 流程1/scripts/refs_build.py [选项]
+
+选项：
+  --self-test   纯逻辑自检（不联网）
+  -h, --help    显示本帮助
+
+输入：<WORKDIR>/.work_cdp/refs/{manifest.json,tasks/,results/,final_list.json}
+产出：<WORKDIR>/<作者名>_研究方向综述.md
+
+解读档位：task packet → manifest.json → .work_cdp/prepare_plan.json → 默认 L3
+可移植配置：PAPER_WORKDIR / PAPER_AUTHOR / PAPER_ORCID
+"""
 
 
 def as_list(v) -> list:
@@ -152,6 +241,9 @@ def normalize_tag(tag: str, allowed: list[str], aliases: dict) -> tuple[str, boo
 def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(USAGE)
+        return 0
 
     log = get("refs")
     man = load_json(REFDIR / "manifest.json")
@@ -171,6 +263,9 @@ def main() -> int:
     cards = [t for t in tasks if isinstance(t["card"], dict)]
     missing = [t for t in tasks if not isinstance(t["card"], dict)]
     bad = [t for t in cards if any(k not in t["card"] for k in REQUIRED)]
+
+    # ── 综述解读档位：task packet → manifest → prepare_plan.json → L3 ──
+    tier, tier_src = resolve_tier(tasks, man)
 
     vocab = load_vocab()
     allowed_d = vocab.get("direction_tags_vocabulary") or []
@@ -224,6 +319,9 @@ def main() -> int:
     L.append("> 生成方式：反向查找作者论文的参考文献 → 去重与相关性整理 → "
              "并行 subagent 逐条精读（流程见 `流程1/subagent-driven-review/SKILL.md`）；"
              "**全程无网络抓取**。\n")
+    # ★ 档位是**参数不是闸门**：显式写在报告开头，读者才知道这份综述的细节量档位
+    #   （L1/L2/L3 只差细节量，不差语气强度）。渲染逻辑本身不随档位变化。
+    L.append(f"> {tier_banner(tier)}\n")
 
     # ── 〇 数据来源与限制 ──────────────────────────────────────
     L.append("## 〇、数据来源与限制\n")
@@ -441,11 +539,12 @@ def main() -> int:
     print(f"✅ 综述报告：{p}")
     print(f"   任务 {n_all} / 解读卡 {n_card} / 缺卡 {len(missing)} / "
           f"schema 不合规 {len(bad)}")
+    print(f"   解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）")
     if missing:
         print(f"   ⚠ 缺卡 {len(missing)} 条 —— 请**重派 subagent**，不要手工修补。")
     journal("H2", "refs.build", n_tasks=n_all, n_cards=n_card,
-            n_missing=len(missing), n_bad=len(bad))
-    log.info(f"✓ 阶段 H2 ③（研究方向综述）完成 → {p}")
+            n_missing=len(missing), n_bad=len(bad), interpret_tier=tier)
+    log.info(f"✓ 阶段 H2 ③（研究方向综述）完成 → {p}　[解读档位 {tier}]")
     return 0
 
 
@@ -465,6 +564,15 @@ def self_test() -> int:
     assert len(REQUIRED) == 13, REQUIRED
     assert "network_role" in REQUIRED and "relation_to_author" in REQUIRED
     print("schema 必需字段：通过（11 基础 + 2 综述网络）")
+
+    # ★ 档位：读取链与显示行都固化在自检里，避免以后被静默改掉
+    assert normalize_tier("l3") == "L3" and normalize_tier("L9") == ""
+    assert normalize_tier(None) == ""
+    assert resolve_tier([{"packet": {"interpret_tier": "L1"}}],
+                        {"interpret_tier": "L2"})[0] == "L1"
+    assert resolve_tier([{"packet": {}}], {"interpret_tier": "L2"})[0] == "L2"
+    assert tier_banner("L3") == "解读档位：**L3 完整**（综述类默认 L3；可在阶段 0 改档）"
+    print("解读档位：通过（packet → manifest → plan → L3；显示行固定）")
     print("\n✅ 自检全部通过")
     return 0
 

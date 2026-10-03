@@ -24,6 +24,11 @@
 #   # ③ 只看状态（有几张卡、缺哪几篇）
 #   uv run python 流程1/scripts/reviews_build.py --status
 #
+# ★ 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
+#   **不改任何既有渲染行为**（默认 L3，等于现状）。读取优先级：
+#   task packet → manifest.json → .work_cdp/prepare_plan.json → 默认 "L3"。
+#   档位是参数不是闸门，读不到只回退、不报错。语义见 skill：`paper-interpretation-writing`。
+#
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
@@ -81,6 +86,74 @@ WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
 
 # 推荐阅读顺序用的角色排序（越靠前越适合入门先读）
 ROLE_ORDER = ["入门综述", "奠基性综述", "争议梳理", "方法综述", "最新进展"]
+
+
+# ══════════════════════════════════════════════════════════════
+# 综述解读档位（阶段 R2 用 `review_interpret_tier`，与阶段 H2 共用同一个键）
+#
+# ★ 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
+# ★ 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
+#   档位改变的是细节量，而 L1/L2 的差异化渲染属于后续批次。
+# ★ 自包含一份助手而不 import 别的脚本（见 _fix_streams 注释里的 import 陷阱）。
+# ══════════════════════════════════════════════════════════════
+TIER_KEY = "review_interpret_tier"
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L3"                         # 综述类交付物的默认档位
+TIER_LABELS = {"L1": "精简", "L2": "详细", "L3": "完整"}
+PLAN_PATH = WD / ".work_cdp" / "prepare_plan.json"
+
+
+def normalize_tier(raw) -> str:
+    """把任意输入规范化成 L1/L2/L3（大小写不敏感）；无法识别返回空串。"""
+    s = str(raw or "").strip().upper()
+    return s if s in TIER_VALUES else ""
+
+
+def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
+    """读阶段 0 的 `review_interpret_tier`（返回 (档位, 失败原因)；原因空=成功）。"""
+    p = plan_path or PLAN_PATH
+    if not p.exists():
+        return DEFAULT_TIER, f"找不到 {p}"
+    try:
+        plan = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return DEFAULT_TIER, f"{p.name} 解析失败（{e}）"
+    raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
+    got = normalize_tier(raw)
+    if not got:
+        return DEFAULT_TIER, f"{p.name} 的 {TIER_KEY}={raw!r} 非法"
+    return got, ""
+
+
+def resolve_tier(task_files: list[pathlib.Path], man: dict | None) -> tuple[str, str]:
+    """档位优先级：**task packet → manifest → prepare_plan.json → 默认 L3**。
+
+    返回 (档位, 来源说明)。任务包是 reviews_prepare 逐条落盘的事实，
+    比 manifest 更贴近「这篇综述当时按什么档位解读」；两者都没有才回头看阶段 0 计划。
+    """
+    for p in task_files or []:
+        # ★ 本脚本没有 load_json 助手（读 JSON 一律就地 json.loads）—— 读不出来就跳过，
+        #   档位是参数不是闸门，单个任务包损坏不该让汇总失败。
+        try:
+            packet = json.loads(pathlib.Path(p).read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        got = normalize_tier(packet.get("interpret_tier"))
+        if got:
+            return got, "task packet"
+    got = normalize_tier((man or {}).get("interpret_tier"))
+    if got:
+        return got, "manifest.json"
+    got, why = plan_tier()
+    if not why:
+        return got, PLAN_PATH.name
+    return got, f"默认回退（{why}）"
+
+
+def tier_banner(tier: str) -> str:
+    """报告开头那一行档位说明（**只是新增一行，不改任何既有内容**）。"""
+    return (f"解读档位：**{tier} {TIER_LABELS.get(tier, '')}**"
+            f"（综述类默认 L3；可在阶段 0 改档）")
 
 
 # 占位/截断污染的特征串。并行 subagent 在高并发下可能触发生成长度上限，
@@ -203,8 +276,14 @@ def load_cards(d: pathlib.Path, strict: bool = True) -> tuple[list[dict], list[s
     return cards, bad, rejected
 
 
-def render(cards: list[dict], manifest: dict | None, topic: str = "") -> str:
-    """把解读卡渲染成面向本科生的《领域概貌.md》。"""
+def render(cards: list[dict], manifest: dict | None, topic: str = "",
+           tier: str = DEFAULT_TIER) -> str:
+    """把解读卡渲染成面向本科生的《领域概貌.md》。
+
+    `tier` = 综述解读档位；**只在报告开头多写一行档位说明**，
+    既有渲染逻辑与档位无关（L1/L2 的差异化渲染属于后续批次）。
+    """
+    tier = normalize_tier(tier) or DEFAULT_TIER
     n = len(cards)
     L: list[str] = []
     title = topic or "领域概貌"
@@ -212,6 +291,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "") -> str:
     L.append("")
     L.append(f"> 本文件由 {n} 篇综述的解读卡自动汇总。"
              "**共识与争议原样并列**，不替你下判断。")
+    L.append(f"> {tier_banner(tier)}")
     L.append("")
 
     # ── 一句话总结：取第一篇的 one_sentence 或并列 ──
@@ -494,7 +574,10 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
 
-    text = render(cards, mf, topic=args.topic)
+    # ── 综述解读档位：task packet → manifest → prepare_plan.json → L3 ──
+    tier, tier_src = resolve_tier(tasks, mf)
+
+    text = render(cards, mf, topic=args.topic, tier=tier)
     outp = pathlib.Path(args.out) if args.out else (d / "领域概貌.md")
     if not outp.is_absolute():
         outp = WD / outp
@@ -513,7 +596,8 @@ def main(argv: list[str] | None = None) -> int:
     if bad:
         log.warn(f"⚠ {len(bad)} 个结果文件无法解析，已跳过：{bad[:5]}")
     journal("R2", "reviews.build", cards=len(cards), tasks=n_task,
-            rejected=len(rejected))
+            rejected=len(rejected), interpret_tier=tier)
+    print(f"解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）")
     print(f"→ {outp}")
     return 0
 

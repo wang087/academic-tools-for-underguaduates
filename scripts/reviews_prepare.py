@@ -30,6 +30,11 @@
 #   # ④ 自定义输出目录 / 只处理前 N 篇
 #   uv run python 流程1/scripts/reviews_prepare.py --input … --limit 8
 #
+#   # ⑤ 覆盖综述解读档位（可选；缺省读 .work_cdp/prepare_plan.json 的
+#   #    review_interpret_tier，再退回默认 L3）
+#   uv run python 流程1/scripts/reviews_prepare.py --input … --tier L2
+#   #    档位写进每个任务包与 manifest.json，供 subagent 与 reviews_build 使用
+#
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
@@ -92,6 +97,52 @@ UA = "reviews-prepare/1.0 (academic use; mailto:noreply@example.org)"
 # 综述类文献的类型标记（用于判定 field_role 与筛选）
 REVIEW_TYPES = ("review", "systematic review", "systematic-review", "meta-analysis",
                 "meta analysis", "scoping review", "survey", "perspective", "review-article")
+
+
+# ══════════════════════════════════════════════════════════════
+# 综述解读档位（阶段 R2 用 `review_interpret_tier`，与阶段 H2 共用同一个键）
+#
+# ★ 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
+#   计划文件缺失/损坏/取值非法只能提示 + 回退默认 L3，绝不报错退出 ——
+#   少一个档位不该让整条链路停摆。
+# ★ 本脚本只负责把档位**如实带进每个任务包与 manifest**（供 reviews_build 与
+#   subagent 读取），不改变任何既有渲染行为。语义见 skill：`paper-interpretation-writing`。
+# ★ 自包含一份助手而不 import 别的脚本：流程内脚本互相 import 会带来 module 级
+#   副作用与 stdout 重包的坑（见 _fix_streams 注释），几十行自包含更稳。
+# ══════════════════════════════════════════════════════════════
+TIER_KEY = "review_interpret_tier"
+TIER_VALUES = ("L1", "L2", "L3")
+DEFAULT_TIER = "L3"                         # 综述类交付物的默认档位
+TIER_LABELS = {"L1": "精简", "L2": "详细", "L3": "完整"}
+PLAN_PATH = WD / ".work_cdp" / "prepare_plan.json"
+
+
+def normalize_tier(raw) -> str:
+    """把任意输入规范化成 L1/L2/L3（大小写不敏感）；无法识别返回空串。"""
+    s = str(raw or "").strip().upper()
+    return s if s in TIER_VALUES else ""
+
+
+def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
+    """读阶段 0 的 `review_interpret_tier`。
+
+    返回 (档位, 提示语)；提示语非空表示发生了**回退**（调用方负责打到 stderr）。
+    """
+    p = plan_path or PLAN_PATH
+    if not p.exists():
+        return DEFAULT_TIER, (f"⚠ 找不到 {p}（阶段 0 未跑？）→ "
+                              f"综述解读档位回退默认 {DEFAULT_TIER}")
+    try:
+        plan = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return DEFAULT_TIER, (f"⚠ {p.name} 解析失败（{e}）→ "
+                              f"综述解读档位回退默认 {DEFAULT_TIER}")
+    raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
+    got = normalize_tier(raw)
+    if not got:
+        return DEFAULT_TIER, (f"⚠ {p.name} 的 {TIER_KEY}={raw!r} 非法"
+                              f"（应为 L1/L2/L3）→ 回退默认 {DEFAULT_TIER}")
+    return got, ""
 
 
 def slugify(s: str, maxlen: int = 80) -> str:
@@ -197,8 +248,14 @@ def fetch_abstract(rec: dict, timeout: int = 25) -> str:
 
 
 def build(input_records: list[dict], outdir: pathlib.Path,
-          limit: int = 0, fetch_abs: bool = False, log=None) -> dict:
-    """组装任务包 + manifest。字段名与 interpret_prepare 的任务包**逐一同名**。"""
+          limit: int = 0, fetch_abs: bool = False, log=None,
+          tier: str = DEFAULT_TIER) -> dict:
+    """组装任务包 + manifest。字段名与 interpret_prepare 的任务包**逐一同名**。
+
+    `tier` = 综述解读档位（L1/L2/L3）。写进**每个任务包**与 manifest，
+    便于 subagent 按档位写作、reviews_build 汇总时显示。缺省即默认 L3。
+    """
+    tier = normalize_tier(tier) or DEFAULT_TIER
     tasks_dir = outdir / "tasks"
     results_dir = outdir / "results"
     tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +288,7 @@ def build(input_records: list[dict], outdir: pathlib.Path,
 
         packet = {
             "seq": i,
+            "interpret_tier": tier,          # ★ 综述解读档位（供 subagent 与 build 读取）
             "doi": rec["doi"],
             "title": rec["title"],
             "journal": rec["journal"],
@@ -266,6 +324,7 @@ def build(input_records: list[dict], outdir: pathlib.Path,
     payload = {
         "workdir": str(WD),
         "stage": "R2",
+        "interpret_tier": tier,              # ★ 档位随清单落盘，下游无需再猜
         "count": len(manifest),
         "review_count": sum(1 for m in manifest if m["is_review"]),
         "oa_count": sum(1 for m in manifest if m["is_oa"]),
@@ -297,9 +356,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="最多处理多少篇（0=全部）")
     ap.add_argument("--fetch-abstracts", action="store_true",
                     help="缺摘要时按 DOI/PMID 从 Europe PMC 补齐（联网）")
+    ap.add_argument("--tier", type=str.upper, choices=list(TIER_VALUES),
+                    help="覆盖综述解读档位 L1 精简 / L2 详细 / L3 完整"
+                         "（缺省读 .work_cdp/prepare_plan.json 的 "
+                         f"{TIER_KEY}，再退回默认 {DEFAULT_TIER}）")
     args = ap.parse_args(argv)
 
     log = get("reviews")
+
+    # ── 档位：命令行 > prepare_plan.json > 默认 L3 ──────────────
+    #   非法 --tier 由 argparse 以退出码 2 拒绝（choices 校验），不会静默回退。
+    if args.tier:
+        tier, tier_src, tier_note = args.tier, "命令行 --tier", ""
+    else:
+        tier, tier_note = plan_tier()
+        tier_src = f"{PLAN_PATH.name} · {TIER_KEY}" if not tier_note else "默认回退"
+    if tier_note:
+        print(tier_note, file=sys.stderr)
 
     src = args.input or args.from_europepmc or args.from_json
     if not src:
@@ -318,12 +391,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"✗ 输入解析失败：{e}", file=sys.stderr)
         return 2
 
-    # 三种输入形态：{records:[…]} / {items:[…]} / […]
+    # 四种输入形态：
+    #   ① {records:[…]}          —— paginate.py 原始输出
+    #   ② {items:[…]}            —— 通用数组包装
+    #   ③ {resultList:{result:[]}} —— Europe PMC 原生
+    #   ④ {included:[…]}         —— **v13 PRISMA 链的 search_screened.json**
+    #      ⛔ 早期版本不认这个键，导致 `search_screen.py → reviews_prepare.py`
+    #         这一步实际接不上（实测报「输入里没有记录」），
+    #         而文档里却写着"之后接既有的 reviews_prepare.py"。
     if isinstance(data, dict):
-        records = data.get("records") or data.get("items") or data.get("resultList", {}) \
-            .get("result") if isinstance(data.get("resultList"), dict) else None
+        records = None
+        rl = data.get("resultList")
+        if isinstance(rl, dict) and rl.get("result"):
+            records = rl["result"]
+        for key in ("records", "items", "included"):
+            if records is None and isinstance(data.get(key), list):
+                records = data[key]
         if records is None:
-            records = data.get("records") or data.get("items") or []
+            records = []
     else:
         records = data
     if not records:
@@ -336,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info(f"输入 {len(records)} 条记录 → {outdir}")
     payload = build(records, outdir, limit=args.limit,
-                    fetch_abs=args.fetch_abstracts, log=log)
+                    fetch_abs=args.fetch_abstracts, log=log, tier=tier)
 
     print()
     print("═" * 66)
@@ -344,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  其中综述类：{payload['review_count']}；开放获取：{payload['oa_count']}")
     print(f"  证据层级：摘要级 {payload['evidence_abstract']} / "
           f"仅题录 {payload['evidence_metadata_only']}")
+    print(f"  解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）"
+          f"　综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
     print(f"  任务包：{payload['tasks_dir']}")
     print(f"  结果目录：{payload['results_dir']}")
     print()
@@ -352,7 +439,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  提示词模板见 流程1/subagent-driven-review/SKILL.md §7.2（领域概貌版）。")
     print("═" * 66)
     journal("R", "reviews.prepare", count=payload["count"],
-            reviews=payload["review_count"], oa=payload["oa_count"])
+            reviews=payload["review_count"], oa=payload["oa_count"],
+            interpret_tier=tier)
     return 0
 
 
