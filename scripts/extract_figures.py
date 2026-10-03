@@ -33,9 +33,19 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
     from pypdf import PdfReader
     rd = PdfReader(str(pdf))
     figs, seen = [], set()
+    # ★ 记录「因缺依赖而跳过的图像」。pypdf 的 page.images 需要 **Pillow**；
+    #   缺 Pillow 时它抛 ImportError，若不记账就会与「PDF 本来没图」混淆。
+    #   必须在循环**之前**初始化（否则空结果分支会 NameError）。
+    _import_errors: list[str] = []
     for pno, page in enumerate(rd.pages, 1):
         try:
             imgs = list(page.images)
+        except ImportError as e:
+            # ★ 这里的 ImportError 就是「缺 Pillow」：pypdf 的 page.images
+            #   需要 Pillow 才能解码。**必须记账**，否则外部只会看到
+            #   「0 张图」，与「PDF 本来没图」无法区分。
+            _import_errors.append(f"page{pno}: {type(e).__name__}: {e}")
+            continue
         except Exception:
             continue
         for image in imgs:
