@@ -6,7 +6,7 @@
 #   流程的脚本各自都有 `--self-test`，但它们只验**纯逻辑**；
 #   真正会断的是**脚本之间的契约**（上游写的字段下游读不读得到、
 #   文件名是否对得上、闸门关掉时下游是否也能正确收敛）。
-#   这类缺陷只有端到端跑一遍才暴露 —— §9.4-H 的教训就是这么来的。
+#   这类缺陷只有端到端跑一遍才暴露 —— [版本变动.md](版本变动.md) 的教训就是这么来的。
 #
 # 特点
 #   · 在**临时工作目录**里跑，不碰任何真实案例数据；
@@ -299,7 +299,7 @@ def main() -> int:
         # ★ v13.1：本用例是 output_format=markdown **且 translate=no** → 阶段 F 由
         #   translate 关闭（output_format 已不再是闸门），故 _f_mode=off。
         #   改前这条的标签写「F 为 html-only」而断言写 off —— 标签描述意图、
-        #   断言锁实际行为，二者矛盾正是 §9.16 那处缺陷留下的痕迹。
+        #   断言锁实际行为，二者矛盾正是 [版本变动.md](版本变动.md) 那处缺陷留下的痕迹。
         check("output_format=markdown 且 translate=no → F 关闭（_f_mode=off）",
               plan.get("_f_mode") == "off", f"_f_mode={plan.get('_f_mode')}")
 

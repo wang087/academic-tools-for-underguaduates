@@ -68,7 +68,7 @@ def _exports_candidates(wd: pathlib.Path) -> list[pathlib.Path]:
       再 × {规范名 _paper_Exports, 历史名 _Exports}。
     ★ 把所有候选都列出来（而不是只算一个名字），是为了让**既有产物
       无论用的是哪个名字都能被找到**，不会因为改了取名规则就「明明下好了
-      却查不到」——那正是 §9 记录过的老毛病。
+      却查不到」——那正是 [版本变动.md](版本变动.md) 记录过的老毛病。
     """
     names: list[str] = []
     for raw in (os.environ.get("PAPER_EXPORTS_NAME", ""),

@@ -622,7 +622,7 @@ def gbt(rec: dict) -> str:
         names.append(a)
     astr = ", ".join(names) + (", et al." if len(au) > 3 else "")
     # ★ 作者串以 "et al." 结尾时**不再补句点**，否则会出现 "et al.." 双句点
-    #   （主流程 §9.4 ⑦ 修过同一个错，这里保持一致）
+    #   （[版本变动.md](版本变动.md) ⑦ 修过同一个错，这里保持一致）
     sep = "" if astr.endswith(".") else "."
     title = (rec.get("title") or "").rstrip(".")
     venue = rec.get("venue") or ""
