@@ -8,7 +8,7 @@
 > | **"工作文件夹"**      | 仓库根目录**`scientific-agent-skills/`**（本目录的上一级）             |
 > | **"工作根目录文件"**  | 如`研究方法与关键词总表.md`、`skills/` 等，都在**工作文件夹**下      |
 >
-> ⚠️ `流程/`（**无数字后缀**）是旧的 **v7.2** 分支，与 `流程1/`（**v8.0**）已分叉。
+> ⚠️ `流程/`（**无数字后缀**）是更早的一个分支，与 `流程1/` 已分叉。
 > 除非用户明确点名 `流程/`，否则一切以 `流程1/` 为准。
 
 > ## ⛔ 使用本流程的硬性要求（最高优先级，先读）
@@ -23,7 +23,7 @@
 >    【前置链路：本科科研辅助 —— 一句话意向 → 领域概貌】
 >    N 大方向确定（无交互）
 >      → S 匹配细分专业（抓导师 → 归类 → 等用户选择）
->      → R 平行检索优质综述（Scholar / PubMed / arXiv 并行，综述优先）
+>      → R 多源综述检索（按方向选库，综述优先）
 >      → R2 领域概貌解读
 >    【原有链路：作者论文分析 —— 按需接入】
 >    0 → A → B → C → D → D2 → E → F → G → G2 → H → H2 → K → P → I
@@ -34,7 +34,7 @@
 >    改完**必须**把版本记录写进 [版本变动.md](版本变动.md)。
 > 4. ⛔ **本文件与 [SKILL.md](SKILL.md) 内不得写任何版本说明** ——
 >    不写 `vN` 变更日志、不写「本次改动」、不写「详见 §9.x」、
->    不在标题里加 `（v8 大方向调整）` 之类标注。
+>    不在标题里加版本号（如 `（v11：…）`）。
 >    两者只描述**当前有效的可操作流程**；历史沿革一律归 [版本变动.md](版本变动.md)。
 > 5. **红线** —— SKILL §5.1 **分层获取策略**、§5.2 鼠标自动化禁令优先级最高。
 >    ★ §5.1 是**分层**规则：摘要 / 综述题录 / 白名单开源库**允许直连**，
@@ -173,20 +173,20 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 │   ├── enrich_crossref_authors.py        #   ⭐ 回填 Crossref 结构化作者全名 + 卷期页
 │   ├── disambiguate.py                   #   ⭐⭐ 同名消歧（姓名+单位指纹+合作者网络）
 │   ├── unpaywall_check.py                #   批量 OA 状态与全文链接
-│   ├── fetch_openalex_abstracts.py       #   OpenAlex 单源重建摘要（v7.1 起不覆盖其它源）
+│   ├── fetch_openalex_abstracts.py       #   OpenAlex 单源重建摘要
 │   ├── build_list.py                     #   生成 GB/T 7714-2015 列表（含署名位次）
 │   ├── ── 全文获取（一律经 CDP）──────────
 │   ├── download_all_fulltexts.py         #   ⭐⭐ 全文下载唯一入口（多实例+熔断+续传+转人工）
-│   ├── ⭐ fetch_direct.py（v7.1）        #   第一层直连取摘要（S2/OpenAlex/EuropePMC/Crossref/PubMed）
-│   ├── ~~fetch_oa_direct.py~~            #   ⛔ v4 停用（曾为 OA 直链 HTTP 取**全文**；v7.1 未恢复全文直连）
+│   ├── ⭐ fetch_direct.py        #   第一层直连取摘要（S2/OpenAlex/EuropePMC/Crossref/PubMed）
+│   ├── ~~fetch_oa_direct.py~~            #   ⛔ **已停用**（曾为 OA 直链 HTTP 取**全文**；分层策略未恢复全文直连）
 │   ├── save_pdf_via_browser.py           #   单篇 PDF 获取（4 种方法）
 │   ├── check_challenge.py                #   站点体检（挑战/封禁/可达性）
 │   ├── check_access.py                   #   检测本机 IP 级机构订阅授权
 │   ├── grab_abstracts.py                 #   CDP 抓出版社摘要（低频拟人化）
-│   ├── ── v3 新增：命名 / 渲染 ──────────
+│   ├── ── 命名 / 渲染 ──────────
 │   ├── rename_to_title.py                #   ⭐ PDF 重命名为论文标题（含索引登记）
 │   ├── render_html_pdf.py                #   ⭐ 中文翻译 HTML → PDF + CJK 嵌入校验
-│   ├── ── v4 新增：中译素材链 / 收尾 ─────
+│   ├── ── 中译素材链 / 收尾 ─────
 │   ├── prep_paper.py                     #   原文 PDF → 按页分节文本 + 图注页索引
 │   ├── crop_by_images.py                 #   按位图并集裁「图-only」主图
 │   ├── extract_figures.py                #   抽取内嵌位图（Extended Data 图）
@@ -194,11 +194,11 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 │   ├── translation_build.py              #   内容 JSON + 图形 JSON → 内联图的中译 HTML
 │   ├── verify_pdfs.py                    #   全文完整性 + 页数合理性校验
 │   ├── inventory_build.py                #   生成《全文清单.md》（分阶段覆盖率）
-│   ├── ── v6 新增：消歧接入 / 论文解读 ────
+│   ├── ── 消歧接入 / 论文解读 ────
 │   ├── scope.py                          #   ⭐⭐ 同名消歧排除名单唯一入口（下载/著录共用）
 │   ├── interpret_prepare.py              #   阶段 H ①：组装自包含单篇任务包（含正文，带页标记）
 │   ├── interpret_build.py                #   阶段 H ④：回收解读卡 → 《论文解读.md》
-│   ├── ── v7 新增：准备阶段 / 综述网络 / PPT ──
+│   ├── ── 准备阶段 / 综述网络 / PPT ──
 │   ├── prepare_stage.py                  #   ⭐⭐ 阶段 0：准备计划 + 阶段闸门（单一事实源，零网络）
 │   ├── refs_backfill.py                  #   ⭐⭐ 阶段 D2：反向查参考文献 → 高质量文献列表（OpenAlex）
 │   ├── refs_bibliography.py              #   ⭐ 阶段 G2：代表性文献的参考文献列表（GB/T 7714）
@@ -213,12 +213,12 @@ uv run python 流程1/scripts/agent_poll.py --stage H
     ├── 参考文献著录模板_GBT7714.md
     ├── 中文翻译_HTML模板.html
     ├── 关键词词族模板.json                # 作者专属语义词族表（供 interpret_build --families=）
-    ├── 关键词词族_学科通用.json            # ⭐v7 学科通用词族底座（24 领域派生，全单 token）
-    ├── 方法范式标签词表.json               # ⭐v7 受控标签词表（direction/paradigm/network_role）
-    └── 期刊分区表_中科院一区.json          # ⭐v7 分区**种子表**（非官方分区表；可被用户表覆盖）
+    ├── 关键词词族_学科通用.json            # ⭐学科通用词族底座（24 领域派生，全单 token）
+    ├── 方法范式标签词表.json               # ⭐受控标签词表（direction/paradigm/network_role）
+    └── 期刊分区表_中科院一区.json          # ⭐分区**种子表**（非官方分区表；可被用户表覆盖）
 ```
 
-> **v6 起，全文目录规范名为 `<作者名>_paper_Exports/`**（历史 `<作者名>_Exports/`
+> **，全文目录规范名为 `<作者名>_paper_Exports/`**（历史 `<作者名>_Exports/`
 > 会被自动沿用，不迁移不丢文件）。另有 `.work_cdp/pdf_index.json` 登记表
 > （DOI → 文件名，题名命名后仍可去重）、`.work_cdp/interpret/`（解读任务包与解读卡）、
 > 以及 `<作者名>_论文翻译_<刊><年>_中文版.pdf` 中译成品。
@@ -232,9 +232,9 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=markdown --set translate=no --set reverse_refs=yes \
     --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes \
-    --set interpret_tier=L2 --set review_interpret_tier=L3     # ★ v13 解读档位
+    --set interpret_tier=L2 --set review_interpret_tier=L3     # ★ 解读档位
 uv run python 流程1/scripts/prepare_stage.py --check-all      # 看每阶段 run/skip + 两处档位
-uv run python 流程1/scripts/prepare_stage.py --audit          # ★ v13 门控齐全性自检
+uv run python 流程1/scripts/prepare_stage.py --audit          # ★ 门控完备性自检
 #   ★ 档位查询（stdout 只有 L1|L2|L3，便于 T=$(…) 捕获）：
 #     uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
 #     uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
@@ -396,7 +396,7 @@ done
 ```
 
 > **为什么必须端到端跑**：各脚本的 `--self-test` 全绿**不等于**能串起来跑。
-> v7 的端到端自检一共挡下 4 类静态看不出的缺陷 ——
+> 端到端自检一共挡下 4 类静态看不出的缺陷 ——
 > `--set` 空格写法被静默忽略、两个 prepare 脚本的 manifest 字段不一致、
 > PPT Spec 的 `Page Count` 与 §IX 页数不等、§X 因缩进落进循环体而重复 4 次。
 > 详见 SKILL [版本变动.md](版本变动.md)。
@@ -411,7 +411,7 @@ done
 | 标识        | `orcid_probe.py`（API）+ `orcid_extract.py`（**CDP 实抓网页**）                            | API 拿任职/教育/关键词；网页拿权威成果集合（比 API 更准，去重后）   |
 | 题录        | **Crossref API**（`fetch_crossref_all` + `enrich_crossref_authors`）                       | 期刊/年/卷/期/页/**结构化作者姓名**/DOI 权威核实              |
 | 🆕 消歧     | **`disambiguate.py`**                                                                        | 姓名精确 + 署名单位指纹 + 合作者网络，剔除同名他人                  |
-| 全文        | **CDP 多实例（唯一路径）**                                                                     | 全文获取一律经真实 Edge；OA 与付费墙同等对待（v4 起取消 HTTP 直取） |
+| 全文        | **CDP 多实例（唯一路径）**                                                                     | 全文获取一律经真实 Edge；OA 与付费墙同等对待 |
 | 浏览器      | **Edge + CDP（多实例）**                                                                       | 绕 Cloudflare 抓 ORCID 页面、出版社摘要与全文                       |
 | 🆕 中译素材 | `prep_paper` / `crop_by_images` / `extract_figures` / `jats_to_text` / `translation_build` | 原文 → 逐段文本 + 图-only 主图 → 内联图 HTML                      |
 | 转换        | Cherry`to_markdown` 或 `prep_paper.py`                                                           | PDF → Markdown / 按页分节文本                                      |
@@ -438,7 +438,7 @@ done
 | L2 扩展档                   | L0 +`--lang=zh-CN`                                                                                                                                                                          | 需中文界面时                   |
 | L3 极速档                   | L0 + 关闭启动期后台任务                                                                                                                                                                       | 推荐；冷启动更快、后台占用更低 |
 
-**弹窗抑制 6 项（v6 新增，L0/L2/L3 共有）** —— 只关**浏览器自己的对话框**，
+**弹窗抑制 6 项** —— 只关**浏览器自己的对话框**，
 不碰页面 DOM，也不改 `navigator`/`screen` 指纹：
 
 | 参数                                                            | 抑制什么                          | 为什么必须                                                                                                                                          |
@@ -453,13 +453,13 @@ done
 - **权限 / 通知弹窗**：`--deny-permission-prompts` + `--disable-notifications`。
 - **Cookie / 同意书弹窗**：**没有**命令行开关；由 `cdp.py` 的 `CONSENT_JS` 页内保守关闭
   （只在已知同意管理容器内操作 → 先点「接受」→ 1.5s 后复查 → 仍在则强制隐藏 → 恢复滚动）。
-  不改任何 navigator/screen 属性。**v6 修了三处实质缺陷**，详见 SKILL [版本变动.md](版本变动.md) C 组；
+  不改任何 navigator/screen 属性。**修了三处实质缺陷**，详见 [版本变动.md](版本变动.md)；
   改动后请跑 `selftest_consent.py` 自检（离线、零网络、真实 Edge）。
 
 ✗ 不用 `--headless`  ✗ 不用 `--disable-blink-features=AutomationControlled`
 ✗ 不用 `--excludeSwitches`  ✗ 不做 JS 指纹注入
 
-**档位速查（v3）**：`0` 日常档（默认）｜`1` 极简档（A/B 对照）｜`2` 扩展档（中文界面）｜
+**档位速查**：`0` 日常档（默认）｜`1` 极简档（A/B 对照）｜`2` 扩展档（中文界面）｜
 **`3` 极速档（推荐）** —— L0 + 关闭启动期后台任务（后台网络/组件更新/同步/默认应用等）。
 L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测不影响 Cloudflare 放行。
 
@@ -615,8 +615,8 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 ## ⛔ 分层获取策略（**最高优先级** —— 优先级高于其余所有禁令）
 
 > **用户要求**
-> · v4（2026-09-14）：「如无特别要求，全部使用 CDP 完成抓取。」
-> · **v7.1（2026-09-19）修订**：「对于获取**原文**的需求仍然禁止直链抓取；
+
+> **立规依据**：「对于获取**原文**的需求仍然禁止直链抓取；
 > 但是对于**摘要、综述**或工作文件夹下**验证可行的开源数据库**可以直接获取，
 > 减轻压力。同时若直接获取尝试失败则转向 CDP 获取。」
 >
@@ -769,34 +769,34 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 
 ```
 <工作目录>/<作者名>/
-├── <作者名>_paper_Exports/                # ⭐ 原文全文 PDF（v6 规范目录名）
+├── <作者名>_paper_Exports/                # ⭐ 原文全文 PDF
 │   ├── <年份>_<论文标题>.pdf               #   题名可读，重名自动合并
 │   ├── 【补充材料】<年份>_<标题>.pdf        #   仅补充材料/图注页的残缺件（注明来源）
 │   └── 全文清单.md                        #   逐篇获取状态 + 来源 + 页数 + 未获取原因
 ├── <作者名>_论文列表.md                     # ⭐ 规范交付名（GB/T 7714-2015 + DOI + 原文链接）
 ├── <作者名>_论文解读.md                     # ⭐ 时间线 / 逐篇四步 / 关键词 / 方向 / 范式
-│                                            #   ★ v13：按 interpret_tier 渲染（默认 L2 详细；
+│                                            #   ★ 按 interpret_tier 渲染（默认 L2 详细；
 │                                            #     L1 = 定位+成就+关键数字速览，L3 = 加逐条局限与证据强度）
 ├── <作者名>_交付物索引.md                   # 交付总览 + 数据核验链 + 复现步骤
 ├── <作者名>_论文翻译_<刊><年>_中文版.pdf     # 全文中译（保留章节/图注/表注）
-├── <作者名>_高质量文献列表.md               # ⭐v7 阶段 D2：反向查得的综述网络（综述优先）
-├── <作者名>_代表性文献参考文献.md            # ⭐v7 阶段 G2：文章 → 参考文献（GB/T 7714）
-├── <作者名>_研究方向文献终表.md              # ⭐v7 阶段 H2①：去重 + 相关性整理后的最终列表
-├── <作者名>_研究方向综述.md                 # ⭐v7 阶段 H2③：review 结果（单一文件）
-├── <作者名>_知识图谱.md + .work_cdp/graph/  # ⭐v7.2 阶段 K：三张图（SVG 优先；overview 固定 16:10，v7.5）+ 数据
+├── <作者名>_高质量文献列表.md               # ⭐阶段 D2：反向查得的综述网络（综述优先）
+├── <作者名>_代表性文献参考文献.md            # ⭐阶段 G2：文章 → 参考文献（GB/T 7714）
+├── <作者名>_研究方向文献终表.md              # ⭐阶段 H2①：去重 + 相关性整理后的最终列表
+├── <作者名>_研究方向综述.md                 # ⭐阶段 H2③：review 结果（单一文件）
+├── <作者名>_知识图谱.md + .work_cdp/graph/  # ⭐阶段 K：三张图（SVG 优先；overview 固定 16:10）+ 数据
 ├── .work_cdp/                             # 中间数据 + logs/
-│   ├── prepare_plan.json                  #   ⭐v7 阶段 0：准备计划 + 阶段闸门（单一事实源）
+│   ├── prepare_plan.json                  #   ⭐阶段 0：准备计划 + 阶段闸门（单一事实源）
 │   ├── crossref_all.json                  #   题录核实结果（题录总表）
 │   ├── disambiguated.json                 #   ⭐ 同名消歧（confirmed/review/dropped + code）
 │   ├── periods.json / keyword_families.json  # 阶段分组 / 语义词族（均可选）
-│   ├── tag_vocabulary.json                #   ⭐v7 受控标签词表（消除 subagent 标签漂移）
-│   ├── journal_tiers.json                 #   ⭐v7 中科院分区表（可选，**覆盖**内置种子表）
+│   ├── tag_vocabulary.json                #   ⭐受控标签词表（消除 subagent 标签漂移）
+│   ├── journal_tiers.json                 #   ⭐中科院分区表（可选，**覆盖**内置种子表）
 │   ├── unpaywall.json                     #   OA 状态
 │   ├── abstracts_openalex.json            #   摘要语料（解读用）
 │   ├── fulltext_state.json                #   逐篇下载状态（断点续传）
 │   ├── pdf_index.json                     #   DOI → 文件名 登记表（题名命名去重）
 │   ├── interpret/                         #   ⭐ 阶段 H：tasks/ + results/ + manifest.json
-│   ├── refs/                              #   ⭐v7 阶段 D2/G2/H2：池 + 终表 + 任务包 + 综述卡 + cache/
+│   ├── refs/                              #   ⭐阶段 D2/G2/H2：池 + 终表 + 任务包 + 综述卡 + cache/
 │   ├── translations/*.html                #   中译 HTML 中间件
 │   └── logs/                              #   全部日志（含 edge_<port>.log）
 └── 流程1/                                  # 本 skill
