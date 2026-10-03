@@ -69,8 +69,12 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
                         im.save(buf, format="JPEG", quality=88, optimize=True)
                         data, mime, ext = buf.getvalue(), "image/jpeg", "jpg"
                         w, h = im.size
-            except ImportError:
-                pass
+            except ImportError as e:
+                # ★ 不能静默吞掉：pypdf 的 page.images
+                #   缺 Pillow 时抛 ImportError，吞掉后外部只看到
+                #   「0 张图」，无法区分「PDF 真没图」与
+                #   「依赖没装」。这里计数并在结尾报出。
+                _import_errors.append(f"{type(e).__name__}: {e}")
             except Exception:
                 pass
             seen.add(digest)
@@ -78,6 +82,11 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
                          "bytes": len(data), "mime": mime,
                          "label": f"图-page{pno}", "ref": f"p{pno}",
                          "ext": ext, "data": data})
+    if not figs and _import_errors:
+        # 空结果 + 有导入错误 = 依赖缺失，不是 PDF 没图
+        raise RuntimeError(
+            "抽取为空且存在导入错误（多半是缺 Pillow）："
+            + "; ".join(sorted(set(_import_errors))[:2]))
     return sorted(figs, key=lambda f: (f["page"], -(f["w"] or 0) * (f["h"] or 0)))
 
 
