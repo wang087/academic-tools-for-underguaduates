@@ -323,7 +323,7 @@ uv run --with pypdf python 流程1/scripts/render_html_pdf.py "<翻译.html>" "<
 
 # 11) ★ 论文解读（阶段 H）：组装任务包 → 并行 subagent 精读 → 汇总
 uv run --with pypdf python 流程1/scripts/interpret_prepare.py       # 产出 interpret/tasks/*.json
-#    然后**在同一条消息内**并行分派 4–6 个 subagent，每篇一个，
+#    然后**在同一条消息内**分批并行分派 subagent（每批 ≤ 6），每篇一个，
 #    各读自己的 task.json、各写自己的 result.json
 #    （提示词模板见 流程1/subagent-driven-review/SKILL.md § 7）
 uv run python 流程1/scripts/interpret_build.py                      # 汇总为《<作者名>_论文解读.md》
@@ -631,6 +631,153 @@ uv run python 流程1/scripts/harvest_mentors.py \
 >> （`研究领域 当前位置：中文主页 >> 科学研究`）等假阳性，v10 已剔除。
 >> **149 是经逐条核对后的真实数字。**
 >>
+
+---
+
+## 4.1 并行 subagent 的动态轮询（阶段 H / H2 / R2 共用）
+
+> ⛔ **不要盲等固定时长**（例如 `sleep 150` / `sleep 200`）再收子代理。
+> 固定等待必然二选一失败：等短了白跑一趟，等长了整条链路被最慢的一篇拖住。
+> **改为轮询 + 按实测完成度决定下一批派几个。**
+
+### 一句话规则
+
+**分派 → 30–60 秒后查一次 → 按「还缺几篇」决定下一批大小与下次间隔 → 重复。**
+
+### 轮询命令（唯一入口）
+
+```bash
+# 看某个阶段的完成度；退出码即结论，不必解析 stdout
+uv run python 流程1/scripts/agent_poll.py --stage H
+uv run python 流程1/scripts/agent_poll.py --stage H2 --json     # 机读
+uv run python 流程1/scripts/agent_poll.py                       # 三个阶段一起看
+```
+
+| 退出码 | 含义 | 主 agent 该做什么 |
+|---|---|---|
+| **0** | 任务包数 = 可用结果卡数 | 进入 build / 汇总 |
+| **3** | 仍在进行 | 按 `suggest_interval_s` 再来一次；按 `suggest_batch_size` 补派 |
+| **4** | 有不可解析或被拒收的卡 | **重派这些篇目**（脚本已列出文件名） |
+| **2** | 找不到任务包 | 先跑对应的 prepare 脚本 |
+
+### 间隔与批量怎么定（由脚本算出，不要手拍）
+
+脚本读 `tasks/` 与 `results/` 的实际文件数，给出 `suggest_batch_size` 与
+`suggest_interval_s`：
+
+| 剩余未回收 | 建议间隔 |
+|---|---|
+| ≤ 2 篇 | 30 秒 |
+| 3–6 篇 | 45 秒 |
+| > 6 篇 | 60 秒 |
+
+**为什么这样分**：剩余越少，越接近「就差最后一篇」，短间隔能立刻收口；
+剩余越多，说明这一批还在跑，短间隔只是浪费轮次。
+
+### 单批派几个
+
+- **默认上限**：阶段 H / H2 每批 **≤ 6**，阶段 R2 每批 **≤ 4**。
+- 上限的来源是**实测**：一次性并发过高会触发 subagent 的生成长度上限，
+  产出**结构合法但内容是 `placeholder`** 的卡（详见
+  `reviews_build.py --status` 的拒收清单）。
+- **动态调整**：
+  - 上一批**全部顺利回收** → 下一批可以放到上限；
+  - 上一批**出现拒收/截断** → 下一批**减半**，并把该篇单独重派；
+  - 连续两批都有坏卡 → 退回每批 3 篇。
+
+### 三条纪律
+
+1. **轮询期间不要停手**：等待窗口内可以做与该批无关的活（例如前台取全文、
+   抽取图片与正文、准备下一阶段任务包，见 §4.2）。**等待不等于空转。**
+2. **不要为「等齐」而反复重建任务包** —— `prepare` 脚本重跑会覆盖同名任务包，
+   而已经回收的结果卡是按文件名对齐的，重跑不该影响它们。
+3. **卡不全也要如实报**：进入 build 前若仍有缺卡，产物必须写明
+   「基于部分文献」，**不得当成全部**（各 build 脚本已内建该告警）。
+
+---
+
+## 4.2 边下载边抽取（阶段 E 与 H/H2/R2 并行）
+
+> **前台在取全文的同时，后台就把解读素材抽出来** —— 不要等整批 PDF 下完
+> 才开始抽图、抽文本、组任务包。
+
+### 为什么能并行
+
+| 事实 | 含义 |
+|---|---|
+| 下载的瓶颈是**网络等待**（导航 + 出版社响应），CPU/内存远没到顶 | 抽取是本地 CPU 活，正好填满等待窗口 |
+| `download_all_fulltexts.py` 已把**页内正文**顺带落盘到 `.work_cdp/fulltext/<slug>.txt` | 这一步**零额外请求**，且先于 PDF 尝试落盘 |
+| 抽取产物与下载产物**以同一 slug 为键** | 增量、幂等，重复跑只跳过已完成的 |
+
+### 三条产物，先到先用
+
+```text
+PDF 落盘
+ ├─► 按页分节文本 + 图注页索引   .work_cdp/md/<slug>.txt
+ ├─► 内嵌位图素材                .work_cdp/figures/<slug>.json
+ └─► 单篇解读任务包              .work_cdp/interpret/tasks/<NN>_<slug>.json
+```
+
+**三者互不依赖**：图还没抽完，文本已经可以组任务包；任务包也不必等全部图。
+
+### 一条命令编排
+
+```bash
+# 增量跑一轮（幂等：已完成的自动跳过）
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py
+
+# 只抽文本 / 只抽图
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py --no-figures
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py --no-text
+
+# 抽完顺带组任务包
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py --then-prepare
+
+# 只看进度
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py --status
+```
+
+| 退出码 | 含义 |
+|---|---|
+| **0** | 本轮有进展，或全部篇目素材已就绪 |
+| **3** | 还有篇目没抽取 —— 下载又完成几篇时再跑一轮 |
+| **2** | 用法/环境错误（含**缺 pypdf**，见下） |
+
+### 编排节奏（与 §4.1 的轮询对齐）
+
+```text
+下载一批（--limit=N）
+   → extract_parallel.py            # 抽这一批的素材
+   → agent_poll.py --stage H        # 看解读卡回来几张
+   → 按剩余量决定下一批派几个 / 等多久
+   → 回到「下载一批」
+```
+
+**等待子代理的 30–60 秒窗口，就是跑抽取的窗口** —— 两边互不抢资源
+（一边等网络，一边用 CPU）。
+
+### ⛔ 三个依赖，缺任何一个都会「静默地什么都不做」
+
+| 依赖 | 谁需要它 | 缺了会怎样（**都是静默失败**） |
+|---|---|---|
+| **pypdf** | `store.validate_pdf`、`extract_figures.py` | `validate_pdf` 把 `from pypdf import PdfReader` 包在 `except Exception` 里 → **对每个 PDF 都返回 `unparsed:ModuleNotFoundError`（判为无效）** → 本脚本跳过全部篇目、`download_all_fulltexts.py` 删掉刚下好的文件、`verify_pdfs.py` 报「全部文件损坏」 |
+| **Pillow** | `extract_figures.py`（`pypdf` 的 `page.images`） | `page.images` 抛 `ImportError: pillow is required`，被脚本内部 `except ImportError: pass` 吞掉 → **抽出 0 张图**，与「PDF 本来没图」无法区分 |
+| **PyMuPDF** | `prep_paper.py` | 按页文本抽不出来（这条会显式报 `需要 PyMuPDF`，不静默） |
+
+**因此调用一律带齐三个：**
+
+```bash
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py
+```
+
+`extract_parallel.py` 的两道防线：
+
+1. **开头断言 pypdf 可用**；需 pypdf + pillow + pymupdf，缺失即退出 2（不让它表现成「所有 PDF 都残缺」）；
+2. **日志区分三种结果**：真残缺（`too-small` / `not-pdf`）、校验器不可用
+   （`unparsed:*`，报 ERROR）、抽到 0 张图（WARN 并提示调小 `--min-px-fig`）。
+
+> **`--min-px-fig` 默认 60，不是 `extract_figures.py` 自身的 120。**
+> 实测后者会把**有 7 张位图**的 PDF 抽成空数组 —— 门槛过高的表现和「没有图」一模一样。
 
 ---
 
@@ -1071,7 +1218,7 @@ uv run python 流程1/scripts/reviews_prepare.py \
 
 # ② ★ 在同一条消息内并行分派 subagent，每篇一个
 #    提示词模板：子流程 §7.2（领域概貌版）
-#    ⛔ 并发度：每批 3 篇（见下方实测说明）
+#    ⛔ 并发度：每批 ≤ 4（见下方实测说明）；收卡用 agent_poll.py 轮询（30–60 秒），不要盲等固定时长
 
 # ③ 查看进度（有几张卡、缺哪几篇、哪些被拒收）
 uv run python 流程1/scripts/reviews_build.py --status
@@ -1080,7 +1227,7 @@ uv run python 流程1/scripts/reviews_build.py --status
 uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期诊断"
 ```
 
-> ### ⛔ 实测：并发度必须限制在每批 3 篇左右
+> ### ⛔ 实测：并发度必须限制在每批 ≤ 4 篇
 >
 > 2026-10-02 实机验证（12 篇综述）：
 >
@@ -1092,6 +1239,8 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 > 高并发下 subagent 会触发生成长度上限，用 `"placeholder"` / 空串 / 截断
 > （实测出现过 `"conclusion": "placeholder"`、`"open_questions": ["ERFERENCE_PLACEHOLDER"]`）
 > 填充字段。**schema 校验只管字段类型，管不了内容是不是真话。**
+>
+> **收卡方式**：用 `agent_poll.py --stage R2` **轮询**（30–60 秒一次），按剩余篇数决定下一批大小；出现坏卡则下一批减半并单独重派。见 §4.1。
 >
 > 因此 `reviews_build.py` 增加了**内容级校验**：检出占位符的卡会被
 > **拒收并单独列出**（不会进入《领域概貌》），并提示"降低并发度重跑"。
@@ -1582,6 +1731,84 @@ uv run --with websocket-client --with pypdf python scripts/download_all_fulltext
 > 此时**无需登录凭据**即可读全文与下载 PDF。该授权是 **IP 级**的，CDP 启动的独立
 > profile 同样享有，**不必复制用户 Cookie/密码库**。
 
+#### 备选链路（主链路失败时启用）
+
+> **主链路** = `download_all_fulltexts.py`（自家 CDP + 反爬 + 站点熔断）。
+> **备选链路** = 外部 skill **`nature-downloader`** —— 一条**独立的实现**，
+> 走开放获取 / 出版商 API / 机构 Web Access / CNKI 四类官方路线。
+>
+> **为什么要留这条**：主链路全押在「CDP 能开出页面」这一个前提上。
+> 它失败时（浏览器起不来、某站点长期挑战、需要走机构订阅或中文库），
+> 若没有第二条路，就只能如实报告「取不到」—— 而其实还有合法途径。
+
+##### 先查前置（**不要假定备选链路现成可用**）
+
+```bash
+uv run python 流程1/scripts/preflight_fallback.py
+uv run python 流程1/scripts/preflight_fallback.py --json   # 机读
+```
+
+| 退出码 | 含义 |
+|---|---|
+| **0** | 至少一条备选路线可用 |
+| **3** | 备选链路当前不可用（缺前置）→ **只能如实报告限制** |
+
+该脚本**只读、不联网访问论文站点**，逐条报告四条路线是否可用：
+
+| 备选路线 | 需要 | 缺省状态 |
+|---|---|---|
+| **开放获取**（零凭据） | Node.js ≥ 22 | 通常**可用** |
+| 出版商 API | Node.js + `~/.config/lit-dl/credentials.json` | 需用户自行配置 |
+| 机构 Web Access | Node.js + 机构资源地址 + 已认证浏览器 | 需用户自行配置 |
+| CNKI 中文文献 | 同上（+ 已认证 Chrome） | 需用户自行配置 |
+
+> ⚠️ `nature-downloader` 出厂是 **institution-neutral**（`schools.yaml` 故意留空）。
+> 机构订阅与登录会话**只能由用户提供** —— 本流程**不代填、不代登录、不代持凭据**。
+
+##### 触发条件（满足任一即转备选）
+
+1. `download_all_fulltexts.py` 对同一篇**连续两轮**都失败；
+2. 站点级熔断把该站点整轮跳过，而该站点是本轮主力；
+3. 需要**中文文献（CNKI）**—— 主链路的 CDP 路径覆盖不到；
+4. 需要走**机构订阅**而 CDP 的独立 profile 拿不到授权。
+
+##### 转用方式
+
+```bash
+# ① 先查前置（缺失即如实报告，不要硬试）
+uv run python 流程1/scripts/preflight_fallback.py
+
+# ② 开放获取路线（零凭据；把 DOI 列表给它，输出到交付目录旁）
+node <nature-downloader>/scripts/batch_download.mjs \
+     --dois "10.1038/xxx,10.1016/yyy" --out "<作者名>_paper_Exports_fallback" --no-si
+
+# ③ 走出版商 API / 机构 / CNKI 时，先按该 skill 的说明配置，再同样调用
+```
+
+**拿到 PDF 后必须回到主流程的收尾**，不得绕过：
+
+```bash
+# 归位 + 命名 + 登记 + 校验（与主链路产物同一套契约）
+uv run python 流程1/scripts/rename_to_title.py
+uv run --with pypdf python 流程1/scripts/verify_pdfs.py
+uv run --with pypdf python 流程1/scripts/inventory_build.py
+```
+
+##### 五条硬约束
+
+| # | 约束 | 理由 |
+|---|---|---|
+| 1 | **备选链路只取「合法可得」的副本** —— 开放获取、出版商官方 API、用户自己的机构订阅 | 与 §5.1 分层策略同一立场；不绕过付费墙 |
+| 2 | **不得因为「走的是外部 skill」就放松 §5.1** | 全文取回仍是第二层；备选链路只是**换了取数实现**，不是换了规则 |
+| 3 | **凭据由用户提供，流程不代持** | 不写进任何产物、不进 journal、不进 git |
+| 4 | **失败要如实报告，不得静默回退** | 哪条路线、哪一步失败、影响哪几篇，写进《全文清单.md》的未获取原因 |
+| 5 | **产物必须过同一套校验**（`verify_pdfs.py` + `rename_to_title.py`） | 否则会出现两套命名/两套登记，去重立即失效 |
+
+> **`--si` / `--no-si` 必选其一**：该 skill 要求显式声明要不要补充材料。
+> 本流程默认 `--no-si`（正文优先），与 SKILL.md:2053「补充材料冒充正文」那条教训一致。
+
+---
+
 ### 阶段 F：翻译与 PDF 导出
 
 1. 用 `to_markdown` 把原文 PDF 转 Markdown（保留章节结构）。
@@ -1724,7 +1951,8 @@ uv run python 流程1/scripts/fetch_direct.py                     # 第一层：
 # ★ 档位会随任务包一起下发；也可临时覆盖：
 uv run --with pypdf python 流程1/scripts/interpret_prepare.py   # ② 组装自包含任务包（含 interpret_tier）
 #      uv run --with pypdf python 流程1/scripts/interpret_prepare.py --tier L3
-#   ③ 同一条消息内并行分派 4–6 个 subagent（每篇一个，各写各的 result.json）
+#   ③ 同一条消息内分批并行分派 subagent（每批 ≤ 6）
+#      （每篇一个，各写各的 result.json）
 #      ★ 提示词必须写死四件事：任务包路径 / 结果路径 / 「只写你自己那份」/ **档位**
 uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总成报告（按档位渲染）
 ```
@@ -1905,7 +2133,7 @@ uv run python 流程1/scripts/refs_prepare.py --top=40
 #### H2 ③ 并行 subagent 精读 → 汇总
 
 ```
-同一条消息内并行分派 4–6 个 subagent（每条一个，各写各的 result.json）
+同一条消息内分批并行分派 subagent（每批 ≤ 6）（每条一个，各写各的 result.json）
 提示词模板见 流程1/subagent-driven-review/SKILL.md §7（**综述网络版**）
 ```
 
@@ -2423,6 +2651,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | `cdp.py`                              | CDP 客户端（端口参数化、**硬超时**、自动重连、异常分类）                                                                                                                           | `from cdp import connect, is_alive`                                       |
 | `cdp_pool.py`                         | **多实例池**：并行启动/探活/调度/回收                                                                                                                                              | `python cdp_pool.py {up\|status\|down\|renew}`                               |
 | `start_edge_cdp.sh`                   | 启动 CDP Edge（**多实例**，最小参数档位）                                                                                                                                          | `bash start_edge_cdp.sh <workdir> 9222 3 0`                               |
+| **`agent_poll.py`**                  | ⭐⭐ **子代理批次进度轮询**（阶段 H/H2/R2）：读 `tasks/` 与 `results/` 计数，给出「下一批派几个、隔多久再查」。**取代盲等固定时长**。只读、零网络；退出码即结论（0=齐/3=在跑/4=有坏卡/2=无任务包） | `uv run python agent_poll.py --stage H` |
 | `renew_cdp_instance.sh`               | 重建**单个**实例（换全新 profile）                                                                                                                                                 | `bash renew_cdp_instance.sh <workdir> <port>`                             |
 
 ### 数据采集
@@ -2446,6 +2675,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | 脚本                          | 功能                                                                                                                                                                | 用法                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `download_all_fulltexts.py` | ⭐⭐**全文批量下载唯一入口**（多实例并行 + 站点熔断 + 断点续传 + 挑战宽限 + 转人工）。**OA 与付费墙同等对待**                                           | `... --n=3 --limit=20 --delay=25-55 --manual-wait=5 --grace=35` |
+| **`preflight_fallback.py`** | ⭐ **备选下载链路前置检查**（只读）：逐条报 Node.js 版本、nature-downloader 位置、四条备选路线可用性、外部依赖 skill 是否在位。退出码 0=有可用路线 / 3=不可用 | `uv run python preflight_fallback.py [--json]` |
 | `save_pdf_via_browser.py`   | 单篇 PDF 获取（4 种方法依次尝试）                                                                                                                                   | `... "<landing>" "<pdf>" "<out>" [--render]`                    |
 | `check_challenge.py`        | 站点体检（挑战/封禁/可达性），返回明确退出码                                                                                                                        | `... check_challenge.py "<URL>" --port=9222`                    |
 | `check_access.py`           | 检测本机是否具备 IP 级机构订阅授权                                                                                                                                  | `... check_access.py "<DOI>"`                                   |
@@ -2460,6 +2690,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | `crop_by_images.py`    | 按页面**位图并集**裁出「图-only」主图（Nature/Cell 拼版图适用） | `... crop_by_images.py "<pdf>" "<out.json>" "<图页>" 200 8`                   |
 | `extract_figures.py`   | 抽取 PDF**内嵌位图**（Extended Data 图、单张整图），可降采样    | `... extract_figures.py "<pdf>" "<out.json>" 300 1600`                        |
 | `jats_to_text.py`      | **JATS XML → 结构化文本**（OA 全文取正文，非 OA 返回 404）     | `uv run python jats_to_text.py <file.xml>`                                    |
+| **`extract_parallel.py`** | ⭐⭐ **边下载边抽取调度**（阶段 E↔F/H 并行）：PDF → 按页分节文本 + 图注页索引 + 内嵌位图，**幂等增量**；`--then-prepare` 顺带组解读任务包；**开头断言 pypdf 可用**；需 pypdf + pillow + pymupdf | `uv run --with pypdf --with pymupdf python extract_parallel.py` |
 | `translation_build.py` | ⭐ 内容 JSON + 图形 JSON →**内联图的**中译 HTML                | `uv run python translation_build.py <content.json> <figures.json> <out.html>` |
 
 ### 同名消歧与论文解读

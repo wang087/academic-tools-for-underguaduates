@@ -106,6 +106,41 @@
 
 ---
 
+## 下载：主链路与备选链路
+
+| 链路 | 实现 | 何时用 |
+|---|---|---|
+| **主链路** | `download_all_fulltexts.py`（自家 CDP + 反爬 + 站点熔断） | 默认；OA 与付费墙同等对待 |
+| **备选链路** | 外部 skill **`nature-downloader`**（开放获取 / 出版商 API / 机构 Web Access / CNKI） | 主链路连续两轮失败、站点被熔断、需要中文库或机构订阅时 |
+
+```bash
+# 先查备选链路是否真的可用（只读；退出码 0=有可用路线 / 3=不可用）
+uv run python 流程1/scripts/preflight_fallback.py
+```
+
+> ⚠️ 备选链路的机构路线需要**用户自己的**订阅与登录会话 ——
+> 本流程**不代填、不代登录、不代持凭据**。前置不满足时如实报告限制。
+> 拿到 PDF 后仍须回主流程收尾（`rename_to_title.py` → `verify_pdfs.py`），
+> 保证与主链路产物同一套命名与登记。
+
+---
+
+## 并行：边下载边抽取 + 子代理动态轮询
+
+```bash
+# ① 前台取全文的同时，后台抽文本/图片/任务包（幂等增量）
+uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py
+
+# ② 收子代理：30–60 秒轮询一次，按剩余篇数决定下一批派几个
+#    退出码 0=齐了可汇总 / 3=仍在跑 / 4=有坏卡需重派 / 2=无任务包
+uv run python 流程1/scripts/agent_poll.py --stage H
+```
+
+**不要盲等固定时长**（`sleep 150` / `sleep 200` 之类）——
+固定等待要么白跑一趟，要么被最慢的一篇拖住整条链路。
+
+---
+
 ## 目录结构
 
 ```
@@ -122,6 +157,9 @@
 │   ├── store.py                          #   ⭐ PDF 命名/去重/校验唯一实现（<作者>_paper_Exports）
 │   ├── scope.py                          #   ⭐⭐ 同名消歧排除名单唯一入口（下载/著录共用）
 │   ├── selftest_consent.py               #   ⭐ Cookie 弹窗自动关闭的离线自检（真实 Edge，零网络）
+│   ├── agent_poll.py                     #   ⭐⭐ 子代理批次进度轮询（取代盲等固定时长）
+│   ├── extract_parallel.py               #   ⭐⭐ 边下载边抽取（文本/图片/任务包，幂等增量）
+│   ├── preflight_fallback.py             #   ⭐ 备选下载链路前置检查（只读：Node/凭据/路线可用性）
 │   ├── cdp.py                            #   CDP 客户端（端口参数化、硬超时、异常分类、CONSENT_JS）
 │   ├── cdp_pool.py                       #   ⭐ 多实例池（启动/探活/调度/回收）
 │   ├── start_edge_cdp.sh                 #   启动 CDP Edge（多实例、最小参数档位）
