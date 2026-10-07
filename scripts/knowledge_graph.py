@@ -21,7 +21,7 @@
 # 格式：**SVG 优先**，SVG 失败自动退 PNG；高分辨率（标准 = 清晰展示所有字符）；
 #       **背景透明**。
 #
-# ★ 只读本地文件，不发起任何网络请求。
+# 只读本地文件，不发起任何网络请求。
 #
 # 依赖（按需加载，不污染项目环境）：
 #   uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py
@@ -33,6 +33,10 @@
 #     --dpi=300             PNG 回退时的分辨率（默认 300）
 #     --format=svg|png|auto 默认 auto：先试 SVG，失败退 PNG
 #     --formats=svg         **只出 SVG**（批量出图时省一半时间；SVG 失败即报错）
+#     --wc-lang=both|zh|en  词云语言口径（默认 both；只要中文用 zh）
+#     --wc-min-docs=3       **只来自方法描述**的词至少要出现在几篇论文里
+#     --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
+#                           **文章关键词 > 题名 > 摘要 > 卡片方法描述** 的权重
 #     --self-test           纯逻辑自检（不联网、不落盘）
 #
 # 可移植配置：PAPER_WORKDIR / PAPER_AUTHOR / PAPER_ORCID / PAPER_AFFIL
@@ -45,8 +49,11 @@ import os
 import pathlib
 import re
 import sys
+import zlib
 
 from collections import Counter, defaultdict
+
+from logutil import run_root as _run_root  # noqa: E402
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
@@ -86,7 +93,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 GRAFDIR = CDPDIR / "graph"
@@ -99,7 +106,7 @@ AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
 # ══════════════════════════════════════════════════════════════
 # 词云剔除表 —— 「有误导性的常见词」
 #
-# ★ 用户点名要剔除 "mice"。为什么这类词必须剔：
+# 用户点名要剔除 "mice"。为什么这类词必须剔：
 #   它们是**模型系统/载体**，不是**方法**。频次还往往最高（一篇小鼠实验
 #   通篇都在说 mice），留在图上会把真正的信号（成像、组学、建模）
 #   全挤到角落 —— 图看起来"信息量大"，实际读不出作者的**方法学特征**。
@@ -130,6 +137,60 @@ MISLEADING_ZH = set("""
 作用 机制 模型 检测 表达 变化 显著 提高 降低 增加 减少 不同 相关
 """.split())
 
+# ── 词云专用剔除表（**不参与** tokenize，只作用于词云取词）────────────
+# 背景：实测 25 张解读卡的词云上出现三类垃圾，逐词排查后在此归类。
+#   与 MISLEADING 的区别：MISLEADING 是"载体/泛化"语义（任何文本源都该剔），
+#   下面三张表是"**进词云就只占位置**"的形态类垃圾（单位、受控标签、虚词）。
+
+# ① 单位 / 量纲 / 缓冲液 / 电极液缩写 —— 数字后面的量纲不是方法。
+#    实测来源：min(56)、div(21，"days in vitro")、kcl(17)、e18(12)、vpp(27)。
+UNIT_ABBR = set("""
+min mins sec secs hr hrs ms us ns hz khz mhz ghz
+nm um mm cm km ml ul nl pl mg ug ng pg mol mmol umol nmol
+pa kpa mpa gpa kv mv uv ma ua na deg rpm ph od wt vol eq
+div dv vpp kcl nacl cacl cacl2 mgcl2 naoh hcl co2 h2o o2
+hepes egta edta tris sds pbs tbs dmso
+""".split())
+
+# ② 受控范式词表自身的标签（templates/方法范式标签词表.json 的
+#    paradigm_tags_vocabulary）**不得被当普通词切进云** ——
+#    它们是 15 个固定标签，谁都能打上，描述不了这位作者；
+#    实测 experimental(21)、mechanistic(18)、imaging(15) 全部来自这里。
+#    范式分布改为单独统计，进图注与报告（见 wc_stats["paradigms"]）。
+PARADIGM_EN = set("""
+experimental computational data-driven machine-learning deep-learning
+mechanistic statistical screening omics imaging clinical review
+benchmark method-development hybrid
+""".split())
+
+# ③ 正文/页脚里的通用英文词（不是方法，是来源噪声）。
+GENERIC_EN = set("""
+fulltext student students supplementary appendix author authors university
+institute department school laboratory lab corresponding equally contributed
+accessed download downloaded copyright licence license creative commons
+mean median average ratio total sum std var sem sd ci
+""".split())
+
+# ④ 中文虚词/泛化词（用户点名 定量，其余为同类）。
+#    与 MISLEADING_ZH 分开：这张表只在**词云**生效，
+#    方向画像（direction_profiles_from_cards）继续用 MISLEADING_ZH，避免改动聚类口径。
+GENERIC_ZH = set("""
+定量 参数 用于 作者 每个 定义 条件 作为 距离 间隔 固定 人工 单位 数值
+时间 标准 分别 所有 各种 相同 一致 程度 过程 方式 形式 部分 情况
+之间 同一 直接 出现 施加 区分 测试 初始 局部 持续 线性 系数 结构 像素
+计数 强度 中心 生长 标记 样品 穿孔 结果 含量 大小 多少 以上 以下 平均
+比较 得到 重复 正文 基于 校正 活动 诱导 投影 剔除 定位 单个 低密度 同步 随机
+状态 评估 自制 制备 诱发 量化 剂量 鉴定 随后 分别 其次 最后 此外 综上 以下
+""".split())
+
+# ⑤c 不能作**词头**的泛化词：跨词边界的碎片常以它们开头
+#     （实测「…比较用…」被切成 3-gram「比较用」并上云）。
+#     刻意只收**不做构词前缀**的词：像「定量」是「绝对定量」的词尾、
+#     「活动」可作「活动依赖」的词头，都不放进来，避免误杀真术语。
+GENERIC_HEAD_ZH = set("""
+比较 得到 重复 正文 基于 校正 单个 定位 投影 剔除 施加 出现 定义
+""".split())
+
 # 流程内部已用的停用词（与 interpret_build 保持一致，避免两处口径漂移）
 STOP = set("""
 a an the and or but if then than that this these those of in on at to for from by with without
@@ -157,7 +218,7 @@ def load_json(p, default=None):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
+        print(f"[WARN] {p.name} 解析失败：{e}", file=sys.stderr)
         return default
 
 
@@ -186,6 +247,247 @@ def tokenize(text: str) -> list[str]:
         for i in range(len(run) - 1):
             out.append(run[i:i + 2])
     return out
+
+
+# ══════════════════════════════════════════════════════════════
+# 词云取词（v16.2）
+#
+# 取词优先级（用户指定）：**文章自带 Keywords → 题名 → 摘要 → 解读卡方法描述**。
+#   前三级是"作者/期刊自己认定"的词，最可信；方法描述只作兜底与补充。
+#
+# 中文为什么不能再用 2-gram 硬切：
+#   tokenize() 把任意 CJK 串切成全部 2-gram，于是
+#   「小鼠海马→鼠海」「突触前→触前」「谷氨酸→谷氨」「神经元→经元」
+#   这些**跨词边界的碎片**直接上云，图上读不出意思。实测这 4 个片段
+#   分别出现 11/17/12/57 次，都进了 top-60。
+#
+# 改用**左右邻接熵**（无监督新词发现的经典判据）：
+#   一个真词的左右邻居应当"杂"（熵高），一个碎片的邻居必然"死"（熵低）。
+#   实测：触前 左邻熵=0（17 次里 17 次前面都是「突」）、经元 左邻熵=0、
+#         鼠海 右邻熵=0、谷氨 右邻熵=0.81 —— 全部判为碎片；
+#         而 海马/突触/神经元/谷氨酸/突触前/荧光/成像/记录 熵都够，全部留下。
+#   附带收益：候选词从"只有 2 字"扩展到 2–4 字，云上出现
+#   「荧光断层」「突触前」「神经元」这类完整术语，可读性直接提升。
+#
+# 本函数**不改 tokenize()** —— 那个口径与 interpret_build.py
+#   绑定（见其 docstring），动了会漂移方向画像与冲突检出。
+# ══════════════════════════════════════════════════════════════
+WC_MIN_COUNT = 3        # 中文候选词的最低出现次数
+WC_MIN_ENTROPY = 0.9    # 左右邻接熵下限（bit）；两者取小
+WC_MAX_N = 4            # 中文词最长 4 字
+WC_EN_MIN_LEN = 3       # 英文词最短 3 字符
+WC_FLOOR_PT = 5.0       # 最终物理尺寸下的字号下限（见 note_fonts）
+# **只来自方法描述**的词，至少要在这几篇论文里出现过才算"这位作者的方法"。
+#   为什么需要这条：方法描述是散文，词量比关键词/题名大两个数量级
+#   （实测 3413 : 212）。邻接熵只能挡"不成词"的碎片，挡不住
+#   「得到 / 重复 / 正文 / 比较用 / 校正」这类**成词但在单篇里偶然出现**的散词。
+#   一个只在一篇论文里出现的方法词，不构成作者的方法学特征。
+#   关键词/题名来源**不受此限**（它们是作者自己认定的词，一两篇也算数）。
+WC_MIN_DOCS = 3
+
+# ⑤ 不能作为术语开头的虚词/连词/介词。
+#    实测反例：「…结果与统计…」被切成 3-gram「与统计」并留在云上。
+#    只限制**开头**：结尾的「前/后/中」在「突触前 / 突触后 / 中枢」里是真词。
+FUNC_HEAD_ZH = set("与和及或在对从由把被为使将其该这那每并且而则即如若因故但因"
+                   "的了着过们")
+# ⑤b 不能作为术语**结尾**的虚词/助词。「…中的…」被切成「中的」并上云，
+#    而结尾的「的」在任何真术语里都不会出现，可以安全地挡住。
+FUNC_TAIL_ZH = set("的了着过们与和及或把被使将")
+
+_CJK_RUN = re.compile(r"[一-鿿]{2,}")
+_EN_TOK = re.compile(r"[a-z][a-z0-9\-]{2,}")
+
+
+def _entropy(counter) -> float:
+    """Shannon 熵（bit）。空集返回 0。"""
+    import math
+    tot = sum(counter.values())
+    if tot <= 0:
+        return 0.0
+    return -sum((v / tot) * math.log2(v / tot) for v in counter.values())
+
+
+def zh_terms(text: str):
+    """中文候选词 → (保留 {词: 次数}, 统计)。
+
+    统计里带每个候选词的左右邻接熵与邻居样例，供报告如实列出
+    「为什么这个词被判为碎片」—— 不做静默丢弃。
+    """
+    cnt = Counter()
+    left = defaultdict(Counter)
+    right = defaultdict(Counter)
+    for run in _CJK_RUN.findall(text or ""):
+        for n in range(2, WC_MAX_N + 1):
+            for i in range(len(run) - n + 1):
+                g = run[i:i + n]
+                cnt[g] += 1
+                left[g][run[i - 1] if i > 0 else "#"] += 1
+                j = i + n
+                right[g][run[j] if j < len(run) else "#"] += 1
+    keep, info = {}, {}
+    for g, c in cnt.items():
+        hl, hr = _entropy(left[g]), _entropy(right[g])
+        if c < WC_MIN_COUNT:
+            why = "重复不足"
+        elif g[0] in FUNC_HEAD_ZH or g[-1] in FUNC_TAIL_ZH:
+            why = "虚词边界"
+        elif len(g) > 2 and g[:2] in GENERIC_HEAD_ZH:
+            why = "泛化词组合"
+        elif min(hl, hr) < WC_MIN_ENTROPY:
+            why = "跨词碎片"
+        else:
+            why = ""
+        info[g] = {"n": c, "h_left": round(hl, 2), "h_right": round(hr, 2),
+                   "left": left[g].most_common(3), "right": right[g].most_common(3),
+                   "keep": not why, "why": why}
+        if not why:
+            keep[g] = c
+    return keep, info
+
+
+def zh_grams(text: str) -> set:
+    """只取 2–4 字候选（不算熵）—— 配合**全局**门控使用。"""
+    out = set()
+    for run in _CJK_RUN.findall(text or ""):
+        for n in range(2, WC_MAX_N + 1):
+            for i in range(len(run) - n + 1):
+                out.add(run[i:i + n])
+    return out
+
+
+def en_terms(text: str) -> list:
+    """英文候选词：tokenize 的英文分支 + 词云专用剔除表。"""
+    out = []
+    for w in _EN_TOK.findall((text or "").lower()):
+        w = w.strip("-")
+        if len(w) < WC_EN_MIN_LEN or w in STOP:
+            continue
+        # 「单字母 + 数字」是实验编号（E18 = 胚胎 18 天），不是方法词。
+        #   刻意只挡这一种：IL6 / CD4 / D2 这类是真术语，留给词表判断。
+        if re.fullmatch(r"[a-z]\d{1,3}", w):
+            continue
+        if w in MISLEADING or w in UNIT_ABBR or w in GENERIC_EN:
+            continue
+        if w in PARADIGM_EN:
+            continue
+        out.append(w)
+    return out
+
+
+# ── 文章自带 Keywords 的解析 ───────────────────────────────────
+# 只在**结果干净**时才采纳：一旦发觉把 Introduction 段落吞进来，
+#   整份丢弃并记录原因。宁可少一个来源，也不让散文上云。
+_KW_HEAD = re.compile(r"(?im)^[ \t]*(?:key\s?words?|关键词|关键字)\s*[:：]?[ \t]*")
+_KW_ANY = re.compile(r"(?i)\bkey\s?words?\s*[:：]\s*")
+_KW_STOP = re.compile(
+    r"(?i)^(introduction|abstract|background|methods?|materials(\s+and\s+methods)?|"
+    r"results?|discussion|conclusions?|references?|acknowledg\w*|received|accepted|"
+    r"published|citation|supplementary|abbreviations|author contributions?)\b")
+_KW_NEXT = re.compile(r"\s{2,}(?=[A-Z0-9一-鿿])")
+# 有些出版商把关键词与 Introduction 用**一个空格**接在一起
+#   （实测 "…ASAP Introduction Understanding neural circuit function…"）。
+#   只认双空格会把整段 Introduction 吞进来 → 整份被门控丢弃 → 白丢关键词。
+#   这里显式在下一个章节名处截断。
+_KW_SECTION = re.compile(r"\b(?:Introduction|Abstract|Background|References|"
+                         r"Materials and Methods|Results|Discussion)\b")
+_KW_GLUED = re.compile(r"^[a-z]{18,}$")
+# 参考文献里的作者名会被连在关键词后面（实测 "… homeostatic plasticity, Zito and Svoboda"），
+#   遇到它就在此截断 —— 它不是关键词，但前面的关键词是好的。
+#   **必须要求 `X and Y` 形式**：只写 `^[A-Z][a-z]+$` 会把
+#   `Acetylcholine` 这类**首字母大写的正常关键词**也误判成作者名，
+#   从而在第一条就把整份关键词截断（这个 bug 真出现过）。
+_KW_AUTHORS = re.compile(r"^[A-Z][a-zA-Z\-']+\s+(?:and|&)\s+[A-Z][a-zA-Z\-']+$")
+
+
+def parse_article_keywords(text: str):
+    """→ (关键词列表, 说明)。说明用于报告，写清"采纳/截断/丢弃 + 为什么"。
+
+    解析策略是**逐条走、遇到散文就停**，而不是"整段读完再判"：
+      出版商的排版差异极大（关键词与 Introduction 之间有时是双空格、
+      有时只有一个空格、有时直接接摘要正文），整段读完再判会把
+      「前 3 条关键词 + 后面 600 字散文」也判成脏数据**整份丢掉** ——
+      实测那样只有 2/25 篇能取到关键词。改成遇到第一条不像术语的
+      条目就**在此截断**并保留前面的（要求 ≥2 条），
+      覆盖率升到 7–8/25，且保留下来的全是干净术语。
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    marks = list(_KW_HEAD.finditer(text)) or list(_KW_ANY.finditer(text))
+    if not marks:
+        return [], "正文里没有 Keywords/关键词 段"
+    out, stops = [], []
+    for m in marks:
+        seg = text[m.end():m.end() + 600].replace("-\n", "").replace("\n", " ")
+        cut = len(seg)
+        for stop in _KW_NEXT.finditer(seg):
+            if stop.start() > 12:
+                cut = min(cut, stop.start())
+                break
+        sec = _KW_SECTION.search(seg)
+        if sec and sec.start() > 12:
+            cut = min(cut, sec.start())
+        seg = seg[:cut]
+        for p in re.split(r"[·•;、|/,]+", seg):
+            p = re.sub(r"\s+", " ", p).strip(" .·•-–—\t")
+            if not p:
+                continue
+            if _KW_STOP.match(p):
+                stops.append(f"到章节名 {p[:18]!r} 止")
+                break
+            if (len(p) > 60 or p.count(" ") > 5 or ". " in p
+                    or _KW_GLUED.match(p.lower()) or re.search(r"[\[\]()\d]", p)
+                    or _KW_AUTHORS.match(p)):
+                stops.append(f"在 {p[:24]!r} 处截断（不像术语）")
+                break
+            out.append(p)
+    # 去重保序
+    seen, ded = set(), []
+    for p in out:
+        k = p.lower()
+        if k not in seen:
+            seen.add(k)
+            ded.append(p)
+    why_tail = ("；" + "；".join(stops[:2])) if stops else ""
+    # ── 采纳门：条数不在可信区间就整份丢弃 ──
+    if not (2 <= len(ded) <= 12):
+        return [], f"有效候选 {len(ded)} 条，不在 2–12 条的可信区间，整份丢弃{why_tail}"
+    return ded, f"采纳 {len(ded)} 条{why_tail}"
+
+
+def load_article_keywords() -> tuple[dict, list]:
+    """→ ({doi: [关键词]}, [逐卡说明])。来源：interpret/tasks/<slug>.json 的正文
+    与解读卡自带的 keywords 字段（若 subagent 填了，优先用后者）。"""
+    man = load_json(CDPDIR / "interpret" / "manifest.json", {}) or {}
+    slug2doi = {str(t.get("slug") or ""): str(t.get("doi") or "").lower()
+                for t in (man.get("tasks") or [])}
+    notes, out = [], {}
+    rdir = CDPDIR / "interpret" / "results"
+    if rdir.is_dir():
+        for p in sorted(rdir.glob("*.json")):
+            c = load_json(p)
+            if not isinstance(c, dict):
+                continue
+            doi = str(c.get("doi") or slug2doi.get(p.stem) or "").lower()
+            if not doi:
+                continue
+            own = as_list(c.get("keywords"))
+            if own:
+                out[doi] = [str(x).strip() for x in own if str(x).strip()]
+                notes.append({"doi": doi, "source": "解读卡 keywords 字段",
+                              "keywords": out[doi], "why": "卡片直接给出"})
+                continue
+            slug = p.stem
+            tp = CDPDIR / "interpret" / "tasks" / f"{slug}.json"
+            if not tp.exists():
+                notes.append({"doi": doi, "source": "正文", "keywords": [],
+                              "why": "没有 interpret 任务包，无法取正文关键词"})
+                continue
+            txt = (load_json(tp, {}) or {}).get("text") or ""
+            kws, why = parse_article_keywords(txt)
+            if kws:
+                out[doi] = kws
+            notes.append({"doi": doi, "source": "正文 Keywords 段",
+                          "keywords": kws, "why": why})
+    return out, notes
 
 
 def load_vocab() -> dict:
@@ -370,12 +672,12 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
         s = x.get("_score") or {}
         return float(s.get("relevance") or 0)
 
-    # ★ 只把综述挂到**图上真实存在的研究方向**上。
+    # 只把综述挂到**图上真实存在的研究方向**上。
     #   旧版对没有 review 卡的文献回退用「期刊名」当方向键，于是凭空造出
     #   上百个假方向节点、每个再挂 3 篇综述 —— 实测 4 个真方向被 99 个
     #   review 节点淹没，图彻底没法读。**挂不上的就如实不挂**，并报出数量。
     real_dirs = {nodes[nid]["label"] for nid in nodes if nid.startswith("dir::")}
-    # ★ 方向兜底画像：只有少数参考文献带 review 卡（本语料 506 条里仅 40 条），
+    # 方向兜底画像：只有少数参考文献带 review 卡（本语料 506 条里仅 40 条），
     #   只用卡片标签会导致「综述挂载 0 条」—— overview 标题承诺的
     #   「方向 → 最紧密综述」这一层整个是空的。这里对无卡条目复用
     #   assign_direction 的**关键词兜底**（题名+摘要+刊名 vs 作者解读卡画像），
@@ -457,7 +759,7 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
                 co[(a, b)] = len(shared)
 
     memory_links = []
-    # ★ 单节点出度上限：不加这条时，一个高频词（实测 "porous"）会把十几条
+    # 单节点出度上限：不加这条时，一个高频词（实测 "porous"）会把十几条
     #   记忆连接全吸到自己身上，图上出现一把橙色扇子，其余结构全被压掉。
     #   规则：按共现强度降序贪心选边，两端出度都未满才收。
     degree = Counter()
@@ -618,7 +920,7 @@ def setup_mpl():
     try:
         import matplotlib
     except Exception:
-        print("✗ 未安装 matplotlib。请用：")
+        print("未安装 matplotlib。请用：")
         print("  uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py")
         return None
     matplotlib.use("Agg")
@@ -627,7 +929,7 @@ def setup_mpl():
     have = {f.name for f in font_manager.fontManager.ttflist}
     picked = [f for f in CJK_FONTS if f in have]
     if not picked:
-        print("⚠ 未找到中文字体（试过：" + "、".join(CJK_FONTS) + "）")
+        print("[WARN] 未找到中文字体（试过：" + "、".join(CJK_FONTS) + "）")
         print("  → 图中的中文会显示为方框。请安装任一中文字体，或把图注改为英文。")
     plt.rcParams["font.sans-serif"] = picked + ["DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
@@ -641,16 +943,22 @@ def save_fig(fig, outdir: pathlib.Path, stem: str, fmt="auto", dpi=300,
              also_png=False, tight=True) -> list[pathlib.Path]:
     """保存图片：**SVG 优先**，SVG **失败才**退 PNG；两者都透明背景。
 
-    ★ `auto` 不等于"两种都出"：用户要的是 **SVG 优先、失败才换 PNG**。
+    `auto` 不等于"两种都出"：用户要的是 **SVG 优先、失败才换 PNG**。
       无条件两种都画既让产物目录多一份重复内容（同一张图两种格式），
       又让出图时间翻倍（实测 31s → SVG 单出约 15s）。
       确实两种都要时用 `--also-png` 显式要求。
 
-    ★ `tight=False`：按**画布原始尺寸**导出，不再收 tight bbox。
+    `tight=False`：按**画布原始尺寸**导出，不再收 tight bbox。
       尺寸有硬性要求的图必须用这一档：overview 要求整幅 16:10，
       而 tight bbox 会被画到坐标轴之外的文字（标题/图注）撑开，
       比例随之漂移（实测 16×10 的画布导成了 5121×4033）。
       前提是**所有元素都画在画布之内**，否则会被静默裁掉。
+
+    v16.2：**降级必须留痕**。`auto` 下 SVG 失败会静默变 PNG
+      （交付物从"可无损缩放"变成"固定分辨率栅格"），而下游
+      `ppt_brief.py` 正好只要 PNG，于是这次降级不会被任何环节察觉。
+      现在把"本次到底是 SVG 还是 PNG 回退、为什么"写进 FIG_NOTES，
+      最终落到 graph_data.json 与报告里。
     """
     outdir.mkdir(parents=True, exist_ok=True)
     made = []
@@ -663,17 +971,18 @@ def save_fig(fig, outdir: pathlib.Path, stem: str, fmt="auto", dpi=300,
             made.append(p)
             svg_ok = True
         except Exception as e:
+            FIG_NOTES[stem]["degraded_to_png"] = f"SVG 导出失败：{e}"
             if fmt == "svg":
-                print(f"✗ SVG 导出失败（--format=svg 已禁用 PNG 回退）：{e}",
+                print(f"[X] SVG 导出失败（--format=svg 已禁用 PNG 回退）：{e}",
                       file=sys.stderr)
                 return made
-            print(f"⚠ SVG 导出失败（{e}）→ 改用 PNG")
+            print(f"[WARN] SVG 导出失败（{e}）→ 改用 PNG")
     if fmt == "png" or not svg_ok or also_png:
         p = outdir / f"{stem}.png"
         try:
             fig.savefig(p, format="png", transparent=True, dpi=dpi,
                         bbox_inches=bbox)
-            # ★ 尺寸自检：`bbox_inches="tight"` 会被画到轴外的元素撑爆画布。
+            # 尺寸自检：`bbox_inches="tight"` 会被画到轴外的元素撑爆画布。
             #   实测出现过 4.7 亿像素的 PNG（约 200×195 英寸）——
             #   那不是"高分辨率"，是打不开的坏图。超过 2 亿像素就明确报警。
             try:
@@ -681,28 +990,83 @@ def save_fig(fig, outdir: pathlib.Path, stem: str, fmt="auto", dpi=300,
                 with open(p, "rb") as fh:
                     fh.read(16)
                     wpx, hpx = struct.unpack(">II", fh.read(8))
+                FIG_NOTES[stem]["png_px"] = [wpx, hpx]
                 if wpx * hpx > 200_000_000:
-                    print(f"⚠ {p.name} 尺寸异常：{wpx}×{hpx} = {wpx * hpx:,} 像素"
+                    print(f"[WARN] {p.name} 尺寸异常：{wpx}×{hpx} = {wpx * hpx:,} 像素"
                           f"（疑似有元素被画到坐标轴之外，导致 tight bbox 撑爆画布）",
                           file=sys.stderr)
             except Exception:
                 pass
             made.append(p)
         except Exception as e:
-            print(f"✗ PNG 导出失败：{e}", file=sys.stderr)
+            print(f"[X] PNG 导出失败：{e}", file=sys.stderr)
+    FIG_NOTES[stem]["made"] = [x.suffix.lstrip(".") for x in made]
     return made
+
+
+# ── 字号自述（v16.2）──────────────────────────────────────────
+# 起因：本流程的图都在**超大画布**（15–17 in）上用**绝对字号**，
+#   而"能不能读"取决于**最终摆放尺寸**。实测方向聚类图 17 in 宽、
+#   论文题名标注 6 pt；若缩到期刊双栏 183 mm（7.205 in），
+#   有效字号只剩 6 × 7.205/17 = 2.54 pt —— 早就读不出来了，
+#   而**没有任何一步会发现这件事**。
+#   nature-figure 用"扫最终 PDF 的 Tf 字号"解决；本流程的图用于
+#   报告与 PPT，不需要引入 PyMuPDF：按画布→目标尺寸的线性比例换算即可。
+# 结论以 **WARN 而非 FAIL** 呈现：幻灯片场景（13.333 in）下是够的，
+#   只有"哪天要放进论文/报告排版"才会踩线。
+FONT_TARGETS = {
+    "幻灯片 16:9（13.333 in 宽）": 13.333,
+    "论文双栏 183 mm（7.205 in 宽）": 7.205,
+    "论文单栏 89 mm（3.504 in 宽）": 3.504,
+}
+FIG_NOTES: dict = {}
+
+
+def note_fonts(stem: str, canvas_in, sizes, extra=None, quiet=False):
+    """记录一张图的画布尺寸与所有字号，换算各目标尺寸下的**有效最小字号**。
+
+    `sizes` —— [(说明, pt), ...]，画在**纸上/幻灯片上**的最小可读单元。
+    """
+    w_in = float(canvas_in[0])
+    items = [(str(lab), float(pt)) for lab, pt in sizes if pt]
+    rec = FIG_NOTES.setdefault(stem, {})
+    rec["canvas_in"] = [round(w_in, 3), round(float(canvas_in[1]), 3)]
+    rec["font_pt"] = {lab: pt for lab, pt in items}
+    if extra:
+        rec.update(extra)
+    if not items:
+        rec["effective_pt"] = {}
+        return rec
+    eff, below = {}, []
+    for tname, t_in in FONT_TARGETS.items():
+        scale = t_in / w_in if w_in else 0.0
+        worst = min(items, key=lambda x: x[1])
+        eff[tname] = {"scale": round(scale, 4),
+                      "min_pt": round(worst[1] * scale, 2),
+                      "min_what": worst[0]}
+        if worst[1] * scale < WC_FLOOR_PT:
+            below.append(f"{tname}：{worst[0]} {worst[1]:g} pt → "
+                         f"{worst[1] * scale:.2f} pt")
+    rec["effective_pt"] = eff
+    rec["below_floor_pt"] = WC_FLOOR_PT
+    rec["below_floor"] = below
+    if below and not quiet:
+        print(f"[WARN] {stem}：按目标尺寸换算后有条目低于 {WC_FLOOR_PT:g} pt —— "
+              + "｜".join(below), file=sys.stderr)
+    return rec
+
 
 
 def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=False):
     """作者中心图谱：**扇区式**径向布局 + Louvain 社区上色 + 记忆连接虚线。
 
-    ★ 画布固定 **16:10**（16×10 in，PNG 回退即 4800×3000 @300dpi）：
+    画布固定 **16:10**（16×10 in，PNG 回退即 4800×3000 @300dpi）：
       与演示版面同比例，整幅铺放时不出现上下黑边、也不用再被裁切。
       为此**刻意不保持等比例**（`aspect="auto"`）：16:10 的宽画布上，
       等比例圆会在左右各留下三分之一空白、节点反而更小；
       拉伸成椭圆后画幅填满，字相对画面更大，读起来更清楚。
 
-    ★ 布局为什么要按扇区而不是"每层等分一圈"：
+    布局为什么要按扇区而不是"每层等分一圈"：
       等分会把同一方向下的综述甩到圆环对面，且所有方向共用一整圈，
       节点一多标签必然重叠成一团（实测 99 个 review 节点时完全没法读）。
       改成：**每个阶段占一个扇区 → 扇区内分给它的方向 → 方向内再分给它的综述**，
@@ -758,7 +1122,7 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
     # 方法层：单独一圈，只放高频的，避免和外圈综述挤在一起
     methods = sorted([nid for nid, nd in nodes.items() if nd["kind"] == "method"],
                      key=lambda nid: -nodes[nid].get("n_papers", 0))[:16]
-    # ★ 按**记忆连接关系**重排，让相连的方法在圆周上相邻 ——
+    # 按**记忆连接关系**重排，让相连的方法在圆周上相邻 ——
     #   否则弧线横跨整张图，既难看又让人误以为两个相距很远的概念相关。
     adj = defaultdict(set)
     for e in edges:
@@ -781,7 +1145,7 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
         pos[mid] = (2.72 * math.cos(a), 2.72 * math.sin(a))
 
     cmap = plt.get_cmap("tab20")
-    # ★ Louvain 社区色板**刻意避开暖橙**：tab20 的前几色里有橙红，
+    # Louvain 社区色板**刻意避开暖橙**：tab20 的前几色里有橙红，
     #   与「最紧密综述」的强调色 #E4572E 撞色，实测两类节点在某些角度
     #   完全分不出来。这里改用蓝/青/绿/紫的冷色系，与主干配色错开。
     COMM_PALETTE = ["#4E79A7", "#59A14F", "#B07AA1", "#76B7B2",
@@ -796,13 +1160,13 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
     ax = fig.add_axes(AX_RECT)
     ax.set_xlim(-SPAN, SPAN)
     ax.set_ylim(-SPAN, SPAN)
-    ax.set_aspect("auto")                       # ★ 拉伸成椭圆，铺满 16:10 画幅
+    ax.set_aspect("auto")                       # 拉伸成椭圆，铺满 16:10 画幅
     ax.set_axis_off()
 
-    # ★ v7.4：节点改为**圆角矩形 + 文字嵌入**（原先的散点 + 径向外推标签
+    # v7.4：节点改为**圆角矩形 + 文字嵌入**（原先的散点 + 径向外推标签
     #   在多节点时必然互相压字）。要自动把文字包进框里，就得先能估算框的
     #   数据坐标尺寸 —— 下面这套换算是避让与排版共用的唯一口径。
-    #   ★ 两个轴**分开算**：画布被拉伸后 x/y 的"每数据单位多少点"不再相等，
+    #   两个轴**分开算**：画布被拉伸后 x/y 的"每数据单位多少点"不再相等，
     #     用同一个换算值会让框的估计尺寸与实际渲染对不上（避让随即失效）。
     PT_PER_X = FIG_W * AX_RECT[2] * 72 / (2 * SPAN)
     PT_PER_Y = FIG_H * AX_RECT[3] * 72 / (2 * SPAN)
@@ -814,7 +1178,7 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
     def disp(s) -> str:
         """显示标签：去掉「自定义:」前缀。
 
-        ★ 只改**图上显示**。`自定义:` 前缀是词表缺词的机器可读标记，
+        只改**图上显示**。`自定义:` 前缀是词表缺词的机器可读标记，
           原值仍完整保留在 graph_data.json 与《知识图谱.md》/《研究方向综述》里，
           因此「词表缺词」这件事不会被抹掉。
         """
@@ -876,7 +1240,7 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
                 oy = (wa["h"] + wb["h"]) / 2 + PAD_Y - abs(dy)
                 if ox > 0 and oy > 0:
                     # 沿"重叠更轻"的那一轴分开，位移量与重叠量成正比。
-                    # ★ 比较与位移都先换算成点：x 轴被拉伸后，"同样 0.1 个
+                    # 比较与位移都先换算成点：x 轴被拉伸后，"同样 0.1 个
                     #   数据单位"在横竖两个方向上并不是同样长。
                     if ox * PT_PER_X < oy * PT_PER_Y:
                         s = (1.0 if dx >= 0 else -1.0) * ox / 2
@@ -894,7 +1258,7 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
         if not moved:
             break
     if pruned:
-        print("ℹ overview：按「保留核心主干」裁剪 —— "
+        print("[INFO] overview：按「保留核心主干」裁剪 —— "
               + "｜".join(f"{k} {v} 个" for k, v in pruned.most_common())
               + "（完整清单见 graph_data.json / 《研究方向综述》）")
 
@@ -957,37 +1321,44 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
     mem_edges = [e for e in edges if e["kind"] == "记忆连接"]
     if mem_edges:
         head = "记忆连接（橙色虚线，两条方法为何要一起读）："
-        # ★ 不截断 reason：这段是**图例正文**，截断后每行都以「…」收尾，
+        # 不截断 reason：这段是**图例正文**，截断后每行都以「…」收尾，
         #   读者拿不到「两条方法为何要一起读」的原因，图例等于白放。
         #   放在图下方 + wrap=True，长文本会自动换行。
         txt = "\n".join([head] + [
             f"· {e['label']} —— {e.get('reason') or ''}"
             for e in mem_edges[:6]])
-        # ★ 放图**下方**、但**留在画布之内**：本图按画布原始尺寸导出
+        # 放图**下方**、但**留在画布之内**：本图按画布原始尺寸导出
         #   （tight=False），画到画布外的文字会被直接裁掉。
         fig.text(0.012, 0.012, txt, fontsize=8.5, va="bottom", ha="left",
                  color="#B03A1A", wrap=True)
     ax.set_axis_off()
-    # ★ 不再用 ax.margins()：上面已显式 set_xlim/ylim，margins 会把它们再撑开，
+    # 不再用 ax.margins()：上面已显式 set_xlim/ylim，margins 会把它们再撑开，
     #   让 PT_PER_X/PT_PER_Y 的换算失准（框的估计尺寸与实画尺寸对不上）。
+    note_fonts(stem, (FIG_W, FIG_H),
+               [("记忆连接图注", 8.5), ("图例", 10), ("标题", 26)] +
+               [(f"{k} 节点", v["fs"]) for k, v in BOX.items()],
+               extra={"n_nodes": len(keep), "n_pruned": dict(pruned)})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png, tight=False)
     plt.close(fig)
     if made:
-        print(f"ℹ overview：画布固定 16:10（{FIG_W:g}×{FIG_H:g} in，"
+        print(f"[INFO] overview：画布固定 16:10（{FIG_W:g}×{FIG_H:g} in，"
               f"PNG 回退 = {int(FIG_W * dpi)}×{int(FIG_H * dpi)} px @{dpi}dpi）")
     return made
 
 
 def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label,
-                   also_png=False):
-    """词云：颜色区分方向；**已剔除模型生物等误导性常见词**；着力方法/范式。
+                   also_png=False, wc_stats=None):
+    """词云：颜色区分方向；**词源与剔除口径见图上副标题**。
 
-    ★ 碰撞避让是**必须**的，不能靠"黄金角螺旋 + 固定步长"糊过去：
+    碰撞避让是**必须**的，不能靠"黄金角螺旋 + 固定步长"糊过去：
       字号随频次变化，大字会盖住后面所有小字。实测不避让时
       "photocatalytic / labeling"、"porous / mof"、"simulation / reduction"
       三对词完全叠死，读者根本读不出词 —— 而需求明确要求
       **清晰展示所有字符**。这里用确定性的阿基米德螺旋 + 矩形碰撞检测：
       按频次从大到小逐词试位，第一个不重叠的位置即采纳。
+
+    v16.2：取词口径改由 `compute_wordcloud_weights` 负责（关键词优先 +
+      邻接熵筛词），本函数只管**排版与避让**，并记录字号自述。
     """
     import math
     if not weights:
@@ -1017,7 +1388,7 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
     def text_w(txt, size_pt):
         """按字符类型估宽：CJK 约 1.0×字号，ASCII 约 0.55×字号。
 
-        ★ 旧版一律按 0.58×字号 ×字符数 估宽（等于把中文当半角），
+        旧版一律按 0.58×字号 ×字符数 估宽（等于把中文当半角），
           中文词的实际宽度被**低估约 40%** → 碰撞检测漏判 → 大字压住中文小字
           （实测 `experimental` 压死 `测试表征`/`催化`/`合成`）。
           这里逐字符判宽，中英混排的包围盒才与实际渲染一致。
@@ -1042,7 +1413,7 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
         size = 10 + 40 * (n / mx) ** 0.8
         col = colors.get(w, "#2E86AB")
         ok = False
-        # ★ 螺旋半径必须**够到画布边缘**：旧版步长 0.012、只试 600 步，
+        # 螺旋半径必须**够到画布边缘**：旧版步长 0.012、只试 600 步，
         #   最大半径仅 0.29 —— 所有词被挤在中心一个小圆盘里，
         #   实测 90 个词只放得下 11 个，而且互相压字。
         #   取 0.040×√k（900 步 → 半径可达 1.2）铺满整个画布。
@@ -1062,18 +1433,29 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
         if not ok:
             skipped += 1
     if skipped:
-        print(f"ℹ 词云：{skipped} 个低频词放不下（画布已满），已省略 —— "
+        print(f"[INFO] 词云：{skipped} 个低频词放不下（画布已满），已省略 —— "
               f"完整词频见 graph_data.json 的 wordcloud.weights")
 
     lgd = "；".join(str(k) for k in list(direction_label)[:8])
     ax.set_title(f"{AUTHOR} 研究方法与实验范式词云", fontsize=20, pad=34)
-    # ★ 副标题放在标题**下方**（va="bottom" + 小 y），否则两行会糊在一起
-    ax.text(0.5, 1.012, "颜色 = 研究方向　｜　已剔除模型生物、样本、载体等"
-                        "误导性常见词　｜　词大小 = 在该作者语料中的频次",
-            transform=ax.transAxes, ha="center", va="bottom", fontsize=10,
-            color="#555555")
+    # 副标题放在标题**下方**（va="bottom" + 小 y），否则两行会糊在一起。
+    # v16.2：把**词源与剔除口径**写在图上 —— 读者才知道这张云是什么口径出来的。
+    n_kw = len((wc_stats or {}).get("keywords_used") or {})
+    par = (wc_stats or {}).get("paradigms") or {}
+    par_txt = ("｜范式：" + " · ".join(f"{k} {v}" for k, v in list(par.items())[:4])
+               if par else "")
+    sub = (f"词源：文章关键词（{n_kw} 篇）＞ 题名 ＞ 解读卡方法描述"
+           f" ｜ 已剔除单位/试剂缩写、受控范式标签与跨词碎片"
+           f" ｜ 词大小 = 加权频次{par_txt}")
+    ax.text(0.5, 1.012, sub, transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=10, color="#555555")
     ax.text(0.5, -0.035, lgd, transform=ax.transAxes, ha="center", va="top",
             fontsize=9, color="#555555")
+    note_fonts(stem, (fig_w_in, fig_h_in),
+               [("词云副标题", 10), ("方向图例", 9), ("标题", 20)] +
+               [(f"词 {t}", 10 + 40 * (n / mx) ** 0.8) for t, n in items[:1]],
+               extra={"n_words_placed": len(placed), "n_words_skipped": skipped,
+                      "n_terms_available": len(weights)})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png)
     plt.close(fig)
     return made
@@ -1086,7 +1468,7 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     """
     import math
     if not rows:
-        # ★ 没有数据时**也要出图**（画一张明确写"无数据"的空白图），
+        # 没有数据时**也要出图**（画一张明确写"无数据"的空白图），
         #   不能 return [] 静默少一张。
         #   起因：离线/未跑 H2 时 final_list 为空 → 第③张图消失，
         #   交付物从"三张图"悄悄变成两张，读者只会以为流程漏跑了，
@@ -1103,10 +1485,12 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
         ax.set_title(f"{AUTHOR} 各研究方向近 {recent_years} 年论文与热点聚类",
                      fontsize=18, pad=30)
         ax.set_axis_off()
+        note_fonts(stem, (12, 8), [("空数据说明", 14), ("标题", 18)],
+                   extra={"empty": True})
         made = save_fig(fig, outdir, stem, fmt, dpi, also_png)
         plt.close(fig)
         return made
-    # ★ v7.4 改版：① 补**图例**（旧版没有图例，颜色/大小全靠猜）；
+    # v7.4 改版：① 补**图例**（旧版没有图例，颜色/大小全靠猜）；
     #   ② 补**对比面板** —— 右侧横向条形给出各方向的文献数，
     #      让"哪个方向近 N 年更活跃"一眼可比，而不是只能数点；
     #   ③ 方向按文献数降序排列（旧版按字典序，主次不分）。
@@ -1117,7 +1501,7 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     ax = fig.add_subplot(gs[0, 0])
     axb = fig.add_subplot(gs[0, 1])
     cmap = plt.get_cmap("tab10")
-    # ★ 标注只给「每个 (方向, 年份) 内被引最高的前 N 条」，并做垂直错开。
+    # 标注只给「每个 (方向, 年份) 内被引最高的前 N 条」，并做垂直错开。
     #   旧版对**每一条**都标注 34 字符题名，而同方向同年的点全部落在一条水平线上
     #   → 几十个标签在 y=2024 那一行叠成一坨黑线，一个字也读不出来。
     TOP_PER_ROW = 3
@@ -1131,7 +1515,13 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     seen_cluster = {}
     for r in rows:
         x = dirs.index(r["direction"])
-        jitter = ((hash(r.get("id") or r.get("title") or "") % 100) / 100.0 - 0.5) * 0.5
+        # v16.2 修 bug：原用 hash() 做抖动 —— Python 3.3+ 对 str 的哈希
+        #   **默认按进程随机化**（PYTHONHASHSEED），全仓又没有固定它，
+        #   于是同一份 graph_data.json 每次跑出来的散点横向抖动都不同，
+        #   方向聚类图**不可复现**（Louvain 已固定 seed=42，唯独这里漏了）。
+        #   改用 CRC32（跨进程稳定），一行修掉。
+        jitter = ((zlib.crc32((r.get("id") or r.get("title") or "").encode("utf-8"))
+                   % 100) / 100.0 - 0.5) * 0.5
         ck = r.get("hotspot") or "—"
         seen_cluster.setdefault(ck, len(seen_cluster))
         col = cmap(seen_cluster[ck] % 10)
@@ -1146,7 +1536,7 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     ax.set_xticklabels([f"{d[:16]}\n({sum(1 for r in rows if r['direction'] == d)} 条)"
                         for d in dirs], rotation=18, ha="right", fontsize=10)
     ax.set_ylabel("发表年份", fontsize=12)
-    # ★ y 轴必须**显式**限定在近 N 年窗口内。
+    # y 轴必须**显式**限定在近 N 年窗口内。
     #   只有一两个点且年份相同时，matplotlib 会自动把轴拉到 ±100 年，
     #   图上只剩两个孤点浮在中间（实测轴范围 1925–2125），完全不可读。
     ys = [r["year"] for r in rows]
@@ -1160,9 +1550,9 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     ax.set_xlim(-0.6, max(0.6, len(dirs) - 0.4))
     ax.set_title(f"{AUTHOR} 各研究方向近 {recent_years} 年论文与热点聚类",
                  fontsize=18, pad=30)
-    # ★ 副标题下移到标题**下方**（原来 y=1.02 与 title 撞在一起，两行糊成一团）
+    # 副标题下移到标题**下方**（原来 y=1.02 与 title 撞在一起，两行糊成一团）
     ax.text(0.5, 1.012,
-            "点大小 = 被引次数　｜　颜色 = 热点簇（方向内关键词共现）　｜　"
+            "点大小 = 被引次数 ｜ 颜色 = 热点簇（方向内关键词共现） ｜ "
             f"右图 = 各方向近 {recent_years} 年文献数对比",
             transform=ax.transAxes, ha="center", va="bottom", fontsize=10,
             color="#555555")
@@ -1186,7 +1576,7 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
     ax.legend(handles=size_handles, loc="upper right", frameon=False,
               fontsize=9, title="点大小 = 被引", title_fontsize=9,
               labelspacing=0.45)
-    # ★ 热点簇图例挂到**右侧对比面板**的空白处：放左图左上方会压住
+    # 热点簇图例挂到**右侧对比面板**的空白处：放左图左上方会压住
     #   2025 年那两个点的标题（实测被压在色块下面读不出来）。
     axb.legend(handles=cl_handles, loc="lower right", frameon=False,
                fontsize=9, title="热点簇", title_fontsize=9,
@@ -1219,44 +1609,192 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
                 "样本不足，如实留空：不拿更早的论文冒充最新进展")
         ax.text(0.5, 0.5, note, transform=ax.transAxes, ha="center",
                 va="center", fontsize=13, color="#B03A1A", alpha=0.85)
+    note_fonts(stem, (17, 10),
+               [("论文题名标注", 6), ("x 轴方向标签", 10), ("图例", 9),
+                ("对比面板刻注", 10), ("标题", 18)],
+               extra={"n_rows": len(rows)})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png)
     plt.close(fig)
     return made
 
 
 # ══════════════════════════════════════════════════════════════
-def compute_wordcloud_weights(cards, recs, vocab, doi_dir):
-    """词云权重：**只取方法与范式**，显式剔除误导性常见词。"""
+# ══════════════════════════════════════════════════════════════
+# 词云权重：四级语料按"可信度"加权
+#   文章自带 Keywords（最可信，作者/期刊自己认定）
+#     > 题名 > 摘要 > 解读卡方法描述（兜底与补充，量最大但最杂）
+# 权重可用 --wc-weight-keywords / -title / -abstract / -methods 覆盖。
+# ══════════════════════════════════════════════════════════════
+WC_WEIGHTS = {"keywords": 3, "title": 2, "abstract": 2, "methods": 1}
+
+
+def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
+                              weights=None, lang="both", min_docs=WC_MIN_DOCS):
+    """词云权重：关键词优先 + 全局邻接熵筛词 + 单位/受控标签剔除。
+
+    `cards`  —— doi → 解读卡
+    `recs`   —— doi → 题录（本轮起用于取**题名**；旧版收了这个参数却没用）
+    `lang`   —— both（默认）｜ zh 只出中文词 ｜ en 只出英文词
+
+    语料优先级（用户指定）：
+      ① 文章自带 Keywords（权重 3）—— 作者/期刊自己认定的词，最可信
+      ② 题名（权重 2）            —— 结构化来源，稳定可得
+      ③ 摘要（权重 2）            —— **仅当该篇既无关键词也取不到题名时**才用。
+         摘要与"方法描述"同属**散文**，把它整篇切词上云正是"大量无用信息"
+         的来源（实测把它加进来后，英文词型从 200 级暴涨到 1600 级，
+         云被 neuronal/synaptic/activity 这类通用词占满）。故降级为兜底。
+      ④ 解读卡方法描述（权重 1）—— 量最大也最杂，作补充，保住中文方法词
+
+    中文门控必须**全局**统计：邻接熵与频次都依赖整个语料的分布，
+      逐篇统计会让 3 次以下的真词（海马、谷氨酸）与碎片一起被误杀。
+    """
+    weights = dict(WC_WEIGHTS, **(weights or {}))
     allowed_p = vocab.get("paradigm_tags_vocabulary") or []
     aliases = vocab.get("aliases") or {}
     al_p = {str(k).lower(): v for k, v in (aliases.get("_范式别名") or {}).items()}
 
-    w = Counter()
-    term_dir = defaultdict(Counter)
-    dropped = Counter()
+    kw_by_doi, kw_notes = load_article_keywords()
+    abs_by_doi = load_json(CDPDIR / "abstracts_openalex.json", {}) or {}
+
+    # ── 第一遍：收集语料 ──────────────────────────────────────
+    corpora = []            # (doi, 方向, 来源, 权重, 文本)
+    paradigms = Counter()
     for doi, c in cards.items():
         d = doi_dir.get(doi) or "未标注方向"
-        src = []
-        for m in as_list(c.get("methods")):
-            src.append(str(m))
+        # 范式标签：**不再切词上云**（15 个受控标签，见 PARADIGM_EN），
+        #   改为单独统计进图注与报告 —— 不是静默丢弃。
         for p in as_list(c.get("paradigm_tags")):
-            src.append(normalize_tag(p, allowed_p, al_p))
-        for s in src:
-            for tok in set(tokenize(s)):
-                if tok in MISLEADING or tok in MISLEADING_ZH:
-                    dropped[tok] += 1
-                    continue
-                w[tok] += 1
-                term_dir[tok][d] += 1
+            p = normalize_tag(p, allowed_p, al_p)
+            if p:
+                paradigms[p] += 1
+
+        kws = kw_by_doi.get(doi) or []
+        title = str((recs.get(doi) or {}).get("title") or "").strip()
+        if kws:
+            corpora.append((doi, d, "keywords", weights["keywords"], " ; ".join(kws)))
+        if title:
+            corpora.append((doi, d, "title", weights["title"], title))
+        elif not kws:
+            abstract = str((abs_by_doi.get(doi) or {}).get("abstract") or "").strip()
+            if abstract:
+                corpora.append((doi, d, "abstract", weights["abstract"], abstract))
+        mtext = " ".join(str(m) for m in as_list(c.get("methods")))
+        if mtext:
+            corpora.append((doi, d, "methods", weights["methods"], mtext))
+
+    # ── 第二遍：中文候选词走全局门控 ──────────────────────────
+    keep_zh, zh_info = zh_terms(" ".join(t for *_, t in corpora))
+
+    w = Counter()
+    term_dir = defaultdict(Counter)     # 词 → {方向: 次数}
+    term_src = defaultdict(Counter)     # 词 → {来源: 次数}
+    term_doi = defaultdict(set)         # 词 → {出现在哪些论文}
+    dropped = Counter()
+    drop_reason = defaultdict(Counter)
+    src_hits = Counter()
+
+    def _drop(tok, why, n=1):
+        dropped[tok] += n
+        drop_reason[tok][why] += n
+
+    # 中文词表门（旧版只在 tokenize 后做过 MISLEADING/MISLEADING_ZH；
+    #   本版新增 GENERIC_ZH，并把二者统一到全局门之后）
+    for g in list(keep_zh):
+        if g in MISLEADING_ZH:
+            _drop(g, "泛化/载体词")
+            del keep_zh[g]
+        elif g in GENERIC_ZH:
+            _drop(g, "词云泛化词")
+            del keep_zh[g]
+
+    if lang in ("both", "zh"):
+        for g, st in zh_info.items():
+            if not st["keep"]:
+                _drop(g, st.get("why") or "跨词碎片")
+    if lang in ("both", "en"):
+        raw_en = set()
+        for *_, text in corpora:
+            raw_en |= {x.strip("-") for x in _EN_TOK.findall(text.lower())
+                       if len(x.strip("-")) >= WC_EN_MIN_LEN}
+        for t in raw_en - set(en_terms(" ".join(x for *_, x in corpora))):
+            if t in STOP:
+                continue
+            _drop(t, "受控范式标签" if t in PARADIGM_EN else
+                  ("单位/试剂/编号" if (t in UNIT_ABBR or re.fullmatch(r"[a-z]\d{1,3}", t)) else
+                   ("来源噪声词" if t in GENERIC_EN else "泛化/停用")))
+
+    for doi, d, src, wt, text in corpora:
+        if lang in ("both", "zh"):
+            hits = zh_grams(text) & keep_zh.keys()
+            for g in hits:
+                w[g] += wt
+                term_dir[g][d] += 1
+                term_src[g][src] += 1
+                term_doi[g].add(doi)
+            if hits:
+                src_hits[src] += len(hits)
+        if lang in ("both", "en"):
+            hits = set(en_terms(text))
+            for t in hits:
+                w[t] += wt
+                term_dir[t][d] += 1
+                term_src[t][src] += 1
+                term_doi[t].add(doi)
+            if hits:
+                src_hits[src] += len(hits)
     color_of, dir_label = {}, {}
     palette = ["#1B3A6B", "#E4572E", "#2E86AB", "#7D3C98", "#117A65",
                "#B9770E", "#943126", "#1A5276"]
+    # ── 方法描述来源的"单篇孤词"过滤（见 WC_MIN_DOCS 说明）────────
+    #   判据用**论文数**（term_doi），不是方向数 —— 方向只有两三个，
+    #   用方向数会把中文词几乎全杀掉（实测入云词型从 1449 掉到 159）。
+    curated = ("keywords", "title", "abstract")
+    for t in list(w):
+        if len(term_doi[t]) >= min_docs:
+            continue
+        if any(src in curated for src in term_src[t]):
+            continue
+        _drop(t, "仅单篇孤词", 1)
+        del w[t]
+        del term_dir[t]
+        del term_src[t]
+        term_doi.pop(t, None)
     dirs = sorted({d for _, c in term_dir.items() for d in c})
     for i, d in enumerate(dirs):
         dir_label[d] = palette[i % len(palette)]
     for tok, c in term_dir.items():
         color_of[tok] = dir_label[c.most_common(1)[0][0]]
-    return w, color_of, dir_label, dropped
+
+    # 候选碎片是全量 2–4 gram（实测近 2 万条），**不能全量落盘**：
+    #   上一版这样写把 graph_data.json 从 254 KB 顶到 8.8 MB。
+    #   这里按出现次数封顶，并显式记下"被封顶的总数"，不静默截断。
+    frag_all = {g: st for g, st in zh_info.items() if not st["keep"]}
+    frag_keep = sorted(frag_all.items(), key=lambda x: -x[1]["n"])[:80]
+    reason_keep = {t: dict(drop_reason[t]) for t, _ in dropped.most_common(80)
+                   if t in drop_reason}
+    stats = {
+        "weights": weights,
+        "lang": lang,
+        "n_cards": len(cards),
+        "keywords_used": {k: v for k, v in kw_by_doi.items()},
+        "keywords_notes": kw_notes,
+        "keywords_coverage": f"{len(kw_by_doi)}/{len(cards)}",
+        "paradigms": dict(paradigms.most_common()),
+        "source_terms": dict(src_hits.most_common()),
+        "term_source": {t: dict(term_src[t]) for t in w},
+        "thresholds": {"min_count": WC_MIN_COUNT, "min_entropy": WC_MIN_ENTROPY,
+                       "max_n": WC_MAX_N, "min_docs": min_docs,
+                       "font_floor_pt": WC_FLOOR_PT},
+        "n_terms_kept": len(w),
+        "n_dropped_types": len(dropped),
+        "n_dropped_hits": sum(dropped.values()),
+        "n_fragment_candidates": len(frag_all),
+        "fragments": dict(frag_keep),
+        "fragments_truncated": f"仅列出现次数最高的 80/{len(frag_all)} 条",
+        "drop_reasons": reason_keep,
+        "drop_reasons_truncated": f"仅列出现次数最高的 80/{len(dropped)} 条",
+    }
+    return w, color_of, dir_label, dropped, stats
 
 
 def direction_profiles_from_cards(cards, vocab):
@@ -1271,7 +1809,7 @@ def direction_profiles_from_cards(cards, vocab):
         tags = [t for t in tags if t]
         if not tags:
             continue
-        # ★ 画像语料 = methods + key_20（方法与关键信息）。只用 methods 时画像太窄：
+        # 画像语料 = methods + key_20（方法与关键信息）。只用 methods 时画像太窄：
         #   实测某化学语料下 506 条参考文献里仅 40 条带 review 卡，其余走关键词兜底
         #   几乎全落到「未分组」，方向聚类图 x 轴只剩一个刻度。补 key_20 后
         #   画像覆盖到研究对象/体系词，兜底才有意义。
@@ -1280,12 +1818,12 @@ def direction_profiles_from_cards(cards, vocab):
         for tok in set(tokenize(blob)):
             if tok in MISLEADING or tok in MISLEADING_ZH:
                 continue
-            # ★ v7.4：计入该卡的**全部**方向标签，而不是只计 tags[0]。
+            # v7.4：计入该卡的**全部**方向标签，而不是只计 tags[0]。
             #   旧版只喂第一个标签 —— 而多数卡的第一标签是「材料与结构」，
             #   于是它的画像被撑得极宽，成为"泛词通吃"的根源。
             for t in tags:
                 prof[t][tok] += 1
-    # ★ v7.4：丢掉**跨方向普遍存在**的词（df 超过方向数一半）——
+    # v7.4：丢掉**跨方向普遍存在**的词（df 超过方向数一半）——
     #   这类词（active / reaction / properties / stability）在任何方向都出现，
     #   对判别毫无贡献，却会把命中数堆高，让宽画像获胜。
     _nd = max(1, len(prof))
@@ -1307,7 +1845,7 @@ def assign_direction(text, rcard, prof, allowed_d, al_d, min_hit=2):
     ② **兜底**：题名与该方向的**关键词画像**（来自作者解读卡的方法描述）重合 ≥ min_hit。
        兜底是**启发式**，报告里会写明用了哪条路径、命中了几个词。
 
-    ★ 为什么不直接用期刊名或"最近的方向"：那是**编**一个归属，
+    为什么不直接用期刊名或"最近的方向"：那是**编**一个归属，
       比"未分组"更糟 —— 读者会当成事实。
     """
     tags = [normalize_tag(t, allowed_d, al_d)
@@ -1317,7 +1855,7 @@ def assign_direction(text, rcard, prof, allowed_d, al_d, min_hit=2):
         return tags[0], "review 卡标注"
     toks = sorted({t for t in tokenize(str(text or ""))
                    if t not in MISLEADING and t not in MISLEADING_ZH})
-    # ★ v7.4：按 **IDF 加权**排序，消除「宽画像通吃」。
+    # v7.4：按 **IDF 加权**排序，消除「宽画像通吃」。
     #   旧版取**命中词数**最大者 —— 「材料与结构」的画像词覆盖面最广，
     #   逐词计数天然最大，实测 5 年窗口下 44 条里 41 条被它吸走，
     #   x 轴只剩一个有效刻度、图失去对比性。
@@ -1330,7 +1868,7 @@ def assign_direction(text, rcard, prof, allowed_d, al_d, min_hit=2):
     for _d, _cnt in prof.items():
         for _t in _cnt:
             _df[_t] += 1
-    #   ★ 还要**按画像规模归一化**：命中词的绝对权重和会随画像变大而单调增长，
+    #   还要**按画像规模归一化**：命中词的绝对权重和会随画像变大而单调增长，
     #     不归一化等于"谁的画像大谁赢"（长文档偏置）。除以 sqrt(画像总权重)
     #     后，比较的才是"这条文献与哪个方向的**密度**更接近"。
     _mass = {d: sum(_math.log(1.0 + _N / max(1, _df[t])) for t in cnt)
@@ -1361,7 +1899,7 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
     al_d = {str(k).lower(): v for k, v in (aliases.get("_方向别名") or {}).items()}
     prof = direction_profiles_from_cards(cards or {}, vocab)
 
-    # ★ v7.4：新增判据 ②「施引的作者论文方向」。
+    # v7.4：新增判据 ②「施引的作者论文方向」。
     #   起因：5 年窗口下实测 44 条里 41 条都被关键词兜底塞进「材料与结构」——
     #   该方向画像词覆盖面最广，逐词命中数天然最大，于是**赢者通吃**，
     #   图上 x 轴只剩一个有效刻度，完全没有对比性。
@@ -1383,7 +1921,7 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
         if not str(y or "").isdigit() or int(y) < lo:
             continue
         c = rcards.get(str(x.get("id") or "")) or {}
-        # ★ 关键词兜底的语料不能只有**题名**：题名通常只有 8–15 个词，
+        # 关键词兜底的语料不能只有**题名**：题名通常只有 8–15 个词，
         #   与画像重合 ≥2 的概率极低 —— 实测 506 条里绝大多数因此落到
         #   「未分组」，x 轴只剩一个刻度、图失去意义。改为「题名 + 摘要 + 刊名」，
         #   兜底命中率才有统计意义；返回的 `why` 会写明走的是哪条路径与命中词，
@@ -1424,7 +1962,7 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
 
 # ══════════════════════════════════════════════════════════════
 def build_report(overview_notes, memory_links, contradictions, wc_dropped,
-                 hotspot_words, rows, graphs, pinfo, opts) -> str:
+                 hotspot_words, rows, graphs, pinfo, opts, wc_stats=None) -> str:
     L = []
     L.append(f"# {AUTHOR} 知识图谱\n")
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
@@ -1476,7 +2014,7 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("")
 
     L.append("## 四、自相矛盾线索（「哪些地方在自相矛盾？」）\n")
-    L.append("> ⚠️ **这些是待人工复核的线索，不是已确认的矛盾。**")
+    L.append("> [WARN] **这些是待人工复核的线索，不是已确认的矛盾。**")
     L.append("> 判据：同一研究方向内，**一篇的「待验证问题」与另一篇的「已验证结论」"
              "高度重合**（重合度 ≥ 0.30 且共同词 ≥ 4）—— 即一篇说「还没解决」、"
              "另一篇说「已经证实」。这类冲突值得回原文核对，"
@@ -1493,14 +2031,64 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
                  "本判据只覆盖「未解决问题 vs 已验证结论」这一类文字级信号。")
     L.append("")
 
-    L.append("## 五、词云剔除记录（**如实列出被剔的词**）\n")
-    L.append("> 剔除的是**模型生物 / 样本容器 / 泛化词**：它们是载体不是方法，"
-             "频次却往往最高，留在图上会把真正的方法学信号挤掉。\n")
+    L.append("## 五、词云取词与剔除记录（**如实列出被剔的词**）\n")
+    _ws = wc_stats or {}
+    if _ws:
+        L.append(f"> **取词口径**（v16.2）：文章关键词（权重 "
+                 f"{_ws['weights'].get('keywords')}）＞ 题名（{_ws['weights'].get('title')}）"
+                 f"＞ 摘要（{_ws['weights'].get('abstract')}，仅在既无关键词也无题名时用）"
+                 f"＞ 解读卡方法描述（{_ws['weights'].get('methods')}）。"
+                 f"语言口径 `{_ws.get('lang')}`。")
+        L.append(f"> **文章关键词采纳**：{_ws.get('keywords_coverage', '?')} 篇取到并采纳。"
+                 "关键词段解析不干净时**整份丢弃**（宁可少一个来源，也不让散文上云）。")
+        L.append(f"> **范式标签不再切词上云**（它们是 15 个受控标签，描述不了作者），"
+                 f"改为在此单列：{_ws.get('paradigms') or '（无）'}。")
+        L.append(f"> **中文筛词**：左右邻接熵 ≥ {_ws['thresholds']['min_entropy']} bit "
+                 f"且频次 ≥ {_ws['thresholds']['min_count']} 才保留，"
+                 f"候选词长 {_ws['thresholds']['max_n']} 字以内 —— "
+                 "用来挡「小鼠海马→鼠海」这类跨词边界碎片。")
+        L.append(f"> **来源贡献的词型数**：{_ws.get('source_terms') or '（无）'}。")
+        L.append("")
+        notes = _ws.get("keywords_notes") or []
+        if notes:
+            L.append("### 逐篇关键词采纳情况\n")
+            L.append("| DOI | 来源 | 原因 | 采纳的词 |")
+            L.append("|---|---|---|---|")
+            for n in notes:
+                kw = "、".join(n.get("keywords") or []) or "—"
+                L.append(f"| `{n.get('doi')}` | {n.get('source')} | {n.get('why')} | "
+                         f"{one_line(kw, 70)} |")
+            L.append("")
+        frag = _ws.get("fragments") or {}
+        if frag:
+            sample = sorted(frag.items(), key=lambda x: -x[1]["n"])[:12]
+            L.append("### 被判为「跨词碎片 / 虚词边界」的中文候选（前 12）\n")
+            L.append("| 候选 | 次数 | 左邻接熵 | 右邻接熵 | 左邻样例 | 判定 |")
+            L.append("|---|---|---|---|---|---|")
+            for g, st in sample:
+                L.append(f"| {g} | {st['n']} | {st['h_left']} | {st['h_right']} | "
+                         f"{'、'.join(str(c) for c, _ in st['left'][:3])} | "
+                         f"{st.get('why') or '—'} |")
+            L.append("")
+    L.append("> 剔除的是**载体词 / 泛化词 / 单位与试剂缩写 / 受控范式标签 / 跨词碎片** —— "
+             "它们要么描述不了作者，要么根本不是词。\n")
     if wc_dropped:
         top = "、".join(f"{w}({n})" for w, n in wc_dropped.most_common(30))
         L.append(f"被剔除的高频词（前 30）：{top}")
         L.append("")
-        L.append(f"（共剔除 {len(wc_dropped)} 个词型、{sum(wc_dropped.values())} 次出现）")
+        L.append(f"（共剔除 {len(wc_dropped)} 个**候选词型**、{sum(wc_dropped.values())} 次出现；"
+                 f"其中入云的只有 {(_ws.get('n_terms_kept') or 0)} 个词型 —— "
+                 f"被剔的绝大多数是「只出现 1–2 次的碎片/短词」，"
+                 f"它们本就不会进云，列出来是为了口径可核）")
+        reasons = (_ws.get("drop_reasons") or {})
+        bucket = Counter()
+        for _t, _rs in reasons.items():
+            for _why, _n in _rs.items():
+                bucket[_why] += 1
+        if bucket:
+            L.append("")
+            L.append("按原因归类（词型数）：" +
+                     "、".join(f"{k} {v}" for k, v in bucket.most_common()))
     else:
         L.append("> 无语料或未触发剔除。")
     L.append("")
@@ -1521,7 +2109,7 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     if pinfo["source"] == "config":
         L.append("阶段分组来自 `.work_cdp/periods.json`（**用户/流程配置**）。")
     elif pinfo["source"] == "auto":
-        L.append("> ⚠️ 阶段分组是**按年份等分的算法分段**（`.work_cdp/periods.json` 不存在），"
+        L.append("> [WARN] 阶段分组是**按年份等分的算法分段**（`.work_cdp/periods.json` 不存在），"
                  "**不代表作者真实履历**（博士期/博后期/建组期）。"
                  "要得到有意义的阶段划分，请配置 `periods.json`。")
         L.append("")
@@ -1537,9 +2125,72 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("- 方法层的节点由**方法描述文本分词**得到，"
              "英文取单词、中文取 2-gram —— 会有同义词未合并的情况，"
              "报告已如实列出高频词，便于人工判断。")
+    L.append("- **词云与图谱的分词口径不同**（这是刻意的）："
+             "图谱/方向画像沿用 `tokenize()` 的中文 2-gram（与 `interpret_build.py` 同口径，"
+             "改它会漂移方向画像与冲突检出）；"
+             "词云另走「关键词优先 + 左邻接熵筛词」，并为可读性扩到 2–4 字。"
+             "两者**不应互相对齐**，也不要用词云的词去解释图谱的簇。")
+    L.append("- 词云的邻接熵筛词仍会漏掉个别**粘着语素**（如「氨酸」这类"
+             "只作后缀的字组），它们读起来不成词但也不是跨词边界碎片；"
+             "如需剔除请加入 `GENERIC_ZH`。")
+    L.append("- 文章关键词来自出版方网页/PDF 文本的 Keywords 段，"
+             "**解析不干净就整份丢弃**（见 §五 的逐篇表）；"
+             "因此关键词覆盖率偏低是**如实反映**，不是漏跑。"
+             "若解读卡自带 `keywords` 字段，则优先用它。")
     L.append("- 热点簇的标签取该方向近 N 年**最高频关键词**，"
              "是**数据驱动的命名**，不是领域共识的热点名称。")
     L.append("")
+
+    # ── 九、字号自述（放到目标尺寸后还能不能读）──────────────
+    L.append("## 九、字号自述（这批图放到目标尺寸后还能不能读）\n")
+    L.append(f"> 本流程的图都画在**超大画布**（12–17 in）上，用的是**绝对字号**；"
+             f"能不能读取决于**最终摆放尺寸**。下表按线性比例换算，"
+             f"下限取 **{WC_FLOOR_PT:g} pt**。低于下限只报 WARN —— "
+             "幻灯片场景通常是够的，只有放进论文/报告排版才会踩线。\n")
+    if FIG_NOTES:
+        L.append("| 图 | 画布 (in) | 最小字号条目 | " +
+                 " | ".join(f"{t}" for t in FONT_TARGETS) + " |")
+        L.append("|---|---|---|" + "---|" * len(FONT_TARGETS))
+        for stem, rec in FIG_NOTES.items():
+            eff = rec.get("effective_pt") or {}
+            cells = []
+            for t in FONT_TARGETS:
+                v = eff.get(t) or {}
+                mark = " [WARN]" if (v.get("min_pt") is not None
+                                     and v["min_pt"] < WC_FLOOR_PT) else ""
+                cells.append(f"{v.get('min_pt', '—')} pt（{v.get('min_what', '—')}）{mark}")
+            what = "—"
+            if eff:
+                w0 = min(eff.values(), key=lambda v: v["min_pt"])
+                what = f"{w0['min_what']}（{w0['min_pt']} pt @ {list(FONT_TARGETS)[0]}）"
+            L.append(f"| {stem.split('_')[-1]} | {rec.get('canvas_in')} | {what} | "
+                     + " | ".join(cells) + " |")
+        L.append("")
+        warn = {k: v.get("below_floor") for k, v in FIG_NOTES.items()
+                if v.get("below_floor")}
+        if warn:
+            L.append("> [WARN] 以下条目在对应目标尺寸下低于下限，"
+                     "**要放进该尺寸就必须放大字号或缩小画布**：\n")
+            for k, v in warn.items():
+                L.append(f"> - {k}：" + "；".join(v))
+            L.append("")
+        else:
+            L.append("> 所有条目在全部目标尺寸下均不低于下限。")
+            L.append("")
+        deg = {k: v["degraded_to_png"] for k, v in FIG_NOTES.items()
+               if v.get("degraded_to_png")}
+        if deg:
+            L.append("> [WARN] 这些图发生了 **SVG→PNG 降级**（交付物从可无损缩放变成"
+                     "固定分辨率栅格，PPT 用没问题，但要矢量就只能修 SVG 导出）：\n")
+            for k, v in deg.items():
+                L.append(f"> - {k}：{v}")
+            L.append("")
+        else:
+            L.append("> 未发生 SVG→PNG 降级。")
+            L.append("")
+    else:
+        L.append("> 未产出图件，无字号记录。")
+        L.append("")
     return "\n".join(L)
 
 
@@ -1581,7 +2232,7 @@ def self_test() -> int:
     print("阶段划分：通过" if bad == 0 else "阶段划分：失败")
 
     # ④ 冲突检出：A 的 open_questions 与 B 的 verified_conclusions 重合
-    #    ★ 用例必须真的越过阈值（共同词 ≥4 且重合度 ≥0.30）——
+    #    用例必须真的越过阈值（共同词 ≥4 且重合度 ≥0.30）——
     #      否则测的是"阈值没被触发"，而不是"检出逻辑对不对"。
     cards = {
         "a": {"open_questions": [
@@ -1622,7 +2273,98 @@ def self_test() -> int:
     bad += mem_bad
     print("记忆连接判据：通过" if mem_bad == 0 else "记忆连接判据：失败")
 
-    print("\n✅ 自检全部通过" if bad == 0 else "\n❌ 自检有失败项")
+    # ⑦ 中文邻接熵筛词：碎片必须被挡，真词必须留下。
+    #    语料刻意复刻用户实测的两类边界：
+    #      「触前」左邻恒为「突」、「经元」左邻恒为「神」、
+    #      「谷氨」右邻恒为「酸」、「鼠海」右邻恒为「马」 → 全部是碎片；
+    #      而 海马/突触/神经元/谷氨酸/突触前/成像 的左右邻居都杂 → 真词。
+    zh_text = (
+        "取大鼠海马切片。取小鼠海马神经元。在体海马网络。与海马区的突触。的海马电活动。"
+        "的突触前膜。与突触后的密度。在突触可塑性。成突触传递。化突触结构。"
+        "记录神经元的形态。培养神经元的方法。观察神经元的活动。的神经元网络。与神经元连接。"
+        "释放谷氨酸的过程。的谷氨酸受体。测谷氨酸浓度。与谷氨酸相关。于谷氨酸能系统。"
+        "的突触前膜。与突触前钙。在突触前囊泡。"
+        "荧光成像系统。的成像参数。与成像分辨率。在成像条件下。"
+        "谷氨酰胺合成。"
+    )
+    keep_zh, zh_info = zh_terms(zh_text)
+    frag_bad = 0
+    for g in ("触前", "谷氨", "经元", "鼠海"):
+        if g in keep_zh:
+            frag_bad += 1
+            print(f"  碎片 {g!r} 未被筛掉（左邻 {zh_info[g]['left']} "
+                  f"右邻 {zh_info[g]['right']}，熵 "
+                  f"{zh_info[g]['h_left']}/{zh_info[g]['h_right']}）")
+    for g in ("海马", "神经元", "突触", "谷氨酸", "突触前", "成像"):
+        if g not in keep_zh:
+            frag_bad += 1
+            print(f"  真词 {g!r} 被误杀（熵 "
+                  f"{zh_info.get(g, {}).get('h_left')}/{zh_info.get(g, {}).get('h_right')}）")
+    bad += frag_bad
+    print("中文邻接熵筛词：通过" if frag_bad == 0 else "中文邻接熵筛词：失败")
+
+    # ⑧ 英文剔除表：受控范式标签 / 单位 / 编号 / 来源噪声词必须挡住，
+    #    真方法词必须留下。
+    en_bad = 0
+    for w in ("experimental", "mechanistic", "imaging", "div", "kcl", "min",
+              "e18", "vpp", "fulltext"):
+        if w in set(en_terms(w)):
+            en_bad += 1
+            print(f"  英文垃圾 {w!r} 未被挡住")
+    for w in ("tomography", "microscopy", "electrophysiology", "optogenetic"):
+        if w not in set(en_terms(w)):
+            en_bad += 1
+            print(f"  英文方法词 {w!r} 被误杀")
+    bad += en_bad
+    print("英文剔除表：通过" if en_bad == 0 else "英文剔除表：失败")
+
+    # ⑨ 词云专用中文泛化表
+    zh_bad = 0
+    for w in ("定量", "参数", "用于", "作者"):
+        if w not in GENERIC_ZH:
+            zh_bad += 1
+            print(f"  {w!r} 应在 GENERIC_ZH 中")
+    bad += zh_bad
+    print("中文泛化表：通过" if zh_bad == 0 else "中文泛化表：失败")
+
+    # ⑩ 关键词解析门：干净列表采纳；把 Introduction 吞进来的必须整份丢弃
+    kw_ok = "Keywords Acetylcholine · Neuronal network · Synaptic current\nIntroduction\nText"
+    kws, why = parse_article_keywords(kw_ok)
+    kw_bad = 0
+    if len(kws) != 3:
+        kw_bad += 1
+        print(f"  干净关键词列表未被正确采纳：{kws}（{why}）")
+    intro = "Keywords: a, b\n1. Introduction\n" + "text " * 200
+    kws2, why2 = parse_article_keywords(intro)
+    if len(kws2) > 3:
+        kw_bad += 1
+        print(f"  吞掉 Introduction 的关键词段未被丢弃：{kws2[:5]}（{why2}）")
+    if not parse_article_keywords("no keyword section here")[1]:
+        kw_bad += 1
+        print("  无关键词段时应给出说明")
+    bad += kw_bad
+    print("关键词解析门：通过" if kw_bad == 0 else "关键词解析门：失败")
+
+    # ⑪ 方向聚类抖动必须**跨进程可复现**（原 hash() 会随 PYTHONHASHSEED 变）
+    j1 = ((zlib.crc32(b"W2020850910") % 100) / 100.0 - 0.5) * 0.5
+    j2 = ((zlib.crc32(b"W2020850910") % 100) / 100.0 - 0.5) * 0.5
+    if j1 != j2 or not isinstance(j1, float):
+        bad += 1
+        print("  抖动不可复现")
+    print("抖动可复现：通过")
+
+    # ⑫ 字号自述：17 in 画布上的 6 pt 在 183 mm（7.205 in）下必须报低于下限
+    FIG_NOTES.clear()
+    rec = note_fonts("selftest_方向聚类", (17, 10), [("题名标注", 6), ("图例", 9)],
+                     quiet=True)
+    eff = rec["effective_pt"]["论文双栏 183 mm（7.205 in 宽）"]["min_pt"]
+    if abs(eff - 6 * 7.205 / 17) > 0.05 or not rec["below_floor"]:
+        bad += 1
+        print(f"  字号自述换算错误：{eff} / below={rec['below_floor']}")
+    FIG_NOTES.clear()
+    print("字号自述：通过")
+
+    print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 else 1
 
 
@@ -1634,7 +2376,7 @@ def main() -> int:
     also_png = "--also-png" in sys.argv
     fmt = (_argval("format", "auto") or "auto").lower()
     if fmt not in ("auto", "svg", "png"):
-        print(f"✗ --format 取值 {fmt!r} 不在 auto/svg/png 内")
+        print(f"[X] --format 取值 {fmt!r} 不在 auto/svg/png 内")
         return 2
     if _argval("formats"):
         fmt = "svg"
@@ -1644,18 +2386,35 @@ def main() -> int:
         recent_years = int(_argval("recent-years", "5") or 5)
         max_dirs = int(_argval("max-dirs", "12") or 12)
         max_review_nodes = int(_argval("max-review-nodes", "24") or 24)
+        wc_min_docs = int(_argval("wc-min-docs", str(WC_MIN_DOCS)) or WC_MIN_DOCS)
     except ValueError:
-        print("✗ --dpi / --max-reviews / --recent-years / --max-dirs / "
-              "--max-review-nodes 必须是整数")
+        print("[X] --dpi / --max-reviews / --recent-years / --max-dirs / "
+              "--max-review-nodes / --wc-min-docs 必须是整数")
         return 2
+    wc_lang = (_argval("wc-lang", "both") or "both").lower()
+    if wc_lang not in ("both", "zh", "en"):
+        print(f"[X] --wc-lang 取值 {wc_lang!r} 不在 both/zh/en 内")
+        return 2
+    wc_weights = {}
+    for _k in ("keywords", "title", "abstract", "methods"):
+        _v = _argval(f"wc-weight-{_k}")
+        if _v is None:
+            continue
+        try:
+            wc_weights[_k] = float(_v)
+        except ValueError:
+            print(f"[X] --wc-weight-{_k} 必须是数字，收到 {_v!r}")
+            return 2
     opts = {"dpi": dpi, "max_reviews": max_reviews, "recent_years": recent_years,
             "also_png": also_png, "max_dirs": max_dirs,
-            "max_review_nodes": max_review_nodes}
+            "max_review_nodes": max_review_nodes,
+            "wc_lang": wc_lang, "wc_weights": wc_weights or None,
+            "wc_min_docs": wc_min_docs}
 
     recs, cards = load_author_papers()
     final, rcards, rmeta = load_review_data()
     if not cards and not (final.get("items")):
-        print("✗ 既没有解读卡（interpret/results/），也没有综述终表（refs/final_list.json）")
+        print("[X] 既没有解读卡（interpret/results/），也没有综述终表（refs/final_list.json）")
         print("  请先跑阶段 H 与阶段 H2 —— 本阶段刻意放在它们之后，"
               "就是为了吃「最终」产物。")
         return 2
@@ -1675,7 +2434,7 @@ def main() -> int:
                                     max_review_nodes=max_review_nodes)
     comm, why = louvain(nodes, edges)
     if why:
-        print(f"ℹ {why}")
+        print(f"[INFO] {why}")
     notes = cluster_notes(nodes, edges, comm, dir_paradigm, dir_methods, doi_dir, cards)
     contradictions = find_contradictions(cards, doi_dir, recs)
     graphs = {}
@@ -1683,10 +2442,12 @@ def main() -> int:
                                        f"{AUTHOR}_知识图谱_overview", fmt, dpi, also_png)
 
     # ── ② 词云 ────────────────────────────────────────────────
-    w, color_of, dir_label, dropped = compute_wordcloud_weights(cards, recs, vocab, doi_dir)
+    w, color_of, dir_label, dropped, wc_stats = compute_wordcloud_weights(
+        cards, recs, vocab, doi_dir, weights=opts.get("wc_weights"),
+        lang=opts["wc_lang"], min_docs=opts["wc_min_docs"])
     graphs["wordcloud"] = draw_wordcloud(plt, w, color_of, GRAFDIR,
                                          f"{AUTHOR}_知识图谱_词云", fmt, dpi, dir_label,
-                                         also_png)
+                                         also_png, wc_stats)
 
     # ── ③ 方向聚类 ────────────────────────────────────────────
     rows, hotspots, dir_how = compute_direction_clusters(
@@ -1707,17 +2468,19 @@ def main() -> int:
         "wordcloud": {"weights": dict(w.most_common(120)),
                       "colors": color_of,
                       "direction_colors": dir_label,
-                      "dropped": dict(dropped.most_common(80))},
+                      "dropped": dict(dropped.most_common(80)),
+                      "stats": wc_stats},
         "direction_clusters": {
             "recent_years": recent_years,
             "rows": [{k: v for k, v in r.items() if k != "tokens"} for r in rows],
             "hotspots": hotspots},
         "periods": pinfo,
+        "figure_notes": FIG_NOTES,
         "graphs": {k: [str(x) for x in v] for k, v in graphs.items()},
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     md = build_report(notes, memory_links, contradictions, dropped, hotspots,
-                      rows, graphs, pinfo, opts)
+                      rows, graphs, pinfo, opts, wc_stats=wc_stats)
     report = WD / f"{AUTHOR}_知识图谱.md"
     report.write_text(md, encoding="utf-8")
 
@@ -1728,7 +2491,10 @@ def main() -> int:
             print(f"  · {k}: {f.name}")
     print(f"报告：{report}")
     print(f"记忆连接 {len(memory_links)} 条｜聚类 {len(notes)} 簇｜"
-          f"冲突线索 {len(contradictions)} 条｜词云剔除 {len(dropped)} 个词型")
+          f"冲突线索 {len(contradictions)} 条")
+    print(f"词云：入云 {len(w)} 个词型｜被剔 {len(dropped)} 个候选词型"
+          f"（{sum(dropped.values())} 次；多数是低熵的跨词碎片）"
+          f"｜关键词覆盖率 {wc_stats.get('keywords_coverage')}")
     if dir_how:
         print("方向归类：" + "｜".join(f"{k} {v} 条" for k, v in dir_how.most_common()))
     print(f"综述挂载：挂上 {attach_stats['attached']} 条｜"
@@ -1739,12 +2505,12 @@ def main() -> int:
         print("  挂载路径：" + "｜".join(f"{k} {v} 条"
                                         for k, v in sorted(attach_stats["how"].items())))
     if not made:
-        print("⚠ 一张图都没产出 —— 请检查 matplotlib 是否可用（见上方提示）。")
+        print("[WARN] 一张图都没产出 —— 请检查 matplotlib 是否可用（见上方提示）。")
     journal("K", "graph.build", n_nodes=len(nodes), n_edges=len(edges),
             n_memory_links=len(memory_links), n_clusters=len(notes),
             n_contradictions=len(contradictions), files=[f.name for f in made],
             fmt=fmt, dpi=dpi)
-    log.info(f"✓ 阶段 K 完成 → {GRAFDIR}")
+    log.info(f"[OK] 阶段 K 完成 → {GRAFDIR}")
     return 0 if made else 1
 
 

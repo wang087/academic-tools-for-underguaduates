@@ -67,7 +67,7 @@ RESULTS: list[tuple[str, bool, str]] = []
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
     RESULTS.append((name, bool(ok), detail))
-    mark = "✅" if ok else "❌"
+    mark = "[OK]" if ok else "[X]"
     line = f"  {mark} {name}"
     if detail:
         line += f"   —— {detail}"
@@ -101,7 +101,7 @@ def run(script: str, wd: pathlib.Path, args: list[str] | None = None,
                            timeout=timeout)
         out = (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired as e:
-        out = f"⏱ 超时（{timeout}s）\n{e.stdout or ''}"
+        out = f"[TIME] 超时（{timeout}s）\n{e.stdout or ''}"
         return 124, out
     if verbose:
         print(f"\n──── {script} {' '.join(args or [])} ────")
@@ -113,7 +113,7 @@ def run_split(script: str, wd: pathlib.Path, args: list[str] | None = None,
               verbose: bool = False, timeout: int = 300):
     """跑脚本并**分别**返回 (returncode, stdout, stderr)。
 
-    ★ 为什么不能复用 `run()`：它把 stdout 与 stderr 合并成一份输出，而
+    为什么不能复用 `run()`：它把 stdout 与 stderr 合并成一份输出，而
       `prepare_stage.py --tier` 的契约恰恰是「**stdout 里恰好只有档位**」——
       合并之后就再也分不清"stdout 干净"和"日志行混进来了"，
       而这正是本条自检要挡的失败模式（调用方写 `T=$(… --tier H)`，
@@ -131,7 +131,7 @@ def run_split(script: str, wd: pathlib.Path, args: list[str] | None = None,
     except subprocess.TimeoutExpired as e:
         rc = 124
         out = e.stdout or ""
-        err = f"⏱ 超时（{timeout}s）"
+        err = f"[TIME] 超时（{timeout}s）"
     if verbose:
         print(f"\n──── {script} {' '.join(args or [])} ────")
         print((out + err)[-4000:])
@@ -223,7 +223,7 @@ def make_refs_cards(wd: pathlib.Path, verbose: bool) -> int:
 def ppt_projects_dir() -> pathlib.Path:
     """ppt-master 的 projects 目录 —— 复用 ppt_brief 的定位逻辑。
 
-    ★ 不能写死 REPO/"ppt-master"：打包发行版（流程1/）把依赖放在
+    不能写死 REPO/"ppt-master"：打包发行版（流程1/）把依赖放在
       `<流程1>/vendor/ppt-master`，那里才是真正会被写入的位置。
       两处若不一致，自检会去错误的地方找新建项目，误报"未找到新建项目"。
     """
@@ -240,7 +240,7 @@ def ppt_projects_dir() -> pathlib.Path:
 
 def main() -> int:
     if "--help" in sys.argv or "-h" in sys.argv:
-        # ★ 为什么要有 --help：本脚本没有 argparse，参数靠 `--x in sys.argv` 判定，
+        # 为什么要有 --help：本脚本没有 argparse，参数靠 `--x in sys.argv` 判定，
         #   所以在加上这个分支之前 `--help` 会被**当成正常运行**——直接跑一遍
         #   全流程（联网模式下还会真的发网络请求）。一个查询开关不该有副作用。
         print(
@@ -274,7 +274,7 @@ def main() -> int:
     print("═" * 68)
 
     if not SAMPLE.exists():
-        print(f"✗ 找不到示例题录：{SAMPLE}")
+        print(f"[X] 找不到示例题录：{SAMPLE}")
         return 2
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="flow_selftest_"))
@@ -296,17 +296,17 @@ def main() -> int:
         check("闸门已解析", plan.get("_gates", {}).get("D2") == "run"
               and plan.get("_gates", {}).get("F") == "skip",
               f"F={plan.get('_gates', {}).get('F')}（translate=no 应跳过）")
-        # ★ v13.1：本用例是 output_format=markdown **且 translate=no** → 阶段 F 由
+        # v13.1：本用例是 output_format=markdown **且 translate=no** → 阶段 F 由
         #   translate 关闭（output_format 已不再是闸门），故 _f_mode=off。
         #   改前这条的标签写「F 为 html-only」而断言写 off —— 标签描述意图、
         #   断言锁实际行为，二者矛盾正是 [版本变动.md](版本变动.md) 那处缺陷留下的痕迹。
         check("output_format=markdown 且 translate=no → F 关闭（_f_mode=off）",
               plan.get("_f_mode") == "off", f"_f_mode={plan.get('_f_mode')}")
 
-        # ★ v13.1 回归守卫（行为级）：output_format **不再**决定阶段 F 是否执行。
+        # v13.1 回归守卫（行为级）：output_format **不再**决定阶段 F 是否执行。
         #   改前这一组合会被静默跳过 —— 用户要了翻译却什么都拿不到，且不报错。
         #   若有人把 F 闸门加回 output_format，下面第一条会立刻失败。
-        #   ⚠️ `--set` 是**整份重写**（未指定的项一律回落到默认值），
+        #   [WARN] `--set` 是**整份重写**（未指定的项一律回落到默认值），
         #      所以这里改完必须把本次自检后续步骤依赖的计划**原样重建**。
         run("prepare_stage.py", wd, [
             "--set", "output_format=markdown", "--set", "translate=yes"], verbose=verbose)
@@ -323,7 +323,7 @@ def main() -> int:
             "--set", "reverse_refs=yes", "--set", "make_ppt=yes",
             "--set", "refs_bibliography=yes", "--set", "curate_review=yes",
             "--set", "ppt_pages=short"], verbose=verbose)
-        # ★ 解读档位（v9）默认值：阶段 0 未显式指定时必须落到 L2 / L3
+        # 解读档位（v9）默认值：阶段 0 未显式指定时必须落到 L2 / L3
         check("prepare_plan.json 含两个档位键且默认 L2 / L3",
               plan.get("interpret_tier") == "L2"
               and plan.get("review_interpret_tier") == "L3",
@@ -356,7 +356,7 @@ def main() -> int:
 
         # ── 阶段 0 · 解读档位（v9）：--tier / --set / --audit ────
         print("\n【阶段 0 · 解读档位】--tier 查询 / 改档 / --audit")
-        # ★ 最重要的三条：① --tier 退出码 0；② stdout **去空白后恰好**是
+        # 最重要的三条：① --tier 退出码 0；② stdout **去空白后恰好**是
         #   L1/L2/L3（防日志行混入后调用方静默拿到 "INFO … L2"）；
         #   ③ 未知阶段退出码 2（而不是静默当成跳过）。
         for stage, key in (("H", "interpret_tier"),
@@ -396,7 +396,7 @@ def main() -> int:
         check("--audit 退出码 0（门控齐全）", rc_a == 0,
               ((so_a or se_a).strip().splitlines() or [""])[-1][:88])
 
-        # ★ `--set` 每次都会把**未显式给出的选项**重建为默认值，所以改档测试
+        # `--set` 每次都会把**未显式给出的选项**重建为默认值，所以改档测试
         #   必须把下游依赖的选项一并复原，否则后面的 H/H2/P 会静默落回默认闸门。
         run("prepare_stage.py", wd, [
             "--set", "reverse_refs=yes", "--set", "refs_bibliography=yes",
@@ -510,7 +510,7 @@ def main() -> int:
         check("阶段 H ① 任务包生成", rc == 0
               and (wd / ".work_cdp" / "interpret" / "manifest.json").exists())
 
-        # ★ 任务包必须带 interpret_tier：subagent **只认任务包**，不自己去问
+        # 任务包必须带 interpret_tier：subagent **只认任务包**，不自己去问
         #   阶段 0（见 subagent-driven-review § 6.0）。若 interpret_prepare.py
         #   尚未接入该字段，**记为待接入而不判失败** —— 该脚本此刻可能正由
         #   另一位 agent 修改，本自检不替它决定实现进度。
@@ -545,8 +545,8 @@ def main() -> int:
         check("阶段 H ④ 报告生成", rc == 0 and rep.exists())
         if rep.exists():
             t = rep.read_text(encoding="utf-8")
-            # ★ 关键：缺卡与不合规卡必须**如实申报**，不得静默略过
-            # ★ 断言的是**语义**（缺卡与字段不全都必须被报出），不是某一版措辞
+            # 关键：缺卡与不合规卡必须**如实申报**，不得静默略过
+            # 断言的是**语义**（缺卡与字段不全都必须被报出），不是某一版措辞
             check("解读报告如实申报缺卡 / 字段不全",
                   "缺卡" in t and ("字段不全" in t or "不合规" in t),
                   "已如实申报" if "缺卡" in t else "缺失！")
@@ -604,7 +604,7 @@ def main() -> int:
             check("报告含聚类解读与冲突线索两节",
                   "这一簇在讲什么" in t and "自相矛盾" in t)
             check("报告如实列出被剔除的词", "剔除" in t)
-        # ★ 尺寸守卫：词云曾因文字画到轴外而产出 4.7 亿像素的"坏图"
+        # 尺寸守卫：词云曾因文字画到轴外而产出 4.7 亿像素的"坏图"
         import struct as _st
         bad_size = []
         for f in pngs:
@@ -618,13 +618,39 @@ def main() -> int:
                 pass
         check("图片尺寸正常（无 tight-bbox 撑爆）", not bad_size,
               "；".join(bad_size) if bad_size else "均在 2 亿像素以内")
+        # v7.5 新增两条契约：取词口径可核 + 字号自述必须落盘
+        import json as _json
+        try:
+            gd = _json.loads((gdir / "graph_data.json").read_text(encoding="utf-8"))
+        except Exception as e:
+            gd = {}
+            check("graph_data.json 可解析", False, str(e))
+        if gd:
+            ws = (gd.get("wordcloud") or {}).get("stats") or {}
+            check("词云记录了取词口径（来源权重/阈值/关键词覆盖率）",
+                  bool(ws.get("weights")) and bool(ws.get("thresholds"))
+                  and "keywords_coverage" in ws,
+                  f"coverage={ws.get('keywords_coverage')} "
+                  f"weights={ws.get('weights')}")
+            fn = gd.get("figure_notes") or {}
+            check("三张图都记录了字号自述",
+                  len(fn) >= 3 and all(v.get("effective_pt") for v in fn.values()),
+                  "、".join(f"{k.split('_')[-1]}" for k in fn))
+            check("范式标签不再混进词云权重（单独统计）",
+                  not any(t in (gd.get("wordcloud") or {}).get("weights", {})
+                          for t in ("experimental", "mechanistic", "imaging")),
+                  "experimental/mechanistic/imaging 不应出现在词云权重里")
+        if rep.exists():
+            t = rep.read_text(encoding="utf-8")
+            check("报告含字号自述一节", "字号自述" in t)
+            check("报告含词云取词口径", "取词口径" in t)
 
         # ── 阶段 P：PPT ───────────────────────────────────────
         print("\n【阶段 P】PPT 材料与 Spec 生成")
         PROJ = ppt_projects_dir()
         ppts = sorted(PROJ.glob(f"{AUTHOR}*"))
         before = set(ppts)
-        # ★ 项目名带本次运行的唯一后缀：`project_manager.py init` 用
+        # 项目名带本次运行的唯一后缀：`project_manager.py init` 用
         #   `<项目名>_<画布>_<YYYYMMDD>` 作目录名，**同名当天已存在就直接报错**
         #   退出。上一次自检中断（或带 --keep）留下的同名目录会让本项永远失败，
         #   而且失败原因看起来像"PPT 阶段坏了"，与改动无关。
@@ -639,7 +665,7 @@ def main() -> int:
         check("阶段 P 执行成功", rc == 0, (out.strip().splitlines() or [""])[-1][:90])
         if new:
             proj = new[-1]
-            # ★ 断言项目确实落在**本流程解析出的** ppt-master 下。
+            # 断言项目确实落在**本流程解析出的** ppt-master 下。
             #   打包发行版（流程1/）若因路径解析错误而用了别处的 ppt-master，
             #   产物会写到包外 —— 这条断言专门防这个。
             inside = PROJ.resolve() in proj.resolve().parents
@@ -660,7 +686,7 @@ def main() -> int:
             n_img = len(list((proj / "images").glob("*知识图谱*")))
             check("图谱已复制进项目 images/", n_img >= 1, f"{n_img} 张")
 
-            # ★ 档位必须落到**三份产物**上：source md / design_spec.md /
+            # 档位必须落到**三份产物**上：source md / design_spec.md /
             #   spec_lock.md。否则读材料的人无从知道"写浅了"是档位约定
             #   还是漏写，而 spec_lock.md 的档位行还必须是合法 `- ` 数据行
             #   （它是严格 schema，多一个 `##` 段就会被判 unknown section）。
@@ -684,7 +710,7 @@ def main() -> int:
             check("档位记录进 source md / design_spec.md / spec_lock.md",
                   all(marks.values()),
                   f"阶段 0 档位 H={wa} H2={wr}；"
-                  + "、".join(f"{k}={'✓' if v else '✗'}" for k, v in marks.items()))
+                  + "、".join(f"{k}={'[OK]' if v else '[X]'}" for k, v in marks.items()))
             if not keep:
                 shutil.rmtree(proj, ignore_errors=True)
         else:
@@ -715,7 +741,7 @@ def main() -> int:
         print(" 失败项：")
         for name, ok, detail in RESULTS:
             if not ok:
-                print(f"   ❌ {name}   {detail}")
+                print(f"   [X] {name}   {detail}")
     print("═" * 68)
     return 0 if n_pass == n_all else 1
 
