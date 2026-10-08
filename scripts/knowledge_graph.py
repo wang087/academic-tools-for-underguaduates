@@ -103,6 +103,46 @@ AUTHOR = (os.environ.get("PAPER_AUTHOR", "").strip() or WD.name)
 ORCID = os.environ.get("PAPER_ORCID", "").strip()
 AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
 
+
+# ══════════════════════════════════════════════════════════════
+# 绘图运行时依赖（v16.3 起为**硬依赖**）
+#
+# 为什么用 igraph 而不是 Graphviz：
+#   本版要的是「**径向整齐树**」（layout_reingold_tilford_circular）。
+#   Graphviz 的 twopi/circo 也能做，但它需要系统装 `dot` 二进制 ——
+#   实测本机**未安装**，而「换机器只传参就能跑」是本流程的硬要求。
+#   igraph 把 22 个布局算法装进纯 wheel（Python 3.14 实测可装，无需编译器），
+#   没有系统级前置依赖。
+#
+# 为什么另加 adjustText：
+#   布局只负责**节点位置**，标签避让必须是**独立的一步**。
+#   旧版把两件事混在一起 —— 靠推节点来躲标签，结果把径向层级整个推没了
+#   （实测综述被推成左侧一团、方法漂到外圈）。
+#
+# 缺依赖时**直接失败**（用户选定策略 B）：不产出降级图、不留半成品，
+#   并给出可直接复制的完整命令。
+# ══════════════════════════════════════════════════════════════
+GRAPH_DEPS = ("python-igraph", "adjustText")
+PY_DEPS = ("matplotlib", "networkx") + GRAPH_DEPS
+
+
+def graph_deps_cmd(script: str = "知识图谱") -> str:
+    """可直接复制的完整运行命令（缺依赖时打印用）。"""
+    pkgs = " ".join(f"--with {m}" for m in PY_DEPS)
+    return f"uv run {pkgs} python 流程1/scripts/knowledge_graph.py"
+
+
+def missing_graph_deps() -> list:
+    """→ 缺失的绘图依赖名（空列表 = 齐全）。"""
+    miss = []
+    for mod, pkg in (("igraph", "python-igraph"), ("adjustText", "adjustText")):
+        try:
+            __import__(mod)
+        except Exception:
+            miss.append(pkg)
+    return miss
+
+
 # ══════════════════════════════════════════════════════════════
 # 词云剔除表 —— 「有误导性的常见词」
 #
@@ -284,6 +324,12 @@ WC_FLOOR_PT = 5.0       # 最终物理尺寸下的字号下限（见 note_fonts�
 #   一个只在一篇论文里出现的方法词，不构成作者的方法学特征。
 #   关键词/题名来源**不受此限**（它们是作者自己认定的词，一两篇也算数）。
 WC_MIN_DOCS = 3
+
+# 记忆连接判据（v16.3）
+MEM_MIN_SHARED = 3      # 共现篇数下限
+MEM_MIN_LIFT = 1.5      # 相对共现强度下限（1.0 = 与独立出现无异）
+MEM_MAX_LINKS = 8       # 图上最多画几条（旧版 12 条已把画面占满）
+MEM_MAX_DEGREE = 3      # 单节点出度上限，避免"一把橙色扇子"
 
 # ⑤ 不能作为术语开头的虚词/连词/介词。
 #    实测反例：「…结果与统计…」被切成 3-gram「与统计」并留在云上。
@@ -488,6 +534,35 @@ def load_article_keywords() -> tuple[dict, list]:
             notes.append({"doi": doi, "source": "正文 Keywords 段",
                           "keywords": kws, "why": why})
     return out, notes
+
+
+def method_terms_by_topics(cards) -> dict:
+    """方法层取词 → {词: {出现过的 doi}}。
+
+    **与词云同一套筛选**（v16.3）：中文走全局邻接熵 + 泛化词表，
+      英文走 en_terms。旧版在这里直接用 `tokenize()`，
+      于是图上的方法节点混进了 `经元`(神经元) `鼠海`(大鼠海马) `养基`(培养基)
+      `谷氨`(谷氨酸) `马神`(海马神经元) `氨酸` 这类**跨词边界碎片**，
+      以及 `div/min/e18/kcl/student` —— 实测 40 个方法节点里 11 个是垃圾。
+
+    **刻意不动 `tokenize()`**：方向画像（`direction_profiles_from_cards`）
+      与冲突检出仍走旧口径（与 `interpret_build.py` 绑定），
+      改它会静默漂移聚类结果。这里只影响**图上显示的方法节点**。
+    """
+    per_doc = {}
+    for doi, c in cards.items():
+        per_doc[doi] = " ".join(str(m) for m in as_list(c.get("methods")))
+    keep_zh, _info = zh_terms(" ".join(per_doc.values()))
+    for g in list(keep_zh):
+        if g in MISLEADING_ZH or g in GENERIC_ZH:
+            del keep_zh[g]
+    out = defaultdict(set)
+    for doi, text in per_doc.items():
+        for g in zh_grams(text) & keep_zh.keys():
+            out[g].add(doi)
+        for w in set(en_terms(text)):
+            out[w].add(doi)
+    return out
 
 
 def load_vocab() -> dict:
@@ -738,56 +813,75 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
                     "truncated": truncated, "n_dirs_shown": len(real_dirs),
                     "how": dict(_how)}
 
-    # ── 方法层 + 记忆连接 ──────────────────────────────────────
-    #   方法节点取各方向的高频方法词；两条方法若**在多篇文献中共同出现**
-    #   （共现 ≥ memory_min），就连一条**有名字、带原因**的边 —— 即"记忆连接"。
-    method_doi = defaultdict(set)
-    for doi, c in cards.items():
-        for m in as_list(c.get("methods")):
-            for w in set(tokenize(str(m))):
-                if w not in MISLEADING and w not in MISLEADING_ZH:
-                    method_doi[w].add(doi)
-    top_methods = sorted(method_doi, key=lambda w: -len(method_doi[w]))[:40]
+    # ── 方法层 + 记忆连接（v16.3 重写判据）─────────────────────
+    #   取词：改用 `method_terms_by_topics()`（与词云同一套筛选），
+    #     不再直接 tokenize —— 旧版混进了 经元/鼠海/养基/谷氨/马神/氨酸
+    #     这些跨词边界碎片，以及 div/min/e18/kcl/student。
+    #   连边：旧判据是"共现篇数 ≥2"，但本语料里高频词几乎篇篇都出现，
+    #     于是连出来的是 {神经,经元,统计,对照} 四元团，而且
+    #     `神经 ↔ 经元` 权重最高 —— 那是**把一个词连到它自己的子串**。
+    #     新判据见下：先禁"子串对"，再按 **lift**（相对共现强度）排序。
+    method_doi = method_terms_by_topics(cards)
+    n_docs = max(1, len(cards))
+    top_methods = sorted(method_doi, key=lambda w: (-len(method_doi[w]), w))[:40]
 
-    co = Counter()
     for w in top_methods:
         add_node(f"m::{w}", "method", w, n_papers=len(method_doi[w]))
+
+    # 记忆连接判据（v16.3）：
+    #   ① 禁「子串对」——`a in b or b in a` 一律不收（神经/经元 这类）；
+    #   ② 共现篇数下限 MEM_MIN_SHARED；
+    #   ③ 用 **lift** 排序：lift = 共现篇数 × 总篇数 /（词a篇数 × 词b篇数）。
+    #      lift≈1 表示"两者独立出现"，>1 才是真的绑在一起。
+    #      实测按 lift 排，前几名从"四元团"换成了有信息量的具体方法对。
+    #   ④ 单节点出度 ≤3，最多 MEM_MAX_LINKS 条，避免一把橙色扇子。
+    co = {}
     for i, a in enumerate(top_methods):
         for b in top_methods[i + 1:]:
+            if a in b or b in a:
+                continue
             shared = method_doi[a] & method_doi[b]
-            if len(shared) >= 2:
-                co[(a, b)] = len(shared)
+            if len(shared) < MEM_MIN_SHARED:
+                continue
+            lift = (len(shared) * n_docs) / max(1, len(method_doi[a]) * len(method_doi[b]))
+            if lift < MEM_MIN_LIFT:
+                continue
+            co[(a, b)] = (lift, len(shared))
 
-    memory_links = []
-    # 单节点出度上限：不加这条时，一个高频词（实测 "porous"）会把十几条
-    #   记忆连接全吸到自己身上，图上出现一把橙色扇子，其余结构全被压掉。
-    #   规则：按共现强度降序贪心选边，两端出度都未满才收。
     degree = Counter()
     picked_pairs = []
-    for (a, b), n in co.most_common():
-        if len(picked_pairs) >= 12:
+    for (a, b), (lift, n) in sorted(co.items(), key=lambda kv: (-kv[1][0], -kv[1][1])):
+        if len(picked_pairs) >= MEM_MAX_LINKS:
             break
-        if degree[a] >= 3 or degree[b] >= 3:
+        if degree[a] >= MEM_MAX_DEGREE or degree[b] >= MEM_MAX_DEGREE:
             continue
         degree[a] += 1
         degree[b] += 1
-        picked_pairs.append(((a, b), n))
-    for (a, b), n in picked_pairs:
+        picked_pairs.append(((a, b), lift, n))
+
+    memory_links = []
+    for (a, b), lift, n in picked_pairs:
         shared = sorted(method_doi[a] & method_doi[b])
-        # 原因**由数据生成**，不臆造：共现篇数 + 共同范式 + 涉及篇目
-        para = Counter()
-        for doi in shared:
-            for p in as_list((cards.get(doi) or {}).get("paradigm_tags")):
-                para[normalize_tag(p, allowed_p, al_p)] += 1
-        para_top = ", ".join(k for k, _ in para.most_common(2) if k) or "未标注范式"
-        reason = (f"在 {n} 篇论文中共同出现（{para_top}），"
-                  f"属该领域常用方法组合，建议对照阅读")
+        # 原因**逐条由数据生成**：共现篇数 + 年份跨度 + 涉及方向分布。
+        #   旧版是同一句套话（括号里永远是 experimental/mechanistic），
+        #   12 条理由一字不差，等于没有理由。
+        yrs = sorted(int((recs.get(d) or {}).get("year"))
+                     for d in shared
+                     if str((recs.get(d) or {}).get("year") or "").isdigit())
+        yspan = f"{yrs[0]}–{yrs[-1]}" if yrs else "年份未标注"
+        dirs = Counter(doi_dir.get(d, "未标注方向") for d in shared)
+        dir_txt = "、".join(f"{k} {v}" for k, v in dirs.most_common(2))
+        reason = f"在 {n} 篇中共同出现（{yspan}；{dir_txt}），lift={lift:.1f}"
         name = f"{a} 与 {b}"
         edges.append({"source": f"m::{a}", "target": f"m::{b}",
                       "kind": "记忆连接", "weight": n, "label": name,
                       "reason": reason, "shared": shared[:6]})
         memory_links.append({"name": name, "reason": reason, "n": n,
-                             "shared": shared[:6]})
+                             "lift": round(lift, 2), "shared": shared[:6]})
+    if not memory_links:
+        # 如实说明：不是"没有关系"，而是**没有达到判据**的组合。
+        print("[INFO] 记忆连接：本语料未检出达到判据的方法对"
+              f"（需共现 ≥{MEM_MIN_SHARED} 篇且 lift ≥{MEM_MIN_LIFT}）")
 
     # 把方法挂到使用最多的方向上（供 Louvain 形成有意义的社区）
     for w in top_methods:
@@ -1020,6 +1114,11 @@ FONT_TARGETS = {
     "论文单栏 89 mm（3.504 in 宽）": 3.504,
 }
 FIG_NOTES: dict = {}
+# overview 的节点坐标与布局元信息（v16.3 起**落盘**）。
+#   为什么必须落盘：位置不写出来，布局就**无法事后审计** ——
+#   旧版把"扇区式径向布局"写在注释里，实际早被无约束推力破坏，
+#   因为没人能拿到渲染时的坐标，这个偏差存在了很久才被发现。
+OVERVIEW_LAYOUT: dict = {}
 
 
 def note_fonts(stem: str, canvas_in, sizes, extra=None, quiet=False):
@@ -1057,293 +1156,522 @@ def note_fonts(stem: str, canvas_in, sizes, extra=None, quiet=False):
 
 
 
-def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=False):
-    """作者中心图谱：**扇区式**径向布局 + Louvain 社区上色 + 记忆连接虚线。
+def _disp_width(s: str) -> float:
+    """显示宽度：CJK≈1.0，ASCII≈0.55（与词云同一口径）。"""
+    return sum((1.0 if ord(ch) > 0x2E80 else 0.55) for ch in str(s or ""))
 
-    画布固定 **16:10**（16×10 in，PNG 回退即 4800×3000 @300dpi）：
-      与演示版面同比例，整幅铺放时不出现上下黑边、也不用再被裁切。
-      为此**刻意不保持等比例**（`aspect="auto"`）：16:10 的宽画布上，
-      等比例圆会在左右各留下三分之一空白、节点反而更小；
-      拉伸成椭圆后画幅填满，字相对画面更大，读起来更清楚。
 
-    布局为什么要按扇区而不是"每层等分一圈"：
-      等分会把同一方向下的综述甩到圆环对面，且所有方向共用一整圈，
-      节点一多标签必然重叠成一团（实测 99 个 review 节点时完全没法读）。
-      改成：**每个阶段占一个扇区 → 扇区内分给它的方向 → 方向内再分给它的综述**，
-      同族节点聚在一起，标签只需在局部避让。
+def _wrap_disp(s: str, max_units: float) -> list[str]:
+    """按**显示宽度**折行（str 的 textwrap 会把中文按 1 字符算，折得不对）。"""
+    out, cur, w = [], "", 0.0
+    for ch in str(s or ""):
+        cw = 1.0 if ord(ch) > 0x2E80 else 0.55
+        if w + cw > max_units and cur:
+            out.append(cur)
+            cur, w = "", 0.0
+        cur += ch
+        w += cw
+    if cur:
+        out.append(cur)
+    return out or [""]
+
+
+def _method_ring_order(method_labels, memory_links):
+    """把方法排成一圈，让**有记忆连接的**尽量相邻。
+
+    做法：在"记忆连接"构成的邻接图上做**一维谱排序**（Laplacian 的
+      Fiedler 向量，即经典的 seriation）：把相连的词排到相邻位置。
+      先按连通分量分组（分量之间本来就没有连接），分量内再谱排序。
+      兜底：numpy 不可用或矩阵退化时保持原顺序。
+
+    为什么不用贪心 Hamilton 路径（上一版）：8 条连接通常分成好几个
+      连通分量，一条路径没法让所有对都相邻；谱排序是全局最优的近似，
+      实测弧线明显变短，不再出现横跨 120° 的长弧。
+    """
+    labels = list(method_labels)
+    if len(labels) < 3:
+        return labels
+    idx = {w: i for i, w in enumerate(labels)}
+    adj = defaultdict(set)
+    for m in memory_links or []:
+        parts = str(m.get("name") or "").split(" 与 ")
+        if len(parts) == 2 and parts[0] in idx and parts[1] in idx:
+            adj[parts[0]].add(parts[1])
+            adj[parts[1]].add(parts[0])
+    if not adj:
+        return labels
+    comps, seen = [], set()
+    for w in labels:
+        if w in seen:
+            continue
+        stack, comp = [w], []
+        seen.add(w)
+        while stack:
+            u = stack.pop()
+            comp.append(u)
+            for v in adj.get(u, ()):
+                if v not in seen:
+                    seen.add(v)
+                    stack.append(v)
+        comps.append(comp)
+    comps.sort(key=lambda c: (-len(c), idx[c[0]]))
+    ordered = []
+    for comp in comps:
+        if len(comp) <= 2:
+            ordered += comp
+            continue
+        try:
+            import numpy as np
+            pos = {w: i for i, w in enumerate(comp)}
+            A = np.zeros((len(comp), len(comp)))
+            for u in comp:
+                for v in adj.get(u, ()):
+                    if v in pos:
+                        A[pos[u], pos[v]] = 1.0
+            L = np.diag(A.sum(axis=1)) - A
+            _vals, vecs = np.linalg.eigh(L)
+            order = np.argsort(vecs[:, 1])
+            ordered += [comp[i] for i in order]
+        except Exception:
+            ordered += comp
+    return ordered
+
+
+def _angular_span(angles):
+    """→ (start_deg, width_deg)：覆盖这些角度的**最小**扇区（处理 0/360 跨接）。"""
+    if not angles:
+        return None
+    a = sorted({round(float(x) % 360.0, 3) for x in angles})
+    if len(a) == 1:
+        return (a[0] - 6.0, 12.0)
+    gaps = [((a[(i + 1) % len(a)] - a[i]) % 360.0, i) for i in range(len(a))]
+    width, k = max(gaps)
+    start = a[(k + 1) % len(a)]
+    span = (a[k] - start) % 360.0
+    if span <= 0:
+        span = 360.0
+    return (start, span)
+
+
+def compute_overview_layout(nodes, edges, memory_links,
+                            tree_scale=0.78, ring_radius=1.02, ring_cap=12):
+    """→ (pos, meta)。**可单测、可落盘**的 overview 布局（v16.3 抽出）。
+
+    为什么把布局从绘图里抽出来：
+      旧版布局内联在 `draw_overview()` 里，位置既不落盘也无法单测 ——
+      于是"扇区式径向布局"被后面的无约束推力悄悄破坏了很久都没人发现。
+      抽出来之后：① 位置进 `graph_data.json` 可事后审计；
+      ② 自检能直接断言"每层半径单调递增""子树扇区不重叠"。
+
+    结构：
+      树 —— 作者(根) → 阶段 → 方向 → 综述，交给 igraph 的
+        `layout_reingold_tilford_circular`（径向整齐树）。
+        实测：根在圆心、每层等半径、每个子树扇区连续且宽度∝叶子数。
+      方法环 —— 方法**不放进树里**（40 个方法词挂进去会把层级压垮），
+        另置外环，并按记忆连接把相关方法排到相邻位置。
+    """
+    import igraph as ig
+    import math
+
+    tree_kinds = ("阶段", "方向", "综述")
+    t_edges = [(e["source"], e["target"]) for e in edges
+               if e.get("kind") in tree_kinds]
+    t_nodes, seen = [], set()
+    for nid in ("author",):
+        if nid in nodes:
+            t_nodes.append(nid)
+            seen.add(nid)
+    for s, t in t_edges:
+        for nid in (s, t):
+            if nid in nodes and nid not in seen:
+                t_nodes.append(nid)
+                seen.add(nid)
+
+    pos, meta = {}, {"tree_scale": tree_scale, "ring_radius": ring_radius,
+                     "n_tree_nodes": len(t_nodes), "ring": [], "sectors": []}
+    if len(t_nodes) < 2:
+        pos["author"] = (0.0, 0.0)
+        return pos, meta
+
+    idx = {nid: i for i, nid in enumerate(t_nodes)}
+    g = ig.Graph(n=len(t_nodes),
+                 edges=[(idx[s], idx[t]) for s, t in t_edges
+                        if s in idx and t in idx],
+                 directed=True)
+    root = [idx["author"]] if "author" in idx else [0]
+    lay = g.layout_reingold_tilford_circular(root=root)
+    raw = {nid: (float(lay[i][0]), float(lay[i][1])) for nid, i in idx.items()}
+    rmax = max((math.hypot(x, y) for x, y in raw.values()), default=1.0) or 1.0
+    for nid, (x, y) in raw.items():
+        pos[nid] = (x / rmax * tree_scale, y / rmax * tree_scale)
+    meta["rmax_raw"] = round(rmax, 4)
+    meta["radii"] = {}
+    for nid, (x, y) in pos.items():
+        r = round(math.hypot(x, y), 4)
+        meta["radii"].setdefault(round(r, 4), 0)
+        meta["radii"][round(r, 4)] += 1
+
+    # ── 扇区：每个阶段占一段连续角度（从它自己的后代角度推出）──
+    children = defaultdict(list)
+    for s, t in t_edges:
+        children[s].append(t)
+
+    def _desc_angles(pid):
+        out = []
+        for did in children.get(pid, []):
+            for nid in (did, *children.get(did, [])):
+                if nid in pos:
+                    x, y = pos[nid]
+                    if math.hypot(x, y) > 1e-9:
+                        out.append(math.degrees(math.atan2(y, x)))
+        return out
+
+    for nid in t_nodes:
+        if nodes[nid]["kind"] != "period":
+            continue
+        span = _angular_span(_desc_angles(nid))
+        if not span:
+            continue
+        meta["sectors"].append({"id": nid, "label": nodes[nid]["label"],
+                                "start": round(span[0], 2),
+                                "width": round(span[1], 2)})
+
+    # ── 方法外环 ──────────────────────────────────────────────
+    #   环的成员必须**优先包含所有记忆连接的端点**：否则被截断掉端点，
+    #   弧线画不出来 —— 实测 ring_cap=12 时 8 条连接全被跳过，图上一条弧都没有。
+    m_all = {nodes[nid]["label"]: nid for nid in nodes
+             if nodes[nid]["kind"] == "method"}
+    need = set()
+    for m in memory_links or []:
+        for p in str(m.get("name") or "").split(" 与 "):
+            if p in m_all:
+                need.add(p)
+    ring_cap = max(int(ring_cap), len(need))
+    ranked = sorted(m_all, key=lambda w: (-(nodes[m_all[w]].get("n_papers") or 0), w))
+    ordered_labels = [w for w in ranked if w in need]
+    for w in ranked:
+        if len(ordered_labels) >= ring_cap:
+            break
+        if w not in ordered_labels:
+            ordered_labels.append(w)
+    ordered_labels = _method_ring_order(ordered_labels, memory_links)
+    lab2id = {w: m_all[w] for w in ordered_labels}
+    n_ring = len(ordered_labels)
+    for i, lab in enumerate(ordered_labels):
+        ang = -math.pi / 2 + 2 * math.pi * (i / max(1, n_ring))
+        nid = lab2id[lab]
+        pos[nid] = (ring_radius * math.cos(ang), ring_radius * math.sin(ang))
+        meta["ring"].append({"id": nid, "label": lab,
+                             "angle_deg": round(math.degrees(ang) % 360, 2),
+                             "n_papers": nodes[nid].get("n_papers")})
+    meta["n_method_nodes_total"] = len(m_all)
+    meta["n_method_nodes_ring"] = n_ring
+    meta["ring_missing_link_endpoints"] = sorted(need - set(ordered_labels))
+    return pos, meta
+
+
+def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=False,
+                  memory_links=None):
+    """作者中心**径向整齐树**（v16.3 重写）。
+
+    与旧版的根本区别 —— 旧版把「定位置」和「躲标签」混成一件事：
+      自己算扇区角度，再用 **150 轮无约束推力**（只钉住作者、只夹边界）
+      把节点往任意方向推。推的结果是**径向层级被抹掉**：
+      渲染出来综述挤成左侧一团、方法漂到外圈，"扇区式径向布局"
+      只存在于代码注释里（实测 93 节点 / 126 边）。
+    新版把两件事分开：
+      ① 层级位置 → `compute_overview_layout()`（igraph 径向整齐树）；
+      ② 标签避让 → adjustText（**不动节点位置**，只移文字）。
+    另外：综述题名不再截断上云（旧版 24 条里 23 条被截成 "…"），
+      改为**左图编号 + 右侧完整清单**。
     """
     import math
     if not nodes:
         return []
+    pos, lmeta = compute_overview_layout(nodes, edges, memory_links or [])
+    if not pos:
+        return []
 
-    # ── 扇区分配 ───────────────────────────────────────────────
-    periods = sorted({n["label"] for n in nodes.values() if n["kind"] == "period"})
-    if not periods:
-        periods = ["全部"]
-    dirs_of = defaultdict(list)
-    for nid, nd in nodes.items():
-        if nd["kind"] == "direction":
-            dirs_of[nd.get("period") or "全部"].append(nid)
-    for k in dirs_of:
-        dirs_of[k].sort(key=lambda nid: -nodes[nid].get("n_papers", 0))
+    # ── 版式：左=树（正方形、等比），右=编号清单（两栏）+ 记忆连接条 ──
+    FIG_W, FIG_H = 16.0, 10.0
+    fig = plt.figure(figsize=(FIG_W, FIG_H))
+    ax = fig.add_axes([0.010, 0.090, 0.500, 0.830])       # 正方形绘图区
+    axc1 = fig.add_axes([0.522, 0.185, 0.226, 0.735])     # 清单左栏
+    axc2 = fig.add_axes([0.756, 0.185, 0.226, 0.735])     # 清单右栏
+    axl = fig.add_axes([0.522, 0.058, 0.460, 0.115])      # 记忆连接条
+    for _a in (ax, axc1, axc2, axl):
+        _a.set_axis_off()
+    ax.set_aspect("equal")
+    R = lmeta["ring_radius"]
+    ax.set_xlim(-R - 0.24, R + 0.24)
+    ax.set_ylim(-R - 0.20, R + 0.24)
 
-    reviews_of = defaultdict(list)
-    for nid, nd in nodes.items():
-        if nd["kind"] == "review":
-            reviews_of[nd.get("direction") or ""].append(nid)
-    for k in reviews_of:
-        reviews_of[k].sort(key=lambda nid: -(nodes[nid].get("relevance") or 0))
+    # ── 阶段扇区（浅色扇形 + 弧线），让"扇区式"真的看得见 ─────
+    SECTOR_COLORS = ["#EAF2FB", "#FDF1E7", "#EDF7EF", "#F3EEF9", "#FBF3E9"]
+    for i, sec in enumerate(lmeta["sectors"]):
+        a0 = math.radians(sec["start"])
+        a1 = math.radians(sec["start"] + sec["width"])
+        th = [a0 + (a1 - a0) * k / 60 for k in range(61)]
+        rr = lmeta["tree_scale"]
+        ax.fill([0.0] + [rr * math.cos(t) for t in th],
+                [0.0] + [rr * math.sin(t) for t in th],
+                color=SECTOR_COLORS[i % len(SECTOR_COLORS)], zorder=0)
+        ax.plot([rr * math.cos(t) for t in th], [rr * math.sin(t) for t in th],
+                color="#C9D6E4", lw=0.9, zorder=1)
 
-    pos = {"author": (0.0, 0.0)}
-    TAU = 2 * math.pi
-    total_dirs = sum(len(v) for v in dirs_of.values()) or 1
-    ang = 0.0
-    dir_angle = {}
-    for per in periods:
-        ds = dirs_of.get(per, [])
-        if not ds:
-            continue
-        span = TAU * len(ds) / total_dirs
-        for i, did in enumerate(ds):
-            a = ang + span * (i + 0.5) / len(ds)
-            dir_angle[did] = a
-            pos[did] = (1.30 * math.cos(a), 1.30 * math.sin(a))
-            rs = reviews_of.get(nodes[did]["label"], [])
-            for j, rid in enumerate(rs):
-                da = span * 0.42 / max(1, len(rs))
-                a2 = a + da * (j - (len(rs) - 1) / 2)
-                pos[rid] = (2.05 * math.cos(a2), 2.05 * math.sin(a2))
-        per_id = f"period::{per}"
-        if per_id in nodes:
-            pos[per_id] = (0.72 * math.cos(ang + span / 2),
-                           0.72 * math.sin(ang + span / 2))
-        ang += span
-
-    # 方法层：单独一圈，只放高频的，避免和外圈综述挤在一起
-    methods = sorted([nid for nid, nd in nodes.items() if nd["kind"] == "method"],
-                     key=lambda nid: -nodes[nid].get("n_papers", 0))[:16]
-    # 按**记忆连接关系**重排，让相连的方法在圆周上相邻 ——
-    #   否则弧线横跨整张图，既难看又让人误以为两个相距很远的概念相关。
-    adj = defaultdict(set)
+    # ── 树边 ─────────────────────────────────────────────────
     for e in edges:
-        if e["kind"] == "记忆连接":
-            adj[e["source"]].add(e["target"])
-            adj[e["target"]].add(e["source"])
-    ordered, seen = [], set()
-    for mid in methods:
-        if mid in seen:
+        k = e.get("kind")
+        if k not in ("阶段", "方向", "综述"):
             continue
-        ordered.append(mid)
-        seen.add(mid)
-        for nb in sorted(adj.get(mid, ()), key=lambda x: -nodes.get(x, {}).get("n_papers", 0)):
-            if nb not in seen and nb in methods:
-                ordered.append(nb)
-                seen.add(nb)
-    methods = ordered + [m for m in methods if m not in seen]
-    for i, mid in enumerate(methods):
-        a = TAU * i / max(1, len(methods)) + 0.15
-        pos[mid] = (2.72 * math.cos(a), 2.72 * math.sin(a))
+        s, t = e["source"], e["target"]
+        if s not in pos or t not in pos:
+            continue
+        w = 1.5 if k == "阶段" else (0.9 if k == "方向" else 0.5)
+        col = "#8FA8C4" if k != "综述" else "#E8B69E"
+        ax.plot([pos[s][0], pos[t][0]], [pos[s][1], pos[t][1]],
+                ls="-", lw=w, color=col, alpha=0.75, zorder=2)
 
-    cmap = plt.get_cmap("tab20")
-    # Louvain 社区色板**刻意避开暖橙**：tab20 的前几色里有橙红，
-    #   与「最紧密综述」的强调色 #E4572E 撞色，实测两类节点在某些角度
-    #   完全分不出来。这里改用蓝/青/绿/紫的冷色系，与主干配色错开。
+    # ── 节点 ─────────────────────────────────────────────────
+    #   关键改动：**节点是「小圆点」，标签是可移动的文字**。
+    #   旧版把标签做成药丸状节点本身 —— 标签一动，节点也就动了，
+    #   于是 adjustText 无处施力（旧版干脆自己推节点，把层级推没了）。
+    BOX = {
+        "author":    dict(fs=17, pad=0.55, fc="#1B3A6B", tc="#FFFFFF", wrap=18),
+        "period":    dict(fs=11, pad=0.42, fc="#2E86AB", tc="#FFFFFF", wrap=22),
+        "direction": dict(fs=9,  fc="#7FB3D5", tc="#0F2C46", dot=34),
+        "method":    dict(fs=8,  fc="#95A3B3", tc="#33475B", dot=30),
+        "review":    dict(fs=6.5, fc="#E4572E", tc="#FFFFFF", dot=64),
+    }
+    # 综述编号（左图橙点 ↔ 右侧清单一致）
+    rev_order = sorted(
+        (nid for nid in nodes if nodes[nid]["kind"] == "review"),
+        key=lambda nid: (str(_parent_period(nid, edges, nodes)),
+                         str(nodes[nid].get("direction") or ""),
+                         -(nodes[nid].get("relevance") or 0), nid))
+    rev_no = {nid: i + 1 for i, nid in enumerate(rev_order)}
+
+    # Louvain 社区只给「研究方向」层上色（社区仍可见）；
+    #   综述/方法保持类型色 —— 三类都上色会让整张图失去视觉主次。
     COMM_PALETTE = ["#4E79A7", "#59A14F", "#B07AA1", "#76B7B2",
                     "#8C6BB1", "#5B8C5A", "#6A9FB5", "#AF7AC5"]
-    # ── 画布：**16:10**，全部元素（标题/图例/图注）都落在画布之内 ──
-    #   绘图区上下各留一条文字带：上方标题、下方记忆连接。
-    #   导出走 save_fig(..., tight=False)，产物尺寸即画布尺寸，比例不再漂移。
-    FIG_W, FIG_H = 16.0, 10.0
-    AX_RECT = [0.008, 0.115, 0.984, 0.800]      # [左, 下, 宽, 高]（画布比例）
-    SPAN = 3.15                                 # 数据半径（x/y 同值，靠 auto 铺满）
-    fig = plt.figure(figsize=(FIG_W, FIG_H))
-    ax = fig.add_axes(AX_RECT)
-    ax.set_xlim(-SPAN, SPAN)
-    ax.set_ylim(-SPAN, SPAN)
-    ax.set_aspect("auto")                       # 拉伸成椭圆，铺满 16:10 画幅
-    ax.set_axis_off()
-
-    # v7.4：节点改为**圆角矩形 + 文字嵌入**（原先的散点 + 径向外推标签
-    #   在多节点时必然互相压字）。要自动把文字包进框里，就得先能估算框的
-    #   数据坐标尺寸 —— 下面这套换算是避让与排版共用的唯一口径。
-    #   两个轴**分开算**：画布被拉伸后 x/y 的"每数据单位多少点"不再相等，
-    #     用同一个换算值会让框的估计尺寸与实际渲染对不上（避让随即失效）。
-    PT_PER_X = FIG_W * AX_RECT[2] * 72 / (2 * SPAN)
-    PT_PER_Y = FIG_H * AX_RECT[3] * 72 / (2 * SPAN)
-
-    def _tw(txt, fs_pt):
-        """按字符类型估宽：CJK ≈ 1.0×字号，ASCII ≈ 0.55×字号（与词云同一口径）。"""
-        return sum((1.0 if ord(ch) > 0x2E80 else 0.55) for ch in txt) * fs_pt
-
-    def disp(s) -> str:
-        """显示标签：去掉「自定义:」前缀。
-
-        只改**图上显示**。`自定义:` 前缀是词表缺词的机器可读标记，
-          原值仍完整保留在 graph_data.json 与《知识图谱.md》/《研究方向综述》里，
-          因此「词表缺词」这件事不会被抹掉。
-        """
-        t = str(s or "").replace("自定义:", "").strip()
-        return t or "（未命名）"
-
-    # 每类节点的框样式：flat 填充、无描边、无阴影高光
-    BOX = {
-        "author":    dict(fs=18, pad=0.60, fc="#1B3A6B", tc="#FFFFFF", maxn=0),
-        "period":    dict(fs=12, pad=0.50, fc="#2E86AB", tc="#FFFFFF", maxn=24),
-        "direction": dict(fs=11, pad=0.45, fc="#7FB3D5", tc="#0F2C46", maxn=20),
-        "review":    dict(fs=9,  pad=0.42, fc="#E4572E", tc="#FFFFFF", maxn=34),
-        "method":    dict(fs=9,  pad=0.42, fc="#95A3B3", tc="#FFFFFF", maxn=16),
-    }
-
-    # ── 保留核心主干：作者 → 阶段 → 方向 → 最紧密综述（+ 高频方法）──
-    #   旧版把 506 条综述候选里挂上的全部画出来，节点一多就成毛线团。
-    #   这里逐层设上限，**被截断的数量在 stdout 如实报出**（不静默丢）。
-    keep = {nid: nd for nid, nd in nodes.items() if nid in pos}
-    pruned = Counter()
-    rev_rank = sorted([n for n, d in keep.items() if d["kind"] == "review"],
-                      key=lambda n: -(nodes[n].get("relevance") or 0))
-    for nid in rev_rank[12:]:
-        del keep[nid]
-        pruned["综述"] += 1
-    m_rank = sorted([n for n, d in keep.items() if d["kind"] == "method"],
-                    key=lambda n: -(nodes[n].get("n_papers") or 0))
-    for nid in m_rank[10:]:
-        del keep[nid]
-        pruned["方法"] += 1
-    for nid in [n for n, d in keep.items()
-                if d["kind"] == "method" and (d.get("n_papers") or 0) < 3]:
-        del keep[nid]
-        pruned["低频方法"] += 1
-
-    # ── 框尺寸估计 + 防重叠（迭代推开；author 钉在圆心）──────────
-    boxes = {}
-    for nid, nd in keep.items():
-        cfg = BOX.get(nd["kind"], BOX["method"])
-        lab = one_line(disp(nd["label"]), cfg["maxn"]) if cfg["maxn"] else disp(nd["label"])
-        boxes[nid] = dict(
-            lab=lab, cfg=cfg,
-            w=_tw(lab, cfg["fs"]) / PT_PER_X + 2 * cfg["pad"] * cfg["fs"] / PT_PER_X,
-            h=cfg["fs"] * 1.32 / PT_PER_Y + 2 * cfg["pad"] * cfg["fs"] / PT_PER_Y,
-        )
-    # 框间最小净距：以**点**为单位换算到两个轴（旧版写成 0.05 个数据单位，
-    # 在被拉伸的画布上横竖不再等长，会变成"横里留白、竖里贴死"）
-    PAD_X, PAD_Y = 7.0 / PT_PER_X, 7.0 / PT_PER_Y
-    P = {nid: [float(pos[nid][0]), float(pos[nid][1])] for nid in keep}
-    ids = list(keep)
-    for _ in range(150):
-        moved = 0
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                a, b = ids[i], ids[j]
-                wa, wb = boxes[a], boxes[b]
-                dx, dy = P[b][0] - P[a][0], P[b][1] - P[a][1]
-                ox = (wa["w"] + wb["w"]) / 2 + PAD_X - abs(dx)
-                oy = (wa["h"] + wb["h"]) / 2 + PAD_Y - abs(dy)
-                if ox > 0 and oy > 0:
-                    # 沿"重叠更轻"的那一轴分开，位移量与重叠量成正比。
-                    # 比较与位移都先换算成点：x 轴被拉伸后，"同样 0.1 个
-                    #   数据单位"在横竖两个方向上并不是同样长。
-                    if ox * PT_PER_X < oy * PT_PER_Y:
-                        s = (1.0 if dx >= 0 else -1.0) * ox / 2
-                        P[a][0] -= s
-                        P[b][0] += s
-                    else:
-                        s = (1.0 if dy >= 0 else -1.0) * oy / 2
-                        P[a][1] -= s
-                        P[b][1] += s
-                    moved += 1
-        P["author"] = [0.0, 0.0]                      # 圆心钉住，保持"以作者为中心"
-        for nid in ids:                               # 不越出画布
-            P[nid][0] = max(-SPAN + 0.35, min(SPAN - 0.35, P[nid][0]))
-            P[nid][1] = max(-SPAN + 0.25, min(SPAN - 0.25, P[nid][1]))
-        if not moved:
-            break
-    if pruned:
-        print("[INFO] overview：按「保留核心主干」裁剪 —— "
-              + "｜".join(f"{k} {v} 个" for k, v in pruned.most_common())
-              + "（完整清单见 graph_data.json / 《研究方向综述》）")
-
-    # ── 边：先定位置再连线，线才不会穿框 ────────────────────────
-    for e in edges:
-        a, b = e["source"], e["target"]
-        if a not in P or b not in P:
+    movable = []          # 交给 adjustText 的文字（**只放方向层**）
+    sec_mid = {}
+    for sec in lmeta["sectors"]:
+        sec_mid[sec["id"]] = sec["start"] + sec["width"] / 2.0
+    n_dir_seen = 0
+    for nid, nd in nodes.items():
+        if nid not in pos:
             continue
-        if e["kind"] == "记忆连接":
-            from matplotlib.patches import FancyArrowPatch
-            ax.add_patch(FancyArrowPatch(
-                P[a], P[b], connectionstyle="arc3,rad=0.22",
-                arrowstyle="-", ls="--", lw=1.8, color="#E4572E",
-                alpha=0.85, zorder=1))
-        else:
-            ax.plot([P[a][0], P[b][0]], [P[a][1], P[b][1]], ls="-",
-                    lw=0.5 + 0.09 * min(6, e.get("weight") or 1),
-                    color="#93A3B5", alpha=0.32, zorder=1)
+        k = nd["kind"]
+        if k == "method":
+            continue          # 方法环单独画（固定位置，不参与避让）
+        cfg = BOX.get(k, BOX["method"])
+        x, y = pos[nid]
+        if k == "review":
+            ax.scatter([x], [y], s=cfg["dot"], c=cfg["fc"], edgecolors="white",
+                       linewidths=0.7, zorder=5)
+            ax.text(x, y, str(rev_no.get(nid, "")), ha="center", va="center",
+                    fontsize=cfg["fs"], color="white", zorder=6)
+            continue
+        if k == "direction":
+            # 圆点钉在树的位置上；标签先放在**径向外侧**，
+            #   并按奇偶**径向错开两档**（同半径上 25 个标签必然互撞）。
+            rr = math.hypot(x, y) or 1.0
+            color = cfg["fc"]
+            if comm and nid in comm:
+                color = COMM_PALETTE[comm[nid] % len(COMM_PALETTE)]
+            ax.scatter([x], [y], s=cfg["dot"], c=[color],
+                       edgecolors="white", linewidths=0.6, zorder=5)
+            off = 0.055 if (n_dir_seen % 2 == 0) else 0.155
+            n_dir_seen += 1
+            t = ax.text(x * (rr + off) / rr, y * (rr + off) / rr,
+                        _wrap_disp(nd["label"], 10)[0],
+                        ha="center", va="center", fontsize=cfg["fs"],
+                        color=cfg["tc"], zorder=6)
+            movable.append(t)
+            continue
+        if k == "period":
+            # 阶段名从圆心附近**移到本扇区的中角**：留在 r=0.26 会压住作者名
+            #   （实测「阶段 2」药丸直接盖在「刘北明」上）。
+            ax.scatter([x], [y], s=26, c=cfg["fc"], edgecolors="white",
+                       linewidths=0.6, zorder=5)
+            mid = math.radians(sec_mid.get(nid, math.degrees(math.atan2(y, x))))
+            # 阶段名放在**扇区外的空带**（r≈0.86，介于综述环 0.78 与方法环 1.02 之间）：
+            #   放在 r=0.26 会压住作者名；放在 0.66 又会被方向层标签压住。
+            rp = lmeta["tree_scale"] * 1.10
+            ax.text(rp * math.cos(mid), rp * math.sin(mid),
+                    _wrap_disp(nd["label"], cfg["wrap"])[0],
+                    ha="center", va="center", fontsize=cfg["fs"],
+                    color="#12496B", zorder=6,
+                    bbox=dict(boxstyle=f"round,pad={cfg['pad']},rounding_size=0.9",
+                              facecolor="#FFFFFF", edgecolor="#9EC4E0", alpha=0.92))
+            continue
+        lab = _wrap_disp(nd["label"], cfg["wrap"])[0]
+        ax.text(x, y, lab, ha="center", va="center", fontsize=cfg["fs"],
+                color=cfg["tc"], zorder=6,
+                bbox=dict(boxstyle=f"round,pad={cfg['pad']},rounding_size=0.9",
+                          facecolor=cfg["fc"], edgecolor="none"))
 
-    # ── 画节点：圆角矩形 + 文字嵌入（flat 填充，无阴影高光）──────
-    for nid, nd in keep.items():
-        cfg = boxes[nid]["cfg"]
-        color, tcol = cfg["fc"], cfg["tc"]
-        # Louvain 社区只给「研究方向」层上色（社区结构仍可见）；
-        # 综述 / 方法保持类型色 —— 三类都上色会让整张图失去视觉主次。
-        if comm and nid in comm and nd["kind"] == "direction":
-            color, tcol = COMM_PALETTE[comm[nid] % len(COMM_PALETTE)], "#FFFFFF"
-        ax.annotate(
-            boxes[nid]["lab"], (P[nid][0], P[nid][1]),
-            ha="center", va="center", fontsize=cfg["fs"], color=tcol, zorder=4,
-            bbox=dict(boxstyle=f"round,pad={cfg['pad']},rounding_size=0.9",
-                      facecolor=color, edgecolor="none"),
-        )
+    # ── 方法外环 + 记忆连接弧线 ───────────────────────────────
+    #   弧线**沿外环画**（走两节点间的短弧），不画弦：
+    #     弦会穿过圆心、压在树和标签上 —— 实测上一版 8 条弧全部横穿画面。
+    #     沿环画还有个好处：环序已保证相连的方法相邻，弧线自然短。
+    ring = lmeta["ring"]
+    ang_of = {r["id"]: math.radians(r["angle_deg"]) for r in ring}
+    Rarc = lmeta["ring_radius"] + 0.085
+    n_drawn_arcs = 0
+    for e in edges:
+        if e.get("kind") != "记忆连接":
+            continue
+        s, t = e["source"], e["target"]
+        if s not in ang_of or t not in ang_of:
+            continue
+        a0, a1 = ang_of[s], ang_of[t]
+        d = (a1 - a0) % (2 * math.pi)
+        if d <= 1e-9:
+            continue
+        if d > math.pi:                      # 走短弧
+            a0, a1 = a1, a0
+            d = (a1 - a0) % (2 * math.pi)
+        th = [a0 + d * k / 48 for k in range(49)]
+        ax.plot([Rarc * math.cos(x) for x in th],
+                [Rarc * math.sin(x) for x in th],
+                ls="--", lw=1.6, color="#E4572E", alpha=0.9, zorder=3,
+                solid_capstyle="round")
+        n_drawn_arcs += 1
+    for r in ring:
+        x, y = pos[r["id"]]
+        ax.scatter([x], [y], s=BOX["method"]["dot"], c=BOX["method"]["fc"],
+                   edgecolors="white", linewidths=0.6, zorder=5)
+        rr = math.hypot(x, y) or 1.0
+        # 方法环标签**固定放在环外侧、不参与 adjustText**：
+        #   12 个标签在环上的间距约 1.7 in，本身就够放；
+        #   上一版把它交给 adjustText，结果被甩到 r≈2 处、脱离圆点
+        #   （且当时没画引线），环的结构直接看不见了。
+        ax.text(x * (rr + 0.085) / rr, y * (rr + 0.085) / rr, r["label"],
+                ha="center", va="center", fontsize=BOX["method"]["fs"],
+                color="#1F3B57", zorder=6)
 
-    # ── 图例（旧版无图例，读者只能靠猜颜色）────────────────────
+    # ── 标签避让：**只移文字，不动节点**（旧版靠推节点，把层级推没了）──
+    label_note = "未调用 adjustText"
+    try:
+        from adjustText import adjust_text
+        adjust_text(movable, ax=ax,
+                    expand=(1.10, 1.20), force_text=(0.20, 0.35),
+                    only_move={"text": "xy", "static": "xy",
+                               "explode": "xy", "pull": "xy"},
+                    arrowprops=dict(arrowstyle="-", color="#9AA7B4", lw=0.6,
+                                    shrinkA=1, shrinkB=2),
+                    lim=250, precision=0.01, timeout=8)
+        label_note = "adjustText 已执行"
+    except Exception as ex:                                   # pragma: no cover
+        label_note = f"adjustText 未生效：{type(ex).__name__}: {ex}"
+        print(f"[WARN] 标签避让未生效（{label_note}）—— 文字可能重叠", file=sys.stderr)
+
+    # ── 图例（画布左上角空白处）──────────────────────────────
     from matplotlib.patches import Patch
-    ax.legend(
-        handles=[
-            Patch(facecolor=BOX["author"]["fc"], edgecolor="none", label="作者"),
-            Patch(facecolor=BOX["period"]["fc"], edgecolor="none", label="阶段"),
-            Patch(facecolor=BOX["direction"]["fc"], edgecolor="none",
-                  label="研究方向（Louvain 社区上色）"),
-            Patch(facecolor=BOX["review"]["fc"], edgecolor="none", label="最紧密综述"),
-            Patch(facecolor=BOX["method"]["fc"], edgecolor="none", label="方法 / 范式"),
-        ],
-        loc="upper left", frameon=False, fontsize=10,
-        handlelength=1.3, handleheight=0.9, borderpad=0.2, labelspacing=0.55)
-
-    # ── 标题：只有一行正题，**不带括号英文缩写、不带灰色副标题** ──
-    #   副标题原本写着"以作者为中心 · 阶段 → 方向 → 最紧密综述 · …"，
-    #   这些信息左侧图例已经逐条给了，重复一遍只会抢正题的注意力。
-    #   改用一条居中的短强调线收住标题 —— 画面更干净，视线先落在图上。
     from matplotlib.lines import Line2D
-    fig.text(0.5, 0.947, f"{AUTHOR} 研究工作图谱",
-             ha="center", va="center", fontsize=26, color="#16324F")
-    fig.add_artist(Line2D([0.5 - 0.035, 0.5 + 0.035], [0.902, 0.902],
+    # 图例挪到**画布底部横排**：放在左上角会压住正题标题（实测两者重叠）。
+    fig.legend(handles=[
+        Patch(facecolor=BOX["author"]["fc"], edgecolor="none", label="作者"),
+        Patch(facecolor=BOX["period"]["fc"], edgecolor="none", label="阶段"),
+        Patch(facecolor=BOX["direction"]["fc"], edgecolor="none",
+              label="研究方向（Louvain 社区上色）"),
+        Patch(facecolor=BOX["review"]["fc"], edgecolor="none",
+              label="最紧密综述（编号见右侧清单）"),
+        Patch(facecolor=BOX["method"]["fc"], edgecolor="none", label="方法 / 范式（外环）"),
+        Line2D([], [], ls="--", lw=1.6, color="#E4572E", label="记忆连接"),
+    ], loc="lower center", bbox_to_anchor=(0.5, 0.002), frameon=False,
+        fontsize=9, handlelength=1.3, handleheight=0.9, borderpad=0.2,
+        labelspacing=0.5, ncol=6, columnspacing=1.6)
+
+    # ── 标题：一行正题 + 一条短强调线（放在左侧树区正上方）─────
+    fig.text(0.26, 0.960, f"{AUTHOR} 研究工作图谱", ha="center", va="center",
+             fontsize=24, color="#16324F")
+    fig.add_artist(Line2D([0.26 - 0.022, 0.26 + 0.022], [0.927, 0.927],
                           transform=fig.transFigure, color="#E4572E",
                           lw=2.0, solid_capstyle="round", alpha=0.9))
 
-    mem_edges = [e for e in edges if e["kind"] == "记忆连接"]
-    if mem_edges:
-        head = "记忆连接（橙色虚线，两条方法为何要一起读）："
-        # 不截断 reason：这段是**图例正文**，截断后每行都以「…」收尾，
-        #   读者拿不到「两条方法为何要一起读」的原因，图例等于白放。
-        #   放在图下方 + wrap=True，长文本会自动换行。
-        txt = "\n".join([head] + [
-            f"· {e['label']} —— {e.get('reason') or ''}"
-            for e in mem_edges[:6]])
-        # 放图**下方**、但**留在画布之内**：本图按画布原始尺寸导出
-        #   （tight=False），画到画布外的文字会被直接裁掉。
-        fig.text(0.012, 0.012, txt, fontsize=8.5, va="bottom", ha="left",
-                 color="#B03A1A", wrap=True)
-    ax.set_axis_off()
-    # 不再用 ax.margins()：上面已显式 set_xlim/ylim，margins 会把它们再撑开，
-    #   让 PT_PER_X/PT_PER_Y 的换算失准（框的估计尺寸与实画尺寸对不上）。
+    # ── 右侧清单：两栏放「最紧密综述」完整题名（不截断）────────
+    FS = 7.0
+    PANEL_TOP = "最紧密综述（编号对应左图橙点）"
+    entries = []
+    for nid in rev_order:
+        nd = nodes[nid]
+        per = _parent_period(nid, edges, nodes) or "—"
+        block = [f"{rev_no[nid]:>2d}. [{per} · {nd.get('direction') or '—'}]"]
+        block += ["   " + seg for seg in _wrap_disp(nd["label"], 34)]
+        ven = str(nd.get("venue") or "").strip()
+        extra = " · ".join(x for x in (str(nd.get("year") or ""), ven[:26],
+                                       f"被引 {nd.get('cited') or 0}") if x)
+        if extra:
+            block.append("   " + extra)
+        entries.append(block)
+    # 两栏均分；栏高按面板实际高度算，超出就如实报"余 N 条见报告"。
+    half = (len(entries) + 1) // 2
+    cols = [entries[:half], entries[half:]]
+    per_col_lines = int(0.735 * FIG_H * 72 / (FS * 1.42))
+    for i, (axc, group) in enumerate(zip((axc1, axc2), cols)):
+        lines = [PANEL_TOP if i == 0 else PANEL_TOP + "（续）", ""]
+        used = 2
+        shown = 0
+        for block in group:
+            if used + len(block) > per_col_lines - 1:
+                break
+            lines += block
+            used += len(block)
+            shown += 1
+        rest = len(group) - shown
+        if rest:
+            lines.append(f"… 余 {rest} 条见《{AUTHOR}_知识图谱.md》")
+        axc.text(0.0, 1.0, "\n".join(lines), ha="left", va="top", fontsize=FS,
+                 color="#1A1A1A", transform=axc.transAxes, linespacing=1.42)
+
+    # ── 记忆连接条（横跨右侧两栏，每条一行）────────────────────
+    link_lines = ["记忆连接（橙色虚线：两条方法为何要一起读）"]
+    for i, m in enumerate(memory_links or [], 1):
+        one = f"{i:>2d}. {m['name']} —— {m.get('reason') or ''}"
+        link_lines.append(_wrap_disp(one, 74)[0])
+    axl.text(0.0, 1.0, "\n".join(link_lines), ha="left", va="top", fontsize=FS,
+             color="#8C3A1C", transform=axl.transAxes, linespacing=1.42)
+
     note_fonts(stem, (FIG_W, FIG_H),
-               [("记忆连接图注", 8.5), ("图例", 10), ("标题", 26)] +
-               [(f"{k} 节点", v["fs"]) for k, v in BOX.items()],
-               extra={"n_nodes": len(keep), "n_pruned": dict(pruned)})
+               [("右侧清单正文", FS), ("方法环标签", BOX["method"]["fs"]),
+                ("方向节点", BOX["direction"]["fs"]), ("图例", 9), ("标题", 24)],
+               extra={"n_nodes": len(pos), "n_tree_nodes": lmeta["n_tree_nodes"],
+                      "n_method_ring": lmeta["n_method_nodes_ring"],
+                      "n_reviews": len(rev_order), "n_review_entries": len(entries),
+                      "n_memory_links": len(memory_links or []),
+                      "n_memory_arcs_drawn": n_drawn_arcs,
+                      "label_avoidance": label_note,
+                      "layout": lmeta})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png, tight=False)
     plt.close(fig)
+    OVERVIEW_LAYOUT.clear()
+    OVERVIEW_LAYOUT.update({
+        "pos": {k: [round(v[0], 5), round(v[1], 5)] for k, v in pos.items()},
+        "meta": lmeta,
+        "review_numbers": {str(k): v for k, v in rev_no.items()},
+        "n_arcs_drawn": n_drawn_arcs,
+        "label_avoidance": label_note,
+    })
     if made:
-        print(f"[INFO] overview：画布固定 16:10（{FIG_W:g}×{FIG_H:g} in，"
-              f"PNG 回退 = {int(FIG_W * dpi)}×{int(FIG_H * dpi)} px @{dpi}dpi）")
+        print(f"[INFO] overview：径向整齐树（igraph layout_reingold_tilford_circular）"
+              f"｜树节点 {lmeta['n_tree_nodes']}｜方法外环 "
+              f"{lmeta['n_method_nodes_ring']}/{lmeta['n_method_nodes_total']}"
+              f"｜综述编号 {len(rev_order)} 条｜弧线 {n_drawn_arcs}/"
+              f"{len(memory_links or [])} 条｜{label_note}")
     return made
+
+
+def _parent_period(nid, edges, nodes):
+    """综述节点 → 它所属的阶段标签。"""
+    for e in edges:
+        if e.get("kind") == "综述" and e["target"] == nid:
+            p = nodes.get(e["source"]) or {}
+            return p.get("period") or p.get("label") or "—"
+    return "—"
 
 
 def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label,
@@ -1461,17 +1789,29 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
     return made
 
 
-def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, also_png=False):
-    """方向聚类：x=方向（按文献数降序），y=年份，点=近 N 年论文，颜色=热点簇。
+def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi,
+                            also_png=False):
+    """方向聚类：**CiteSpace 式时间线**（v16.3 重写）。
 
-    右侧并排一个**文献数对比面板**，并配两组**图例**（热点簇配色 + 点大小标尺）。
+    旧版是「x=方向、y=年份」的散点 + 右侧冗余条形面板。实测两个硬伤：
+      ① x 轴只有 2 个刻度（成像与显微 13 条、电生理与信号 1 条）——
+         单列散点退化，同一年份的 5 个点全挤在一条水平线上，
+         标签靠固定 9 pt 垂直错开，互相压住；
+      ② 右侧条形把"方向"编码在 y 轴上（散点却在 x 轴），两panel 语义不一致，
+         而且条形与 x 刻度里已有的"(13 条)"重复。
+    新版把轴**转过来**（CiteSpace 的 timeline view 做法）：
+      行 = 方向（行标签自带条数），x = 年份，点大小 = 被引。
+      方向再多也不会挤；带内用 adjustText 放题名（带引线，不会飘走）。
+    热点簇着色只在**样本量够**时启用，样本不足的方向一律灰色并明写原因 ——
+      实测 1 篇论文也会被算出"热点簇"，那种着色是噪声。
     """
     import math
+    MIN_CLUSTER_N = 4        # 少于这么多篇就不做热点簇着色
     if not rows:
         # 没有数据时**也要出图**（画一张明确写"无数据"的空白图），
         #   不能 return [] 静默少一张。
         #   起因：离线/未跑 H2 时 final_list 为空 → 第③张图消失，
-        #   交付物从"三张图"悄悄变成两张，读者只会以为流程漏跑了，
+        #   交付物从"三张图"悄悄变成两份，读者只会以为流程漏跑了，
         #   或者更糟——以为"这个方向近年没有进展"。
         fig, ax = plt.subplots(figsize=(12, 8))
         note = "\n".join([
@@ -1490,129 +1830,135 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi, als
         made = save_fig(fig, outdir, stem, fmt, dpi, also_png)
         plt.close(fig)
         return made
-    # v7.4 改版：① 补**图例**（旧版没有图例，颜色/大小全靠猜）；
-    #   ② 补**对比面板** —— 右侧横向条形给出各方向的文献数，
-    #      让"哪个方向近 N 年更活跃"一眼可比，而不是只能数点；
-    #   ③ 方向按文献数降序排列（旧版按字典序，主次不分）。
-    dirs = sorted({r["direction"] for r in rows},
-                  key=lambda d: (-sum(1 for r in rows if r["direction"] == d), d))
-    fig = plt.figure(figsize=(17, 10))
-    gs = fig.add_gridspec(1, 2, width_ratios=[3.4, 1.15], wspace=0.12)
-    ax = fig.add_subplot(gs[0, 0])
-    axb = fig.add_subplot(gs[0, 1])
-    cmap = plt.get_cmap("tab10")
-    # 标注只给「每个 (方向, 年份) 内被引最高的前 N 条」，并做垂直错开。
-    #   旧版对**每一条**都标注 34 字符题名，而同方向同年的点全部落在一条水平线上
-    #   → 几十个标签在 y=2024 那一行叠成一坨黑线，一个字也读不出来。
-    TOP_PER_ROW = 3
-    _by_row = defaultdict(list)
-    for r in rows:
-        _by_row[(r["direction"], r["year"])].append(r)
-    _label_off = {}
-    for _rs in _by_row.values():
-        for _i, _t in enumerate(sorted(_rs, key=lambda t: -(t.get("cited") or 0))[:TOP_PER_ROW]):
-            _label_off[id(_t)] = _i
-    seen_cluster = {}
-    for r in rows:
-        x = dirs.index(r["direction"])
-        # v16.2 修 bug：原用 hash() 做抖动 —— Python 3.3+ 对 str 的哈希
-        #   **默认按进程随机化**（PYTHONHASHSEED），全仓又没有固定它，
-        #   于是同一份 graph_data.json 每次跑出来的散点横向抖动都不同，
-        #   方向聚类图**不可复现**（Louvain 已固定 seed=42，唯独这里漏了）。
-        #   改用 CRC32（跨进程稳定），一行修掉。
-        jitter = ((zlib.crc32((r.get("id") or r.get("title") or "").encode("utf-8"))
-                   % 100) / 100.0 - 0.5) * 0.5
-        ck = r.get("hotspot") or "—"
-        seen_cluster.setdefault(ck, len(seen_cluster))
-        col = cmap(seen_cluster[ck] % 10)
-        ax.scatter(x + jitter, r["year"], s=40 + min(900, (r.get("cited") or 0) / 8),
-                   c=[col], alpha=0.78, edgecolors="white", linewidths=0.6, zorder=3)
-        if id(r) in _label_off and r.get("title"):
-            ax.annotate(one_line(r["title"], 34), (x + jitter, r["year"]),
-                        fontsize=6, alpha=0.8, zorder=4,
-                        xytext=(5, 4 + _label_off[id(r)] * 9),
-                        textcoords="offset points")
-    ax.set_xticks(range(len(dirs)))
-    ax.set_xticklabels([f"{d[:16]}\n({sum(1 for r in rows if r['direction'] == d)} 条)"
-                        for d in dirs], rotation=18, ha="right", fontsize=10)
-    ax.set_ylabel("发表年份", fontsize=12)
-    # y 轴必须**显式**限定在近 N 年窗口内。
-    #   只有一两个点且年份相同时，matplotlib 会自动把轴拉到 ±100 年，
-    #   图上只剩两个孤点浮在中间（实测轴范围 1925–2125），完全不可读。
-    ys = [r["year"] for r in rows]
-    lo_y = min(ys) - 1
-    hi_y = max(ys) + 1
-    if hi_y - lo_y < 3:                      # 跨度太小则撑开到 3 年，避免"一根线"
-        mid = (lo_y + hi_y) / 2
-        lo_y, hi_y = mid - 1.5, mid + 1.5
-    ax.set_ylim(lo_y, hi_y)
-    ax.set_yticks(range(int(lo_y) + 1, int(hi_y) + 1))
-    ax.set_xlim(-0.6, max(0.6, len(dirs) - 0.4))
-    ax.set_title(f"{AUTHOR} 各研究方向近 {recent_years} 年论文与热点聚类",
-                 fontsize=18, pad=30)
-    # 副标题下移到标题**下方**（原来 y=1.02 与 title 撞在一起，两行糊成一团）
-    ax.text(0.5, 1.012,
-            "点大小 = 被引次数 ｜ 颜色 = 热点簇（方向内关键词共现） ｜ "
-            f"右图 = 各方向近 {recent_years} 年文献数对比",
-            transform=ax.transAxes, ha="center", va="bottom", fontsize=10,
-            color="#555555")
-    ax.grid(True, axis="y", ls=":", alpha=0.35)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
 
-    # ── 图例 ①：热点簇配色 ②：点大小标尺 ──────────────────────
+    # ── 行序：按条数降序（多的在上），同数按名称 ──────────────
+    cnt = Counter(r["direction"] for r in rows)
+    dirs = sorted(cnt, key=lambda d: (-cnt[d], d))
+    ypos = {d: i for i, d in enumerate(dirs)}
+    n_row = len(dirs)
+
+    FIG_W = 17.0
+    FIG_H = max(5.0, 1.15 * n_row + 3.0)
+    fig = plt.figure(figsize=(FIG_W, FIG_H))
+    ax = fig.add_axes([0.150, 0.120, 0.825, 0.760])
+
+    # ── 带色（隔行浅底），让每行可追踪 ────────────────────────
+    for d in dirs:
+        if ypos[d] % 2 == 0:
+            ax.axhspan(ypos[d] - 0.45, ypos[d] + 0.45, color="#F4F7FA",
+                       zorder=0)
+
+    cmap = plt.get_cmap("tab10")
+    seen_cluster = {}
+    texts = []
+    n_grey_rows = []
+    for d in dirs:
+        rs = [r for r in rows if r["direction"] == d]
+        clusterable = len(rs) >= MIN_CLUSTER_N
+        if not clusterable:
+            n_grey_rows.append(d)
+        # 每行只标注被引最高的前 N 条；其余点仍在图上（不静默删点）
+        topn = sorted(rs, key=lambda r: -(r.get("cited") or 0))[:4]
+        label_ids = {id(r) for r in topn}
+        for r in rs:
+            x = int(r["year"])
+            ck = r.get("hotspot") or "—"
+            if clusterable:
+                seen_cluster.setdefault(ck, len(seen_cluster))
+                col = cmap(seen_cluster[ck] % 10)
+            else:
+                col = "#B8C2CC"
+            ax.scatter([x], [ypos[d]],
+                       s=40 + min(760, (r.get("cited") or 0) / 9),
+                       c=[col], alpha=0.82, edgecolors="white",
+                       linewidths=0.6, zorder=3)
+            if id(r) in label_ids and r.get("title"):
+                t = ax.text(x, ypos[d] + 0.34, one_line(r["title"], 42),
+                            fontsize=7, color="#3B4A5A", zorder=4,
+                            ha="center", va="bottom")
+                texts.append(t)
+
+    # ── 轴 ───────────────────────────────────────────────────
+    ys = [int(r["year"]) for r in rows]
+    lo_y, hi_y = min(ys) - 1, max(ys) + 1
+    if hi_y - lo_y < 3:
+        mid = (lo_y + hi_y) / 2
+        lo_y, hi_y = int(mid - 1.5), int(mid + 1.5)
+    ax.set_xlim(lo_y, hi_y)
+    ax.set_ylim(n_row - 0.6, -0.6)                 # 第一行在最上面
+    ax.set_yticks(range(n_row))
+    ax.set_yticklabels([f"{d}（{cnt[d]} 条）" for d in dirs], fontsize=10)
+    ax.set_xticks(range(int(lo_y) + 1, int(hi_y) + 1))
+    ax.tick_params(axis="x", labelsize=10)
+    ax.set_xlabel("发表年份", fontsize=12)
+    ax.grid(True, axis="x", ls=":", alpha=0.45, zorder=1)
+    for s in ("top", "right", "left"):
+        ax.spines[s].set_visible(False)
+    ax.set_title(f"{AUTHOR} 各研究方向近 {recent_years} 年论文与热点聚类",
+                 fontsize=18, pad=38)
+    sub = (f"行 = 研究方向（括号内为近 {recent_years} 年条数）｜ x = 发表年份 ｜ "
+           f"点大小 = 被引次数")
+    if seen_cluster:
+        sub += f" ｜ 颜色 = 热点簇（≥{MIN_CLUSTER_N} 篇才着色）"
+    ax.text(0.0, 1.015, sub, transform=ax.transAxes, ha="left", va="bottom",
+            fontsize=10, color="#555555")
+
+    # ── 标签避让（带引线，不会飘离自己的点）──────────────────
+    label_note = "未调用 adjustText"
+    if texts:
+        try:
+            from adjustText import adjust_text
+            adjust_text(texts, ax=ax,
+                        expand=(1.04, 1.12), force_text=(0.10, 0.22),
+                        only_move={"text": "y", "static": "y",
+                                   "explode": "xy", "pull": "y"},
+                        arrowprops=dict(arrowstyle="-", color="#AAB6C2",
+                                        lw=0.5, shrinkA=1, shrinkB=2),
+                        lim=200, precision=0.01, timeout=8)
+            label_note = "adjustText 已执行"
+        except Exception as ex:                               # pragma: no cover
+            label_note = f"adjustText 未生效：{type(ex).__name__}: {ex}"
+            print(f"[WARN] 方向聚类标签避让未生效（{label_note}）", file=sys.stderr)
+
+    # ── 图例 ─────────────────────────────────────────────────
     from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch
-    cl_handles = [Patch(facecolor=cmap(i % 10), edgecolor="none", label=str(k))
-                  for k, i in sorted(seen_cluster.items(), key=lambda kv: kv[1])[:8]]
-    size_handles = [
+    handles = [
         Line2D([], [], marker="o", ls="none", markerfacecolor="#8899AA",
-               markeredgecolor="white", markersize=4, label="0"),
+               markeredgecolor="white", markersize=4, label="被引 0"),
         Line2D([], [], marker="o", ls="none", markerfacecolor="#8899AA",
                markeredgecolor="white", markersize=9, label="≈ 1500"),
         Line2D([], [], marker="o", ls="none", markerfacecolor="#8899AA",
                markeredgecolor="white", markersize=14, label="≈ 7000"),
     ]
-    ax.legend(handles=size_handles, loc="upper right", frameon=False,
-              fontsize=9, title="点大小 = 被引", title_fontsize=9,
-              labelspacing=0.45)
-    # 热点簇图例挂到**右侧对比面板**的空白处：放左图左上方会压住
-    #   2025 年那两个点的标题（实测被压在色块下面读不出来）。
-    axb.legend(handles=cl_handles, loc="lower right", frameon=False,
-               fontsize=9, title="热点簇", title_fontsize=9,
-               handlelength=1.1, handleheight=0.9, labelspacing=0.45)
+    if seen_cluster:
+        from matplotlib.patches import Patch
+        handles += [Patch(facecolor=cmap(i % 10), edgecolor="none", label=str(k))
+                    for k, i in sorted(seen_cluster.items(), key=lambda kv: kv[1])[:8]]
+    ax.legend(handles=handles, loc="lower right", frameon=False, fontsize=9,
+              ncol=2, handlelength=1.1, handleheight=0.9, labelspacing=0.45,
+              columnspacing=1.2, title="点大小 = 被引 ｜ 色块 = 热点簇",
+              title_fontsize=9)
 
-    # ── 右图：各方向文献数横向对比 ────────────────────────────
-    counts = [sum(1 for r in rows if r["direction"] == d) for d in dirs]
-    modal = {}
-    for d in dirs:
-        c = Counter((r.get("hotspot") or "—") for r in rows if r["direction"] == d)
-        modal[d] = c.most_common(1)[0][0] if c else "—"
-    colors = [cmap(seen_cluster.get(modal[d], 0) % 10) for d in dirs]
-    ypos = list(range(len(dirs)))
-    axb.barh(ypos, counts, color=colors, alpha=0.88, height=0.62)
-    span = max(counts) or 1
-    for i, c in enumerate(counts):
-        axb.text(c + span * 0.04, i, str(c), va="center", fontsize=10, color="#1A1A1A")
-    axb.set_yticks(ypos)
-    axb.set_yticklabels([d[:14] for d in dirs], fontsize=10)
-    axb.invert_yaxis()
-    axb.set_xlim(0, span * 1.25)
-    axb.set_xlabel(f"文献数（近 {recent_years} 年）", fontsize=11)
-    axb.set_title("各方向文献数对比", fontsize=13, pad=12)
-    axb.grid(True, axis="x", ls=":", alpha=0.35)
-    for s in ("top", "right"):
-        axb.spines[s].set_visible(False)
-
+    if n_grey_rows:
+        ax.text(0.0, -0.085,
+                "灰色行 = 近 %d 年不足 %d 篇，样本不足、不做热点簇着色"
+                "（1 篇也算出一个簇只是噪声）：%s"
+                % (recent_years, MIN_CLUSTER_N, "、".join(n_grey_rows[:6])),
+                transform=ax.transAxes, ha="left", va="top", fontsize=9,
+                color="#8A6D3B")
     if len(rows) < 5:
-        note = (f"近 {recent_years} 年样本仅 {len(rows)} 条\n"
-                "样本不足，如实留空：不拿更早的论文冒充最新进展")
-        ax.text(0.5, 0.5, note, transform=ax.transAxes, ha="center",
-                va="center", fontsize=13, color="#B03A1A", alpha=0.85)
-    note_fonts(stem, (17, 10),
-               [("论文题名标注", 6), ("x 轴方向标签", 10), ("图例", 9),
-                ("对比面板刻注", 10), ("标题", 18)],
-               extra={"n_rows": len(rows)})
+        ax.text(0.5, 0.5, f"近 {recent_years} 年样本仅 {len(rows)} 条\n"
+                          "样本不足，如实留空：不拿更早的论文冒充最新进展",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=13, color="#B03A1A", alpha=0.85)
+
+    note_fonts(stem, (FIG_W, FIG_H),
+               [("论文题名标注", 7), ("行标签", 10), ("图例", 9), ("标题", 18)],
+               extra={"n_rows": n_row, "n_points": len(rows),
+                      "n_rows_without_cluster": len(n_grey_rows),
+                      "min_cluster_n": MIN_CLUSTER_N,
+                      "label_avoidance": label_note,
+                      "encoding": "timeline: 行=方向, x=年份"})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png)
     plt.close(fig)
     return made
@@ -1977,11 +2323,13 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("|---|---|---|")
     names = {"overview": "① overview", "wordcloud": "② 词云", "directions": "③ 方向聚类"}
     desc = {
-        "overview": "以作者为中心；阶段 → 方向 → 最紧密综述；Louvain 社区上色；"
-                    "虚线为记忆连接",
-        "wordcloud": "以作者为中心；颜色区分研究方向；已剔除模型生物等误导性常见词；"
-                     "只保留方法与范式词",
-        "directions": "各方向近 N 年论文；点大小=被引；颜色=热点簇",
+        "overview": "**径向整齐树**（igraph layout_reingold_tilford_circular）：作者在圆心 → "
+                    "阶段（扇区）→ 方向 → 综述（橙点编号，完整题名见右侧清单）；"
+                    "方法词另置外环，记忆连接沿环画弧",
+        "wordcloud": "以作者为中心；颜色区分研究方向；取词按「文章关键词 > 题名 > 摘要 > "
+                     "解读卡方法描述」加权，中文用左右邻接熵挡跨词碎片",
+        "directions": "**时间线**：行 = 方向（括号内条数），x = 年份，点大小=被引，"
+                      "颜色=热点簇（样本不足的行不着色）",
     }
     for k, files in graphs.items():
         fl = "、".join(f"`{pathlib.Path(f).name}`" for f in files) or "（未产出）"
@@ -1992,6 +2340,22 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("")
 
     L.append("## 二、overview · 聚类解读（「这一簇在讲什么？」）\n")
+    _ol = OVERVIEW_LAYOUT or {}
+    if _ol.get("meta"):
+        _m = _ol["meta"]
+        _secs = _m.get("sectors") or []
+        L.append(f"> **布局**：径向整齐树（`igraph layout_reingold_tilford_circular`）——"
+                 f"树节点 {_m.get('n_tree_nodes')}，方法外环 "
+                 f"{_m.get('n_method_nodes_ring')}/{_m.get('n_method_nodes_total')}，"
+                 f"弧线 {_ol.get('n_arcs_drawn')} 条。"
+                 f"标签避让：{_ol.get('label_avoidance')}。")
+        if _secs:
+            L.append("> **阶段扇区**：" + "；".join(
+                f"{s['label']} 占 {s['width']:.0f}°" for s in _secs))
+        L.append(f"> 节点坐标已落盘 `graph_data.json` 的 `overview_layout.pos`"
+                 f"（{len(_ol.get('pos') or {})} 个节点）—— 布局可事后审计，"
+                 f"不靠注释声称。")
+        L.append("")
     if overview_notes:
         for cid in sorted(overview_notes):
             L.append(f"- **簇 {cid}**：{overview_notes[cid]}")
@@ -2364,6 +2728,66 @@ def self_test() -> int:
     FIG_NOTES.clear()
     print("字号自述：通过")
 
+    # ⑬ overview 布局：径向整齐树的**结构契约**。
+    #    这条防的是"布局被后续步骤悄悄破坏"——旧版正是把它写在注释里、
+    #    实际被 150 轮无约束推力推没了，很久没人发现。
+    lay_bad = 0
+    f_nodes = {"author": {"kind": "author", "label": "A"}}
+    f_edges = []
+    for pi, pname in enumerate(("P1", "P2"), 1):
+        f_nodes[f"period::{pname}"] = {"kind": "period", "label": f"阶段 {pi}"}
+        f_edges.append({"source": "author", "target": f"period::{pname}",
+                        "kind": "阶段", "weight": 2})
+        for di in range(2 if pi == 1 else 1):
+            did = f"dir::{pname}::{di}"
+            f_nodes[did] = {"kind": "direction", "label": f"方向{di}"}
+            f_edges.append({"source": f"period::{pname}", "target": did,
+                            "kind": "方向", "weight": 2})
+            for ri in range(2):
+                rid = f"ref::{pname}::{di}::{ri}"
+                f_nodes[rid] = {"kind": "review", "label": f"题名 {ri}",
+                                "direction": f"方向{di}", "relevance": 1}
+                f_edges.append({"source": did, "target": rid,
+                                "kind": "综述", "weight": 1})
+    for mi, mname in enumerate(("m甲", "m乙", "m丙")):
+        f_nodes[f"m::{mname}"] = {"kind": "method", "label": mname, "n_papers": 3 - mi}
+    f_links = [{"name": "m甲 与 m乙", "reason": "x", "n": 3}]
+    # 自检是**纯逻辑**检查、不渲染图；缺依赖时如实跳过并说明，
+    #   与"渲染时硬失败"（策略 B）不冲突 —— 但**不能把跳过报成通过**。
+    _miss_deps = missing_graph_deps()
+    if _miss_deps:
+        print(f"overview 布局契约：跳过（缺 {'、'.join(_miss_deps)}；"
+              f"渲染会硬失败，自检允许跳过）")
+        lay_bad = 0
+    else:
+        f_pos, f_meta = compute_overview_layout(f_nodes, f_edges, f_links)
+        if f_pos.get("author") != (0.0, 0.0):
+            lay_bad += 1
+            print(f"  作者不在圆心：{f_pos.get('author')}")
+        # 三层半径必须严格递增（阶段 < 方向 < 综述）
+        import math as _m2
+
+        def _r(nid):
+            x, y = f_pos[nid]
+            return round(_m2.hypot(x, y), 4)
+
+        r_per = _r("period::P1")
+        r_dir = _r("dir::P1::0")
+        r_rev = _r("ref::P1::0::0")
+        if not (0 < r_per < r_dir < r_rev):
+            lay_bad += 1
+            print(f"  层级半径非递增：阶段 {r_per} / 方向 {r_dir} / 综述 {r_rev}")
+        if len(f_meta.get("sectors") or []) != 2:
+            lay_bad += 1
+            print(f"  扇区数不对：{f_meta.get('sectors')}")
+        # 记忆连接的端点**必须都在外环上**，否则弧线画不出来
+        ring_labels = {r["label"] for r in f_meta["ring"]}
+        if not {"m甲", "m乙"} <= ring_labels:
+            lay_bad += 1
+            print(f"  记忆连接端点不在环上：环={sorted(ring_labels)}")
+        bad += lay_bad
+        print("overview 布局契约：通过" if lay_bad == 0 else "overview 布局契约：失败")
+
     print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 else 1
 
@@ -2390,6 +2814,17 @@ def main() -> int:
     except ValueError:
         print("[X] --dpi / --max-reviews / --recent-years / --max-dirs / "
               "--max-review-nodes / --wc-min-docs 必须是整数")
+        return 2
+
+    # ── 绘图依赖硬门（策略 B）────────────────────────────────
+    #   在**读数据、画任何东西之前**判，避免留下半成品产物目录。
+    #   缺依赖不降级、不静默：直接给完整命令并退出。
+    _miss = missing_graph_deps()
+    if _miss:
+        print(f"[X] 缺少绘图依赖：{'、'.join(_miss)}")
+        print("   本阶段已改为**硬依赖**（径向整齐树布局与独立标签避让必须用到），"
+              "不再产出降级图。")
+        print(f"   请改用：{graph_deps_cmd()}")
         return 2
     wc_lang = (_argval("wc-lang", "both") or "both").lower()
     if wc_lang not in ("both", "zh", "en"):
@@ -2439,7 +2874,8 @@ def main() -> int:
     contradictions = find_contradictions(cards, doi_dir, recs)
     graphs = {}
     graphs["overview"] = draw_overview(plt, nodes, edges, comm, GRAFDIR,
-                                       f"{AUTHOR}_知识图谱_overview", fmt, dpi, also_png)
+                                       f"{AUTHOR}_知识图谱_overview", fmt, dpi, also_png,
+                                       memory_links)
 
     # ── ② 词云 ────────────────────────────────────────────────
     w, color_of, dir_label, dropped, wc_stats = compute_wordcloud_weights(
@@ -2476,6 +2912,7 @@ def main() -> int:
             "hotspots": hotspots},
         "periods": pinfo,
         "figure_notes": FIG_NOTES,
+        "overview_layout": OVERVIEW_LAYOUT,
         "graphs": {k: [str(x) for x in v] for k, v in graphs.items()},
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 

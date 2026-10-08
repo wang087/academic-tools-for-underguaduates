@@ -587,11 +587,12 @@ def main() -> int:
                 check("综述报告声明证据层级为摘要级",
                       "摘要级" in t or "证据层级" in t)
 
-        # ── 阶段 K：知识图谱（v7.2） ────────────────────────────
+        # ── 阶段 K：知识图谱（v16.3：径向整齐树 + 时间线）────────
         print("\n【阶段 K】知识图谱（overview / 词云 / 方向聚类）")
         rc, out = run("knowledge_graph.py", wd, ["--format=png", "--dpi=110"],
                       verbose=verbose,
-                      with_pkgs=["matplotlib", "networkx"], timeout=900)
+                      with_pkgs=["matplotlib", "networkx", "python-igraph",
+                                 "adjustText"], timeout=900)
         gdir = wd / ".work_cdp" / "graph"
         pngs = sorted(gdir.glob("*.png")) if gdir.is_dir() else []
         check("阶段 K 产出三张图", rc == 0 and len(pngs) >= 3,
@@ -618,7 +619,7 @@ def main() -> int:
                 pass
         check("图片尺寸正常（无 tight-bbox 撑爆）", not bad_size,
               "；".join(bad_size) if bad_size else "均在 2 亿像素以内")
-        # v7.5 新增两条契约：取词口径可核 + 字号自述必须落盘
+        # v16.2 新增契约：取词口径可核 + 字号自述必须落盘
         import json as _json
         try:
             gd = _json.loads((gdir / "graph_data.json").read_text(encoding="utf-8"))
@@ -640,10 +641,30 @@ def main() -> int:
                   not any(t in (gd.get("wordcloud") or {}).get("weights", {})
                           for t in ("experimental", "mechanistic", "imaging")),
                   "experimental/mechanistic/imaging 不应出现在词云权重里")
+            # v16.3 新增契约：overview 布局必须可审计
+            ol = gd.get("overview_layout") or {}
+            ometa = ol.get("meta") or {}
+            check("overview 节点坐标已落盘（布局可事后审计）",
+                  bool(ol.get("pos")) and len(ol["pos"]) >= 10,
+                  f"落盘 {len(ol.get('pos') or {})} 个节点")
+            check("overview 记录了阶段扇区与三层半径",
+                  bool(ometa.get("sectors"))
+                  and (ometa.get("radii") or {}).__len__() >= 3,
+                  f"sectors={len(ometa.get('sectors') or [])} "
+                  f"radii={len(ometa.get('radii') or {})}")
+            check("记忆连接弧线全部画出（端点都在外环上）",
+                  ometa.get("ring_missing_link_endpoints") == []
+                  and ol.get("n_arcs_drawn", 0)
+                  >= len(((gd.get("memory_links") or []))),
+                  f"弧线 {ol.get('n_arcs_drawn')} / 连接 "
+                  f"{len(gd.get('memory_links') or [])}"
+                  f"｜缺失端点 {ometa.get('ring_missing_link_endpoints')}")
         if rep.exists():
             t = rep.read_text(encoding="utf-8")
             check("报告含字号自述一节", "字号自述" in t)
             check("报告含词云取词口径", "取词口径" in t)
+            check("报告含 overview 布局自述（扇区/坐标落盘）",
+                  "径向整齐树" in t and "overview_layout.pos" in t)
 
         # ── 阶段 P：PPT ───────────────────────────────────────
         print("\n【阶段 P】PPT 材料与 Spec 生成")
