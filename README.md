@@ -871,6 +871,7 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 ├── <作者名>_知识图谱.md + .work_cdp/graph/  # 阶段 K：三张图（SVG 优先；overview 固定 16:10）+ 数据
 │                                          #   overview = 径向整齐树（igraph）+ 综述编号清单
 │                                          #   方向聚类 = 时间线（行=方向、x=年份）
+│                                          #   词云 = wordcloud 库占位检测算布局 + matplotlib 出图
 │                                          #   含词云取词口径/逐篇关键词采纳、被剔词与原因、字号自述、布局坐标
 ├── .work_cdp/                             # 中间数据 + logs/
 │   ├── prepare_plan.json                  #   阶段 0：准备计划 + 阶段闸门（单一事实源）
