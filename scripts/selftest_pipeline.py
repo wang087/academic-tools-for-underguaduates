@@ -592,7 +592,7 @@ def main() -> int:
         rc, out = run("knowledge_graph.py", wd, ["--format=png", "--dpi=110"],
                       verbose=verbose,
                       with_pkgs=["matplotlib", "networkx", "python-igraph",
-                                 "adjustText"], timeout=900)
+                                 "adjustText", "wordcloud"], timeout=900)
         gdir = wd / ".work_cdp" / "graph"
         pngs = sorted(gdir.glob("*.png")) if gdir.is_dir() else []
         check("阶段 K 产出三张图", rc == 0 and len(pngs) >= 3,
@@ -665,6 +665,8 @@ def main() -> int:
             check("报告含词云取词口径", "取词口径" in t)
             check("报告含 overview 布局自述（扇区/坐标落盘）",
                   "径向整齐树" in t and "overview_layout.pos" in t)
+            check("报告含词云布局引擎与放置口径（放下/未放下）",
+                  "wordcloud" in t and "未放下" in t or "全部放下" in t)
 
         # ── 阶段 P：PPT ───────────────────────────────────────
         print("\n【阶段 P】PPT 材料与 Spec 生成")
