@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # Edge CDP 实例池 —— 并行多实例启动 / 探活 / 调度 / 回收
 #
-# ★ 设计原则（按用户要求）：
+# 设计原则（按用户要求）：
 #   1) **优先最少启动参数**：默认只用 3 个必需参数
 #        --remote-debugging-port / --remote-allow-origins=* / --user-data-dir
 #      已知教训：--disable-blink-features=AutomationControlled、
@@ -65,7 +65,7 @@ EDGE_CANDIDATES = (
 #
 #   L2 扩展档 —— L0 + 语言设置，仅在需要中文界面时使用。
 #
-# ★ 三档都**不含**：--headless（无头最易被识别）、
+# 三档都**不含**：--headless（无头最易被识别）、
 #   --disable-blink-features=AutomationControlled、--excludeSwitches
 #   —— 这些非默认参数本身就是可被检测的指纹。
 #   ※ 「弹窗抑制」6 个参数（v6 新增，L0/L2/L3 共有）—— 只关**浏览器自己的
@@ -77,10 +77,10 @@ EDGE_CANDIDATES = (
 #       --disable-search-engine-choice-screen 抑制全新 profile 首次启动的搜索引擎选择页
 #       --disable-features=Translate,TranslateUI
 #                                            抑制「是否翻译此页面？」气泡（英文论文页必现）
-#     ★ 前两项尤其重要：本流程会 `taskkill /F` 强制结束实例（见 kill_port），
+#     前两项尤其重要：本流程会 `taskkill /F` 强制结束实例（见 kill_port），
 #       同一 profile 下次启动**必然**弹「恢复页面」，遮挡内容并抢焦点，
 #       影响人工过验证码。
-#     ★ 未知开关会被 Chromium 静默忽略，因此「两代开关名都带」是安全的。
+#     未知开关会被 Chromium 静默忽略，因此「两代开关名都带」是安全的。
 _DIALOG_ARGS = [
     "--noerrdialogs",
     "--disable-session-crashed-bubble", "--hide-crash-restore-bubble",
@@ -123,7 +123,7 @@ LEVELS = [
 LEVEL_NAMES = {0: "日常档", 1: "极简档", 2: "扩展档", 3: "极速档"}
 
 # 默认档位：PAPER_CDP_LEVEL 可覆盖（缺省 L0）。
-# ★ 为什么需要它：启动用 L3、中途崩溃重启却回落到 L0，会让同一轮任务里
+# 为什么需要它：启动用 L3、中途崩溃重启却回落到 L0，会让同一轮任务里
 #   实例行为不一致；统一由该变量决定，重启沿用同一档。
 DEFAULT_LEVEL = int(os.environ.get("PAPER_CDP_LEVEL", "0") or 0)
 
@@ -260,7 +260,7 @@ def ensure(wd: pathlib.Path | None = None, n: int = 1, base_port: int = 9222,
     levels = levels or [DEFAULT_LEVEL]
     ports, reg = [], _load_registry(wd)
 
-    # ★ 并行启动：先全部拉起（每个 launch_one 内部会等到就绪），
+    # 并行启动：先全部拉起（每个 launch_one 内部会等到就绪），
     #   N 个实例的总启动时间 ≈ 最慢的 1 个，而不是 N 个之和。
     import threading
     results: dict[int, bool] = {}
@@ -347,8 +347,29 @@ def renew(wd: pathlib.Path | None = None, port: int = 9222, level: int | None = 
 
 
 # ── CLI ─────────────────────────────────────────────────────
+USAGE = ("usage: cdp_pool.py {up|status|down|renew|kill}\n"
+         "       up     [--n=3] [--base=9222] [--levels=0,3] [--fresh]\n"
+         "       status [--base=9222] [--span=8]\n"
+         "       down   [--base=9222] [--span=8]\n"
+         "       renew  [--port=9222] [--level=3] [--tag=...]\n"
+         "       kill   [--port=9222]\n"
+         "\n"
+         "  档位：0=L0 日常（默认） 1=L1 极简 2=L2 扩展 3=L3 极速\n"
+         "  跨脚本统一档位请设 PAPER_CDP_LEVEL（缺省 0）")
+
+
 def main():
     args = sys.argv[1:]
+    # ★ `--help` / `-h` 必须在这里显式拦下。
+    #   本脚本**没有 argparse**，而下一行是
+    #       cmd = args[0] if args and not args[0].startswith("-") else "up"
+    #   —— 任何以 `-` 开头的参数（含 `--help`）都会落到 else → **执行 up**，
+    #   于是 `cdp_pool.py --help` 会**真的启动 Edge 实例、建 profile 目录**，
+    #   而不是打印用法。实测踩到：跑 `--help` 后 9222 上多出一个真实浏览器进程。
+    #   对一个会开浏览器/占端口的工具，这属于**意外副作用**，必须拦。
+    if "--help" in args or "-h" in args:
+        print(USAGE)
+        return 0
     cmd = args[0] if args and not args[0].startswith("-") else "up"
     wd = _wd()
     kw = {}
@@ -382,7 +403,7 @@ def main():
     elif cmd == "kill":
         kill_port(kw.get("port", 9222), log=log)
     else:
-        print(__doc__ or "usage: cdp_pool.py {up|status|down|renew|kill} [--n=] [--port=]")
+        print(USAGE)
     log.close()
 
 

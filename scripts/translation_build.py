@@ -38,7 +38,53 @@ import json
 import pathlib
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+def _fix_streams() -> None:
+    """UTF-8 兜底（幂等；与 render_html_pdf.py 等同名函数逐字一致）。
+
+    为什么不能像旧版那样**无条件** `sys.stdout = io.TextIOWrapper(...)`：
+      本模块会被阶段 F 的其它脚本 import。无条件替换会叠加第二层 wrapper，
+      中间层被 GC 时把底层 buffer 一起关掉 —— 之后所有 print 抛
+      "ValueError: I/O operation on closed file"，且只在特定 import 顺序下复现。
+      先看编码、已是 UTF-8 就跳过，才不会叠加。
+    """
+    for name in ("stdout", "stderr"):
+        s = getattr(sys, name, None)
+        buf = getattr(s, "buffer", None)
+        if buf is None:
+            continue
+        enc = (getattr(s, "encoding", None) or "").lower()
+        if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
+            continue
+        try:
+            setattr(sys, name, io.TextIOWrapper(buf, encoding="utf-8", errors="replace"))
+        except Exception:
+            pass
+
+
+_fix_streams()
+
+_HERE = pathlib.Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+# ── 日志（**文件型**：console=False）────────────────────────────
+#   本脚本的 stdout 是阶段 F 的操作反馈与末行汇总，日志**不写控制台**，
+#   只落 `.work_cdp/logs/translation_build_<时间戳>.log` 并追加操作流水。
+try:
+    from logutil import get as _get_log, journal as _journal  # type: ignore
+except Exception:                      # 单文件运行时也要能用
+    def _get_log(name, **kw):          # noqa: D103
+        class _L:
+            def info(self, *a, **k): pass
+            def ok(self, *a, **k): pass
+            def warn(self, *a, **k): pass
+            def error(self, *a, **k): pass
+            def close(self): pass
+        return _L()
+
+    def _journal(*a, **k):             # noqa: D103
+        pass
 
 CSS = """
   @page { size: A4; margin: 1.8cm 2.0cm; }
@@ -68,14 +114,12 @@ def esc(s) -> str:
     return _h.escape(str(s or ""))
 
 
-def main() -> int:
-    if len(sys.argv) < 4:
-        print(__doc__)
-        return 1
+def _run(log) -> int:
     content = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
     figs_path = pathlib.Path(sys.argv[2])
     figs = json.loads(figs_path.read_text(encoding="utf-8")) if figs_path.exists() else []
     out = pathlib.Path(sys.argv[3])
+    log.info(f"构建中译 HTML: {sys.argv[1]} + {figs_path.name} → {out}")
 
     # ref/label → 图；同时支持 "#N" 与 "p<页码>" 定位
     fmap = {}
@@ -137,12 +181,30 @@ def main() -> int:
     L.append("</body></html>")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(L), encoding="utf-8")
-    print(f"✅ {out.name}（{out.stat().st_size // 1024} KB）| 嵌入图 {nfig}/{len(figs)} "
-          f"| 章节 {len(content.get('sections', []) or [])}")
+    size_kb = out.stat().st_size // 1024
+    nsec = len(content.get("sections", []) or [])
+    log.ok(f"[OK] {out.name}（{size_kb} KB）| 嵌入图 {nfig}/{len(figs)} | 章节 {nsec}")
+    _journal("F", "translation.html", out=str(out), size_kb=size_kb,
+             figures_used=nfig, figures_total=len(figs), sections=nsec)
+    print(f"[OK] {out.name}（{size_kb} KB）| 嵌入图 {nfig}/{len(figs)} "
+          f"| 章节 {nsec}")
     if figs and nfig == 0:
-        print("⚠️ 有图形素材但一张都没匹配上——检查 blocks 里 fig 的 ref 是否与图形 JSON 的 "
+        log.warn("有图形素材但一张都没匹配上（fig ref 与图形 JSON 的 label/ref 不一致？）")
+        print("[WARN] 有图形素材但一张都没匹配上——检查 blocks 里 fig 的 ref 是否与图形 JSON 的 "
               "label/ref 一致（或先用 #1 / p3 这类定位）。")
     return 0
+
+
+def main() -> int:
+    if len(sys.argv) < 4:
+        print(__doc__ or "用法: uv run python translation_build.py "
+                         "<content.json> <figures.json> <out.html>")
+        return 1
+    log = _get_log("translation_build", console=False)
+    try:
+        return _run(log)
+    finally:
+        log.close()
 
 
 if __name__ == "__main__":

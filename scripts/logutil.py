@@ -11,7 +11,7 @@
 #   3) 同时维护 logs/latest_<name>.log 指针文件，便于事后定位
 #   4) 线程安全（多实例并行时会并发写日志）
 #
-# 可移植配置：环境变量 PAPER_WORKDIR（默认当前目录）
+# 可移植配置：环境变量 PAPER_WORKDIR（默认 <流程1>/<YYYYMMDD>/）
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
@@ -22,14 +22,37 @@ import sys
 import threading
 import time
 
-# ★ 必须用 RLock：get() 持锁期间会构造 Log，而 Log.__init__ 内部要写
+# 必须用 RLock：get() 持锁期间会构造 Log，而 Log.__init__ 内部要写
 #   第一条日志（再次获取同一把锁）。用普通 Lock 会**直接死锁**。
 _LOCK = threading.RLock()
 _LOGS: dict[str, "Log"] = {}
 
+# ══════════════════════════════════════════════════════════════
+# 统一输出根 —— 全流程**所有产物**的默认落点
+#
+# 规则（用户指示）：所有输出放在 `流程1/<年月日>/` 下，按天隔离。
+#   例：2026-10-06 运行 → `流程1/20261006/`
+#   设了 `PAPER_AUTHOR` 时再下一级作者目录 → `流程1/20261006/<作者名>/`
+#   ★ 作者这一级不是装饰：`.work_cdp/`（题录总表、消歧结果、全文状态）
+#     是**按作者**的，同一天跑两位作者若共用一个目录会互相覆盖。
+#
+# ★ 这里是**唯一实现**。其余脚本一律 `from logutil import run_root`，
+#   不要各写一份日期拼接 —— 否则跨零点运行会被切成两个目录。
+# ★ 仍可被 `PAPER_WORKDIR` 覆盖（自检脚本要用临时目录，且便于换机运行）。
+# ══════════════════════════════════════════════════════════════
+def run_root() -> pathlib.Path:
+    """`<流程1>/<YYYYMMDD>/[<PAPER_AUTHOR>/]`（不存在则创建）。"""
+    d = pathlib.Path(__file__).resolve().parents[1] / time.strftime("%Y%m%d")
+    author = (os.environ.get("PAPER_AUTHOR") or "").strip()
+    if author:
+        d = d / author
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 
 def workdir() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+    """本次运行的工作目录：`PAPER_WORKDIR` 优先，否则 `run_root()`。"""
+    return pathlib.Path(os.environ.get("PAPER_WORKDIR") or run_root()).resolve()
 
 
 def logdir(wd: pathlib.Path | None = None) -> pathlib.Path:
@@ -143,7 +166,7 @@ def get(name: str, **kw) -> Log:
 # 各写各的、时间戳分散，串不起来。journal 把关键动作按时间顺序固化成
 # 一条链，配合 `latest_*.log` 指针即可完整回溯。
 #
-# ★ 两条约定：
+# 两条约定：
 #   ① 写 journal **绝不影响主流程** —— 任何异常都被吞掉（日志是旁路，不是依赖）；
 #   ② 只记录**已发生的事实**，不写预期值 —— 否则回溯会自欺。
 # ══════════════════════════════════════════════════════════════
@@ -154,15 +177,35 @@ def journal_path(wd: pathlib.Path | None = None) -> pathlib.Path:
     return logdir(wd) / JOURNAL
 
 
-def journal(stage: str, action: str, **fields) -> None:
+def journal(*args, **fields) -> None:
     """追加一条操作记录到 run_journal.jsonl。
 
-    stage  —— 流程阶段，如 "C"、"E"、"H"
-    action —— 动作，如 "orcid.navigate"、"download.pdf"
-    fields —— 任意附加字段（doi / url / 参数 / 结果 / 耗时 …），空值自动省略
+    调用形式：`journal(stage, action, **字段)`
+      stage   —— 流程阶段，如 "C"、"E"、"H"（也可写成关键字 `stage=`）
+      action  —— 动作，如 "orcid.navigate"、"download.pdf"（也可写 `action=`）
+      其余关键字 —— 任意附加字段（doi / url / 参数 / 结果 / 耗时 …），空值自动省略
+
+    ★ 为什么签名是 `*args, **fields` 而不是 `(stage, action, **fields)`：
+      后者会让「字段名撞上形参名」变成**硬错误**。调用方想把「阶段目录」
+      记成一个字段、很自然地写成 `stage=...` 时，Python 在**进入函数体之前**
+      就抛 `TypeError: journal() got multiple values for argument 'stage'`，
+      下面的 try/except **根本来不及生效** —— 日志这个小动作直接崩掉主流程。
+      这与本函数「日志是旁路、不是依赖，任何异常都被吞掉」的契约**直接冲突**。
+      改成 *args 之后，字段名与 stage/action 永不冲突，契约才真正成立。
+      （实测复现：`prep_r2_tasks.py` 接入 journal 的首个版本就是这样崩的。）
     """
     try:
         import json as _json
+        stage = args[0] if len(args) > 0 else fields.pop("stage", "")
+        action = args[1] if len(args) > 1 else fields.pop("action", "")
+        # 位置/关键字给出的 stage/action 是**权威值**。若调用方又传了同名字段
+        #   （`*args` 签名的副作用：它不再报错，而是留在 fields 里），
+        #   既不能让它**覆盖**权威值（否则流水会丢掉真实阶段），
+        #   也不该静默**丢弃**（那会让人以为字段没生效）。
+        #   折中：改名 `stage_field` / `action_field` 保留，两全。
+        for _k in ("stage", "action"):
+            if _k in fields:
+                fields[_k + "_field"] = fields.pop(_k)
         rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
                "epoch": round(time.time(), 3),
                "stage": str(stage), "action": str(action)}

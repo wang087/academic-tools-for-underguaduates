@@ -10,7 +10,7 @@
 #   · deep-research/references/source_quality_hierarchy.md
 #     证据金字塔与分级（含"分级只看适配度，不看绝对设计等级"的提醒）
 #
-# ★ 本报告**只陈述检索与筛选过程**，不下"这个领域是什么"的结论
+# 本报告**只陈述检索与筛选过程**，不下"这个领域是什么"的结论
 #   —— 领域结论由阶段 R2（subagent 并行解读）产出。
 #   报告的职责是让读者能判断：这份检索可不可信、漏没漏、能不能复现。
 #
@@ -27,6 +27,8 @@ import os
 import pathlib
 import sys
 import time
+
+from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底 ──
 
@@ -68,7 +70,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 EVIDENCE_LEVELS = {
     "I": "系统综述 / Meta 分析",
@@ -151,15 +153,15 @@ def render(sd: dict, plan: dict | None, log) -> str:
     A(f"        ├─ 排除：年份不符              n = {pm.get('excluded_year',0)}")
     A(f"        ├─ 排除：文献类型不符          n = {pm.get('excluded_doctype',0)}")
     A(f"        └─ 排除：非开放获取            n = {pm.get('excluded_oa',0)}")
-    A("        ▼")
+    A("        v")
     A(f"  硬条件过滤后                        n = {pm.get('after_limits',0)}")
     A("        │")
     A(f"        ├─ Pass1 题录相关性筛选        n = {pm.get('pass1_excluded',0)} 排除")
-    A("        ▼")
+    A("        v")
     A(f"  Pass1 通过                          n = {pm.get('pass1_included',0)}")
     A("        │")
     A(f"        ├─ Pass2 可得性筛选            n = {pm.get('pass2_excluded',0)} 排除")
-    A("        ▼")
+    A("        v")
     A(f"  **最终纳入**                        n = {pm.get('pass2_included',0)}")
     A("```")
     A("")
@@ -169,7 +171,7 @@ def render(sd: dict, plan: dict | None, log) -> str:
     if ps:
         A("### 各数据源实际发送的检索式")
         A("")
-        A("> ⚠️ 各源 query 格式**互不相同**（Europe PMC 收检索语法、"
+        A("> [WARN] 各源 query 格式**互不相同**（Europe PMC 收检索语法、"
           "OpenAlex/Crossref 收原始参数串），下表是**真正发出**的串。")
         A("")
         A("| 数据源 | 实际检索式 | 计划哈希 |")
@@ -197,7 +199,7 @@ def render(sd: dict, plan: dict | None, log) -> str:
     # 失败源
     fails = sd.get("failures") or []
     if fails:
-        A("### ⚠️ 失败的数据源")
+        A("### [WARN] 失败的数据源")
         A("")
         A("| 数据源 | 原因 |")
         A("|---|---|")
@@ -241,7 +243,7 @@ def render(sd: dict, plan: dict | None, log) -> str:
     # 元数据红旗
     flagged = [r for r in inc if r.get("predatory_flags")]
     if flagged:
-        A(f"### ⚠️ 元数据红旗（{len(flagged)} 篇）")
+        A(f"### [WARN] 元数据红旗（{len(flagged)} 篇）")
         A("")
         A("| 题名 | 红旗 |")
         A("|---|---|")
@@ -250,7 +252,7 @@ def render(sd: dict, plan: dict | None, log) -> str:
         if len(flagged) > 25:
             A(f"| _（其余 {len(flagged)-25} 篇见 JSON）_ | |")
         A("")
-        A("> ⛔ **这不是掠夺性期刊判定。** 仅依据可机械判定的元数据缺失"
+        A("> [STOP] **这不是掠夺性期刊判定。** 仅依据可机械判定的元数据缺失"
           "（无 DOI / 无期刊名 / 无年份）。"
           "《来源质量分级》清单里的多数红旗（邮件骚扰、72 小时录用、编委会造假等）"
           "**无法从题录判断**，本流程不做猜测。")
@@ -337,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     if not sp.is_absolute():
         sp = WD / sp
     if not sp.exists():
-        raise SystemExit(f"✗ 找不到 {sp}；先跑 search_screen.py")
+        raise SystemExit(f"[X] 找不到 {sp}；先跑 search_screen.py")
     sd = json.loads(sp.read_text(encoding="utf-8"))
 
     d = pathlib.Path(args.out) if args.out else sp.parent
@@ -357,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     pm = sd.get("prisma") or {}
     print()
     print("═" * 68)
-    print("✓ 检索报告已生成")
+    print("[OK] 检索报告已生成")
     print("═" * 68)
     print(f"  识别 {pm.get('identified',0)} → 硬条件后 {pm.get('after_limits',0)}"
           f" → Pass1 {pm.get('pass1_included',0)}"

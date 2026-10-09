@@ -20,6 +20,8 @@ import sys
 from collections import Counter
 from datetime import datetime
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # ── UTF-8 兜底 ──
 
 
@@ -40,7 +42,7 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 _REASON_CN = {
     "no_tab": "页面无「研究方向」页签",
@@ -115,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     A = L.append
     A(f"# 交付物索引 · {school_name}{unit_name}")
     A("")
-    A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M}　|　工作文件夹：`{WD}`")
+    A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} | 工作文件夹：`{WD}`")
     A("> ")
     A("> 流程：`流程1/` 本科生科研辅助链路（阶段 N → S → R → R① → R2 → R②）")
     if site:
@@ -245,12 +247,12 @@ def main(argv: list[str] | None = None) -> int:
         A(f"| {r} | {n} | {_REASON_CN.get(r,'—')} |")
     A("")
     if layout == "v11":
-        A(f"> ⚠️ 这 {len(nd)} 人**学部官网本身没有研究方向数据**："
+        A(f"> [WARN] 这 {len(nd)} 人**学部官网本身没有研究方向数据**："
           f"列表页未列出、详情页也没有。")
         A("> 其中「支撑队伍」多为技术与行政支撑岗，本就不以科研方向为主；")
         A("> 「兼聘教师」列表页只给姓名，如需方向须逐一进其个人主页。")
     else:
-        A(f"> ⚠️ 这 {len(nd)} 人**两个数据源都没有**研究方向数据：已抓过「研究领域」子页、")
+        A(f"> [WARN] 这 {len(nd)} 人**两个数据源都没有**研究方向数据：已抓过「研究领域」子页、")
         A("> 学院官网师资页并核对页面结构，**不是解析遗漏，再抓一次也拿不到**。")
         A("> 如确需了解，请点主页链接看论文成果或简介。")
     A("")
@@ -269,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
             A(f"| {a[0]} | {a[1]} | {bs} |")
         A(f"| **未分类** | **{len(groups.get('未分类', []))}** | （多为官网无方向数据） | |")
         A("")
-    A("## ⚠️ 使用须知")
+    A("## [WARN] 使用须知")
     A("")
     A("1. **方向归类是关键词粗分类**，一位老师可能出现在多个方向下；"
       "**请以官网原文为准**。")

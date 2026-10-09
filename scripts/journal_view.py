@@ -27,13 +27,15 @@ import pathlib
 import sys
 from datetime import datetime
 
+from logutil import run_root as _run_root  # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 JOURNAL = WD / ".work_cdp" / "logs" / "run_journal.jsonl"
 
 # 展示时优先出现的字段（其余字段按字母序附在后面）
@@ -50,7 +52,7 @@ def arg(name, default=None):
 
 def main() -> int:
     if not JOURNAL.exists():
-        print(f"✗ 找不到操作流水：{JOURNAL}")
+        print(f"[X] 找不到操作流水：{JOURNAL}")
         print("  journal 由各脚本通过 logutil.journal() 追加；"
               "若刚跑完流程仍无此文件，说明相关脚本尚未接入 journal。")
         return 1

@@ -60,6 +60,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # ══════════════════════════════════════════════════════════════
 # UTF-8 兜底（与 logutil._fix_stdout 同判据，幂等）
 # ══════════════════════════════════════════════════════════════
@@ -68,7 +70,7 @@ import urllib.request
 def _fix_streams() -> None:
     """把 stdout/stderr 换成 UTF-8；已是 UTF-8 就不重包。
 
-    ★ 为什么必须幂等：脚本之间会互相 import，每 import 一次重包一层，
+    为什么必须幂等：脚本之间会互相 import，每 import 一次重包一层，
       中间那层 wrapper 被 GC 时会关掉底层 buffer，后续 print 全炸。
     """
     for name in ("stdout", "stderr"):
@@ -110,7 +112,7 @@ except Exception:                      # 单文件运行时也要能用
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 TEMPLATES = _HERE.parent / "templates"
 RULE_FILE = TEMPLATES / "导师方向规则.json"
 
@@ -130,7 +132,7 @@ UNITS = {
         "list_url": ("https://faculty.ustc.edu.cn/xyjslb.jsp?"
                      "PAGENUM={page}&id=1150&lang=zh_CN&st=0"
                      "&urltype=tsites.CollegeTeacherList&wbtreeid=1014"),
-        "total_pages": 0,          # 0 = 自动探测（★ 页面自称的 totalpage 不可信）
+        "total_pages": 0,          # 0 = 自动探测（页面自称的 totalpage 不可信）
         "note": "实测 237 人 / 每页 12 → 20 页；详情页在 /<拼音>/zh_CN/index.htm",
     },
     "physics": {
@@ -140,7 +142,7 @@ UNITS = {
                      "PAGENUM={page}&id=1146&lang=zh_CN&st=0"
                      "&urltype=tsites.CollegeTeacherList&wbtreeid=1014"),
         "total_pages": 0,          # 0 = 自动探测
-        "note": "★ id 未经逐一核验，首次使用请先 --stage=list 核对人数是否合理",
+        "note": "id 未经逐一核验，首次使用请先 --stage=list 核对人数是否合理",
     },
 }
 
@@ -152,8 +154,8 @@ DEFAULT_RULES = {
     "_说明": [
         "导师研究方向 → 细分方向 的分类规则表。",
         "匹配方式：大小写不敏感的子串匹配（中文直接子串）。",
-        "★ 只做「可解释的粗归类」，不是权威学科分类。一条方向命中多类时全部记入。",
-        "★ 请按目标学部的真实语料增删关键词；规则越贴合，未分类越少。",
+        "只做「可解释的粗归类」，不是权威学科分类。一条方向命中多类时全部记入。",
+        "请按目标学部的真实语料增删关键词；规则越贴合，未分类越少。",
     ],
     "免疫与感染": ["免疫", "immun", "炎症", "inflamm", "感染", "infect", "病毒", "virus",
                    "virolog", "抗体", "antibod", "疫苗", "vaccin", "t细胞", "t cell",
@@ -269,14 +271,14 @@ def _is_direction(t: str) -> bool:
         return False
     if _NOT_DIRECTION.search(t):
         return False
-    # ★ v9：栏目名 + 面包屑拼成的行（如「研究领域 当前位置：中文主页 >> 科学研究」）
+    # v9：栏目名 + 面包屑拼成的行（如「研究领域 当前位置：中文主页 >> 科学研究」）
     #   整条都没有实际方向内容 —— 去掉栏目名与面包屑后若所剩无几就判否
     stripped = re.sub(
         r"^(?:研究领域|研究方向|研究兴趣|科学研究|科研方向)\s*", "", t)
     stripped = re.sub(r"当前位置\s*[：:].*$", "", stripped).strip(" ·-—：:")
     if len(stripped) < 2:
         return False
-    # ★ v9：多个栏目名串成的导航行（如「科学研究 研究领域 论文成果 专利 著作成果 科研项目」）
+    # v9：多个栏目名串成的导航行（如「科学研究 研究领域 论文成果 专利 著作成果 科研项目」）
     #   特征：整行由 3 个以上的栏目词组成，去掉这些词后所剩无几
     NAV_WORDS = r"(?:科学研究|研究领域|研究方向|研究兴趣|教学研究|教学资源|"
     NAV_WORDS += r"授课信息|教学成果|论文成果|专利|著作成果|科研项目|"
@@ -298,10 +300,10 @@ def _is_direction(t: str) -> bool:
     # 「【…】」「[…]」这类整行被括号包住的，多半是按钮而非方向
     if re.match(r"^[【\[（(].{0,20}[】\]）)]$", t):
         return False
-    # ★ v10：论文列表（英文姓名 + # / * 标记连排）不是方向
+    # v10：论文列表（英文姓名 + # / * 标记连排）不是方向
     if len(re.findall(r"[A-Z][a-z]+\s+[A-Z]{1,3}#|,\s*[A-Z]{1,3}\s*,", t)) >= 2:
         return False
-    # ★ v10：无中文、且含 2 个以上「姓名 + 首字母缩写」的引文片段
+    # v10：无中文、且含 2 个以上「姓名 + 首字母缩写」的引文片段
     if not re.search(r"[\u4e00-\u9fff]", t) and \
             len(re.findall(r"[A-Z][a-z]+\s+[A-Z]{1,3}\b", t)) >= 2:
         return False
@@ -312,9 +314,9 @@ def _strip_dir_noise(t: str) -> str:
     """去掉方向条目的枚举编号，保留正文。
 
     例：「[1]NKT细胞的功能」→「NKT细胞的功能」；「1、生物学」→「生物学」
-    ★ 先剔除零宽字符：tsites 的方向文本常以 U+200B 开头（实测「[2]NKT细胞…」
+    先剔除零宽字符：tsites 的方向文本常以 U+200B 开头（实测「[2]NKT细胞…」
       与「1、生物学」都带），它会挡住 ^ 锚点使编号剥不掉。
-    ★ 只剥一层；剥完至少要剩 2 个字符，避免把「1型糖尿病」这类真内容削成空。
+    只剥一层；剥完至少要剩 2 个字符，避免把「1型糖尿病」这类真内容削成空。
     """
     t = t.replace("\u200b", "").replace("\ufeff", "").strip()
     s = _DIR_NOISE.sub("", t, count=1).strip(" ·-—:：.")
@@ -324,7 +326,7 @@ def _strip_dir_noise(t: str) -> str:
 def parse_total_pages(page: str, per_page: int = 0) -> int:
     """推断总页数。
 
-    ★ tsites 的「共N条 x/y」里那个 y **不可信**：同一个列表页，
+    tsites 的「共N条 x/y」里那个 y **不可信**：同一个列表页，
       带 totalpage 参数与不带会给出不同的 y（实测 1/8 与 1/20 同时存在），
       而真实每页 12 条、共 237 条 → 真实总页数是 20。
       所以这里**以「共N条」为准**，用每页条数反推页数。
@@ -393,7 +395,7 @@ def parse_list(page: str) -> list[dict]:
 def parse_detail(page: str) -> dict:
     """解析教师详情页 → {title, email, dept, directions[]}。
 
-    ★ 页面上没有「研究方向」栏位时 directions 为空列表 —— **不臆造**。
+    页面上没有「研究方向」栏位时 directions 为空列表 —— **不臆造**。
       此时还会尝试从 ``_subpages`` 里找「研究领域 / 研究方向」子页（见
       ``find_direction_subpages``），由调用方决定是否深入抓取。
     """
@@ -456,13 +458,13 @@ def parse_detail(page: str) -> dict:
     if yjfx:
         info["_yjfx_url"] = "https://faculty.ustc.edu.cn" + html.unescape(yjfx.group(1))
 
-    # ★ v9：主页没有方向时，记录可深入的「研究领域」子页，供调用方补抓
+    # v9：主页没有方向时，记录可深入的「研究领域」子页，供调用方补抓
     if not info["directions"]:
         subs = find_direction_subpages(page)
         if subs:
             info["_subpages"] = subs
 
-    # ★ v9：仍没有 → 尝试从个人简介散文里抽取（第五种页面形态）
+    # v9：仍没有 → 尝试从个人简介散文里抽取（第五种页面形态）
     if not info["directions"]:
         prose = parse_directions_from_prose(page)
         if prose:
@@ -507,7 +509,7 @@ _NO_HOMEPAGE = ("你访问的主页不存在", "没有上线发布", "遇到错�
 def parse_directions_from_prose(page: str) -> list[str]:
     """从个人简介正文里抽取研究方向（**第五种**页面形态）。
 
-    ★ 为什么需要：实测有一类页面既没有 TabbedPanels、也没有 yjfx 链接，
+    为什么需要：实测有一类页面既没有 TabbedPanels、也没有 yjfx 链接，
       方向直接写在简介散文里，例如：
         「长期从事肿瘤细胞生物学与肿瘤治疗相关研究，**主要研究方向包括：**
           （1）细胞分裂调控与恶性肿瘤发生发展的分子机制；
@@ -533,17 +535,17 @@ def parse_directions_from_prose(page: str) -> list[str]:
         m = LEAD.search(c)
         if not m:
             continue
-        tail = c[m.end():].strip("　 ：:，,。.；;")
+        tail = c[m.end():].strip("  ：:，,。.；;")
         if len(tail) < 6:
             continue
         # 按「（1）」「1)」「1、」「(1)」等编号切分；无编号则按分号切
         parts = re.split(r"[（(]\s*\d+\s*[)）]|\d+\s*[、.)）]|[；;]", tail)
         for part in parts:
-            t = re.sub(r"\s+", " ", part).strip("　 ·-—，,。.；;：:")
-            # ★ 截断到方向句的天然边界：一旦出现「主持/承担/发表/获」等
+            t = re.sub(r"\s+", " ", part).strip("  ·-—，,。.；;：:")
+            # 截断到方向句的天然边界：一旦出现「主持/承担/发表/获」等
             #   项目与成果叙述，说明方向列举已经结束，后面的不是方向。
             t = re.split(r"(?:先后)?(?:主持|承担|参与|获得|荣获|发表|申请)", t)[0]
-            t = _strip_dir_noise(t.strip("　 ·-—，,。.；;：:"))
+            t = _strip_dir_noise(t.strip("  ·-—，,。.；;：:"))
             if 6 <= len(t) <= 200 and _is_direction(t) and t not in out:
                 out.append(t)
         if out:
@@ -554,7 +556,7 @@ def parse_directions_from_prose(page: str) -> list[str]:
 def classify_no_direction(page: str) -> str:
     """判定「没有方向」的**具体原因**，供报告如实区分。
 
-    ★ 为什么值得区分：v9 实测（USTC 生命科学与医学部 237 人）发现
+    为什么值得区分：v9 实测（USTC 生命科学与医学部 237 人）发现
       130 位「无方向」老师里，**128 人是网站上真的没填** ——
       模板里「研究方向」页签对所有人都有，但内容面板是 `<p>暂无内容</p>`；
       另有 2 人主页根本没发布（tsites 错误页「主页不存在或没有上线发布」）。
@@ -572,7 +574,7 @@ def classify_no_direction(page: str) -> str:
     if any(mk in text for mk in _NO_HOMEPAGE):
         return "no_homepage"
 
-    # ★ 必须先去注释再判断！实测有一类页面（如赵忠）全页只有一句
+    # 必须先去注释再判断！实测有一类页面（如赵忠）全页只有一句
     #   `<!--研究方向-->` 占位注释后面什么都没有 —— 若不过滤注释，
     #   会被误判成"页面有研究方向字样"，归进 unknown 而不是"确无内容"。
     visible = re.sub(r"<!--.*?-->", " ", page, flags=re.S)
@@ -631,7 +633,7 @@ def find_direction_subpages(page: str) -> list[dict]:
 def parse_direction_subpage(page: str) -> list[str]:
     """从「研究领域」子页正文里提取方向条目。
 
-    ★ 与主页解析共用同一套清洗与判噪规则（`_push` 的等价逻辑），
+    与主页解析共用同一套清洗与判噪规则（`_push` 的等价逻辑），
       避免两处标准漂移。返回空列表表示该子页确实没有内容。
     """
     # 子页若是「暂无内容」，直接判定为空 —— 不把导航文字当方向
@@ -675,7 +677,7 @@ def load_rules() -> dict:
             data = json.loads(RULE_FILE.read_text(encoding="utf-8"))
             return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, list)}
         except Exception as e:
-            print(f"⚠ 规则表解析失败，改用内置规则：{e}", file=sys.stderr)
+            print(f"[WARN] 规则表解析失败，改用内置规则：{e}", file=sys.stderr)
     return {k: v for k, v in DEFAULT_RULES.items() if not k.startswith("_")}
 
 
@@ -707,7 +709,7 @@ def stage_list(unit_cfg: dict, list_url_tpl: str, d: pathlib.Path,
                total_pages: int, log) -> dict:
     """抓列表页（分页）→ 汇总全部教师条目。
 
-    ★ totalpage 参数在 tsites 上不可信（同一页可自称 1/8 与 1/20），
+    totalpage 参数在 tsites 上不可信（同一页可自称 1/8 与 1/20），
       所以始终以「共N条 ÷ 每页条数」反推的真实页数为准；
       并且**连续两页没有新增人员就提前停止**，防止把页数猜大后空转。
     """
@@ -740,7 +742,7 @@ def stage_list(unit_cfg: dict, list_url_tpl: str, d: pathlib.Path,
         try:
             page = fetch(url)
         except Exception as e:
-            log.warn(f"⚠ 第 {p} 页失败，跳过：{e}")
+            log.warn(f"[WARN] 第 {p} 页失败，跳过：{e}")
             continue
         (raw / f"page_{p:03d}.html").write_text(page, encoding="utf-8")
         got = parse_list(page)
@@ -763,10 +765,10 @@ def stage_list(unit_cfg: dict, list_url_tpl: str, d: pathlib.Path,
 
     (d / "roster_list.json").write_text(
         json.dumps(dedup, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info(f"✓ 列表完成：{len(dedup)} 人（去重后）"
+    log.info(f"[OK] 列表完成：{len(dedup)} 人（去重后）"
              + (f"；官网自称 {declared} 人" if declared else ""))
     if declared and len(dedup) < declared * 0.9:
-        log.warn(f"⚠ 抓到 {len(dedup)} 人，明显少于官网自称的 {declared} 人 —— "
+        log.warn(f"[WARN] 抓到 {len(dedup)} 人，明显少于官网自称的 {declared} 人 —— "
                  f"可能分页参数有变，请人工核对 {raw} 下的原始页面")
     return {"count": len(dedup), "pages": total_pages, "people": dedup}
 
@@ -781,7 +783,7 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
     """
     lst_file = d / "roster_list.json"
     if not lst_file.exists():
-        raise SystemExit(f"✗ 缺少 {lst_file}；先跑 --stage=list")
+        raise SystemExit(f"[X] 缺少 {lst_file}；先跑 --stage=list")
     people = json.loads(lst_file.read_text(encoding="utf-8"))
 
     det_file = d / "roster_detail.json"
@@ -797,7 +799,7 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
     raw.mkdir(exist_ok=True)
     raw_sub = d / "raw_subpage"
 
-    # ★ 深度模式要重跑两类人：
+    # 深度模式要重跑两类人：
     #   ① 从未抓过的；
     #   ② 抓过但没方向、且**当时没试过子页**的（早期版本留下的记录）。
     #   判据用 _deep_tried 标记，避免每次重跑都把所有无方向的人再刷一遍。
@@ -811,7 +813,7 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
     if limit:
         todo = todo[:limit]
     log.info(f"待抓详情：{len(todo)} 人（已有记录 {len(done)}）"
-             + ("　[深度模式：含子页]" if deep else ""))
+             + (" [深度模式：含子页]" if deep else ""))
 
     ok = fail = 0
     n_sub_tried = n_sub_hit = 0
@@ -822,10 +824,10 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
             done[p["slug"]] = {**p, "directions": [], "status": "fetch_failed",
                                "why": str(e)[:200]}
             fail += 1
-            log.warn(f"  [{i}/{len(todo)}] ✗ {p['name']}：{e}")
+            log.warn(f"  [{i}/{len(todo)}] [X] {p['name']}：{e}")
             continue
 
-        # ★ 少数老师的页面是空白跳转页（实测曹鹏 /en/ 版只有 536 字节）。
+        # 少数老师的页面是空白跳转页（实测曹鹏 /en/ 版只有 536 字节）。
         #   只在**长度明显异常且无任何方向锚点**时才补抓一次中文页；
         #   不做双向乱换（曾把英文页换出教育经历行当成研究方向）。
         if len(page) < 1500 and "/yjfx/" not in page and "/zh_CN/" not in p["url"]:
@@ -869,7 +871,7 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
             rec["status"] = "ok"
             rec["why"] = ""
         else:
-            # ★ v9：区分「网站没填」与「解析不到」，让使用者知道该不该再爬
+            # v9：区分「网站没填」与「解析不到」，让使用者知道该不该再爬
             reason = classify_no_direction(page)
             rec["status"] = "no_direction"
             rec["no_direction_reason"] = reason
@@ -886,7 +888,7 @@ def stage_detail(unit_cfg: dict, d: pathlib.Path, log, limit: int = 0,
     det_file.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
     with_dir = sum(1 for r in merged if r.get("directions"))
     from_sub = sum(1 for r in merged if r.get("direction_source"))
-    log.info(f"✓ 详情完成：本轮成功 {ok} / 失败 {fail}；"
+    log.info(f"[OK] 详情完成：本轮成功 {ok} / 失败 {fail}；"
              f"名单共 {len(merged)} 人，其中 {with_dir} 人已解析出研究方向"
              + (f"（含子页补回 {from_sub} 人）" if from_sub else "")
              + f"，{len(merged) - with_dir} 人无")
@@ -897,7 +899,7 @@ def build_report(d: pathlib.Path, unit_cfg: dict, log) -> dict:
     """按细分方向归类，产出人可读的 Markdown 报告与机读 JSON。"""
     det_file = d / "roster_detail.json"
     if not det_file.exists():
-        raise SystemExit(f"✗ 缺少 {det_file}；先跑 --stage=detail")
+        raise SystemExit(f"[X] 缺少 {det_file}；先跑 --stage=detail")
     people = json.loads(det_file.read_text(encoding="utf-8"))
     rules = load_rules()
 
@@ -935,7 +937,7 @@ def build_report(d: pathlib.Path, unit_cfg: dict, log) -> dict:
          f"- 分类规则：`templates/导师方向规则.json`"
          f"（本次{'已加载' if RULE_FILE.exists() else '未找到，使用内置兜底规则'}）",
          "",
-         "> ⚠️ 分类是**按关键词做的粗归类**，不是权威学科划分；"
+         "> [WARN] 分类是**按关键词做的粗归类**，不是权威学科划分；"
          "一位老师可同时出现在多个方向下。**请以老师主页原文为准**。",
          ""]
 
@@ -947,12 +949,12 @@ def build_report(d: pathlib.Path, unit_cfg: dict, log) -> dict:
         for p in sorted(members, key=lambda x: x["name"]):
             ds = "；".join(p.get("directions") or [])
             if not ds:
-                # ★ v9：没有方向时写明**具体原因**，而不是笼统的「无该栏位」，
+                # v9：没有方向时写明**具体原因**，而不是笼统的「无该栏位」，
                 #   好让使用者判断"是网站没填"还是"值得再抓一次"
                 ds = "—（" + (p.get("why") or "官网未提供") + "）"
             src = p.get("direction_source")
             if src:
-                ds += f"　【来源：{src}】"
+                ds += f" 【来源：{src}】"
             ds = ds.replace("|", "／").replace("\n", " ")
             if len(ds) > 300:
                 ds = ds[:297] + "…"
@@ -969,7 +971,7 @@ def build_report(d: pathlib.Path, unit_cfg: dict, log) -> dict:
         L.append("")
         L.append("## 附：「官网未提供研究方向」的原因分布")
         L.append("")
-        L.append("> ⚠️ 下列老师的官网页面**确实没有研究方向数据** ——")
+        L.append("> [WARN] 下列老师的官网页面**确实没有研究方向数据** ——")
         L.append("> 实测已抓过其「研究领域」子页并核对页面结构，")
         L.append("> **不是解析遗漏，再抓一次也拿不到**。")
         L.append("> 如确需了解，请点「主页」链接自行查看其论文成果或简介。")
@@ -981,7 +983,7 @@ def build_report(d: pathlib.Path, unit_cfg: dict, log) -> dict:
         L.append("")
 
     (d / "导师名单与方向归类.md").write_text("\n".join(L), encoding="utf-8")
-    log.info(f"✓ 归类完成：{len(grouped)} 个方向桶；报告 → {d / '导师名单与方向归类.md'}")
+    log.info(f"[OK] 归类完成：{len(grouped)} 个方向桶；报告 → {d / '导师名单与方向归类.md'}")
     return payload
 
 
@@ -1012,7 +1014,7 @@ def print_selection_prompt(payload: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-# ⛔ 已弃用（v11）—— 默认拒绝运行
+# [STOP] 已弃用（v11）—— 默认拒绝运行
 #
 # 本脚本抓的是**学校教师个人主页系统**（faculty.ustc.edu.cn 等）。它有两个硬伤：
 #   ① 只登记「已在系统里维护主页」的教师，覆盖面不全；
@@ -1026,11 +1028,11 @@ def print_selection_prompt(payload: dict) -> None:
 # 确需运行请显式加 --allow-deprecated。
 # ══════════════════════════════════════════════════════════════
 _DEPRECATED_MSG = """
-⛔ harvest_mentors.py 已弃用（v11）
+[STOP] harvest_mentors.py 已弃用（v11）
    本脚本抓取**学校教师个人主页系统**，覆盖面与方向完整度均不如学部官网。
    实测：USTC 生医部 237 人中 130 人无「研究方向」栏位。
 
-   ✅ 请改用：harvest_faculty.py（配置驱动，学部/学院官网）
+   [OK] 请改用：harvest_faculty.py（配置驱动，学部/学院官网）
         uv run python 流程1/scripts/harvest_faculty.py --list-units
         uv run python 流程1/scripts/harvest_faculty.py --unit ustc:life-med
 
@@ -1054,7 +1056,7 @@ def main(argv: list[str] | None = None) -> int:
         description="【已弃用】原阶段 S：从**学校教师主页系统**抓导师与研究方向。"
                     "请改用 harvest_faculty.py（学部官网）。",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=("⛔ 本脚本已弃用，请改用 harvest_faculty.py\n"
+        epilog=("[STOP] 本脚本已弃用，请改用 harvest_faculty.py\n"
                 "确需运行请追加 --allow-deprecated\n\n"
                 "示例：\n"
                 "  harvest_mentors.py --list-units\n"
@@ -1095,7 +1097,7 @@ def main(argv: list[str] | None = None) -> int:
     # 组装 unit 配置
     if args.unit:
         if args.unit not in UNITS:
-            print(f"✗ 未知学部 {args.unit!r}；可用：{', '.join(UNITS)}", file=sys.stderr)
+            print(f"未知学部 {args.unit!r}；可用：{', '.join(UNITS)}", file=sys.stderr)
             return 2
         cfg = dict(UNITS[args.unit])
         tpl = cfg["list_url"]
@@ -1107,7 +1109,7 @@ def main(argv: list[str] | None = None) -> int:
         tpl = args.list_url
         total = args.total_pages
     else:
-        print("✗ 需要 --unit 或 --list-url（或 --list-units 查看内置）", file=sys.stderr)
+        print("[X] 需要 --unit 或 --list-url（或 --list-units 查看内置）", file=sys.stderr)
         return 2
 
     if "{page}" not in tpl:
@@ -1115,7 +1117,7 @@ def main(argv: list[str] | None = None) -> int:
         if "PAGENUM=" in tpl:
             tpl = re.sub(r"PAGENUM=\d+", "PAGENUM={page}", tpl)
         else:
-            print("✗ 列表页 URL 里找不到 {page} 占位符，也没有 PAGENUM= 可替换",
+            print("[X] 列表页 URL 里找不到 {page} 占位符，也没有 PAGENUM= 可替换",
                   file=sys.stderr)
             return 2
     if "{totalpage}" not in tpl:
@@ -1134,7 +1136,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage in ("detail", "all"):
             stage_detail(cfg, d, log, limit=args.limit, deep=not args.no_deep)
 
-        # ★ 只要详情已存在就出报告 —— 早期版本仅在 --stage=all 时生成，
+        # 只要详情已存在就出报告 —— 早期版本仅在 --stage=all 时生成，
         #   导致「先 list 再 detail」这条**最常见的分步用法**跑完却没有报告，
         #   用户得再想起第三条命令。现在 detail 跑完即自动归类。
         if args.stage in ("detail", "all") and (d / "roster_detail.json").exists():
@@ -1149,7 +1151,7 @@ def main(argv: list[str] | None = None) -> int:
         n_total = payload["total"]
         n_done = sum(1 for p in payload["people"] if p.get("status") != "pending")
         print_selection_prompt(payload) if n_done >= n_total else print(
-            f"\nℹ 仅抓取 {n_done}/{n_total} 人（--limit 调试模式）——"
+            f"\n[INFO] 仅抓取 {n_done}/{n_total} 人（--limit 调试模式）——"
             f"**不要**在此提示用户选择；补跑 detail 抓完再呈现。\n")
         journal("S", "mentors.harvest", unit=unit_key,
                 total=n_total, groups=len(payload["groups"]))

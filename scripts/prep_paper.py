@@ -30,17 +30,18 @@ from logutil import get as get_log, workdir as _wd   # noqa: E402
 def main() -> int:
     argv = sys.argv[1:]
     if not argv:
-        print(__doc__)
+        print(__doc__ or "用法: uv run --with pymupdf python prep_paper.py "
+                         "<pdf> [--out 目录] [--key 名]")
         return 1
     pdf = pathlib.Path(argv[0]).resolve()
     if not pdf.exists():
-        print(f"✗ 找不到 PDF: {pdf}")
+        print(f"[X] 找不到 PDF: {pdf}")
         return 1
 
     try:
         import fitz                      # PyMuPDF
     except ImportError:
-        print("✗ 需要 PyMuPDF：uv run --with pymupdf python prep_paper.py ...")
+        print("[X] 需要 PyMuPDF：uv run --with pymupdf python prep_paper.py ...")
         return 1
 
     wd = _wd()

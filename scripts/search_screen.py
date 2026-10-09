@@ -10,7 +10,7 @@
 #       证据金字塔 7 级 + 掠夺性出版红旗清单
 #   · deep-research/references/systematic_review_protocol.md（PRISMA 流程）
 #
-# ★ 关于"自动筛选能做到什么程度"的诚实说明：
+# 关于"自动筛选能做到什么程度"的诚实说明：
 #   本脚本做的是**基于关键词的可复核预筛**，不是同行评审级别的判断。
 #   · Pass 1 用题名+摘要与检索词的词面重叠打分，阈值可调，**保留命中词**
 #     以便人工复核为什么被纳入/排除；
@@ -38,6 +38,8 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+
+from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底 ──
 
@@ -79,7 +81,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 (academic-use)")
 
@@ -100,7 +102,7 @@ EVIDENCE_LEVELS = {
 def grade_evidence(rec: dict) -> tuple[str, str]:
     """按元数据给出证据级别。返回 (级别, 依据说明)。
 
-    ⛔ 局限：仅凭题录无法判断方法学质量。综述/meta 分析定为 I 是
+    [STOP] 局限：仅凭题录无法判断方法学质量。综述/meta 分析定为 I 是
       **依据文献类型的惯例做法**，不代表该综述本身质量合格
       （source_quality_hierarchy.md 明确提醒："garbage in, garbage out"）。
     """
@@ -126,7 +128,7 @@ def grade_evidence(rec: dict) -> tuple[str, str]:
 def predatory_flags(rec: dict) -> list[str]:
     """**元数据可判**的掠夺性出版红旗。
 
-    ⛔ 诚实边界：source_quality_hierarchy.md 的红旗清单有 12 项，其中
+    [STOP] 诚实边界：source_quality_hierarchy.md 的红旗清单有 12 项，其中
       "邮件骚扰作者""72 小时录用""编委会造假"等**无法从题录判断**。
       本函数只检查能从元数据机械判定的 4 项，其余一律不猜。
     """
@@ -147,7 +149,7 @@ def predatory_flags(rec: dict) -> list[str]:
 def backfill_abstracts(recs: list[dict], log, limit: int = 0) -> dict:
     """给缺摘要的记录补摘要（查 Europe PMC，按 DOI 优先、题名兜底）。
 
-    ★ 为什么需要：`paginate.py` 请求 Europe PMC 时用 `resultType=lite`，
+    为什么需要：`paginate.py` 请求 Europe PMC 时用 `resultType=lite`，
       **不含摘要**（实测 149 条里仅 46 条有摘要，全部来自 OpenAlex/Crossref）。
       而两轮筛选的 Pass 1 正是靠题名+摘要，缺摘要会让主源失效。
       这里用 resultType=core 按 DOI 单篇补，是最省的补法。
@@ -382,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     if not rp.is_absolute():
         rp = WD / rp
     if not rp.exists():
-        raise SystemExit(f"✗ 找不到 {rp}；先跑 search_run.py")
+        raise SystemExit(f"[X] 找不到 {rp}；先跑 search_run.py")
     payload = json.loads(rp.read_text(encoding="utf-8"))
     recs = payload.get("records") or []
 
@@ -396,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         pp = WD / pp
     plan = json.loads(pp.read_text(encoding="utf-8")) if pp.exists() else {}
     if not plan:
-        log.warn("⚠ 未找到检索计划，将用 raw 里的 user_input 兜底")
+        log.warn("[WARN] 未找到检索计划，将用 raw 里的 user_input 兜底")
 
     t0 = time.time()
     log.info(f"开始筛选：{len(recs)} 条，阈值 {args.threshold}")
@@ -433,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
     pm = res["prisma"]
     print()
     print("═" * 68)
-    print("✓ 筛选完成（PRISMA 计数）")
+    print("[OK] 筛选完成（PRISMA 计数）")
     print("═" * 68)
     print(f"  ① 各源识别记录            {pm['identified']:>5}")
     print(f"  ② 硬条件过滤后            {pm['after_limits']:>5}"
@@ -454,13 +456,13 @@ def main(argv: list[str] | None = None) -> int:
         if yrs:
             top = sorted(yrs)[:3]
             print(f"  年份范围：{min(yrs)} ~ {max(yrs)}"
-                  f"　（{len(yrs)} 个年份）")
+                  f" （{len(yrs)} 个年份）")
         flagged = [r for r in inc if r.get("predatory_flags")]
         print(f"  带元数据红旗：{len(flagged)} 条"
               + ("（详见 JSON）" if flagged else ""))
     if advisories:
         print()
-        print("  ⚠ 分布偏斜告警：")
+        print("  [WARN] 分布偏斜告警：")
         for a in advisories:
             print(f"    · {a['dimension']}：{a['concentration']}")
     print()

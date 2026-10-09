@@ -34,6 +34,8 @@ import pathlib
 import sys
 import time
 
+from logutil import run_root as _run_root  # noqa: E402
+
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；与 fetch_direct.py 同名函数逐字一致）。"""
@@ -53,7 +55,7 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 
 # 阶段 → (目录名, 中文标签, 建议的单批上限)
@@ -194,12 +196,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    任务包 {r['tasks_total']}  已回收 {r['results_good']}"
               f"  缺 {r['missing_count']}   进度 {r['progress_pct']}%")
         if r["unreadable"]:
-            print(f"    ⚠ 不可解析的结果卡 {len(r['unreadable'])}："
+            print(f"    [WARN] 不可解析的结果卡 {len(r['unreadable'])}："
                   f"{', '.join(r['unreadable'][:3])}")
         if r["orphan_results"]:
-            print(f"    ℹ 孤儿卡（上轮残留，不计入）{len(r['orphan_results'])}")
+            print(f"    [INFO] 孤儿卡（上轮残留，不计入）{len(r['orphan_results'])}")
         if r["rejected"]:
-            print(f"    ⛔ 被拒收 {len(r['rejected'])}："
+            print(f"    [STOP] 被拒收 {len(r['rejected'])}："
                   f"{', '.join(r['rejected'][:3])}")
         if r["missing_count"]:
             print(f"    → 建议：下一批派 {r['suggest_batch_size']} 个，"

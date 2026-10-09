@@ -61,10 +61,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from logutil import run_root as _run_root  # noqa: E402
+
 def _fix_streams() -> None:
     """UTF-8 兜底（**必须幂等**）。
 
-    ★ 为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
+    为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
       本流程的脚本之间会互相 import（refs_bibliography → refs_backfill，
       refs_build → refs_prepare）。每 import 一次就重包一层，中间那层 wrapper
       被 GC 时会**关掉底层 buffer**，表现为后续所有 print 抛
@@ -107,7 +109,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 CACHEDIR = REFDIR / "cache"
@@ -118,7 +120,7 @@ UA = f"scientific-agent-skills/2.65 (mailto:{EMAIL})"
 
 OA = "https://api.openalex.org"
 
-# ★ primary_location 必须一起取：阶段 G2 要靠它的 source.id 去查期刊影响因子，
+# primary_location 必须一起取：阶段 G2 要靠它的 source.id 去查期刊影响因子，
 #   复用同一份缓存可以省掉一整轮重复请求。
 SEL_IDS = ("id,doi,title,publication_year,referenced_works,cited_by_count,type,"
            "primary_location")
@@ -128,7 +130,7 @@ SEL_REF = ("id,doi,title,publication_year,cited_by_count,type,primary_location,"
 # ══════════════════════════════════════════════════════════════
 # 核心期刊表
 #
-# ★ 为什么用**显式清单**而不是前缀匹配：
+# 为什么用**显式清单**而不是前缀匹配：
 #   "science" 前缀会命中 Science of the Total Environment（非核心）；
 #   "cell"   前缀会命中 Cellulose / Cells / Cellular Signalling（非核心）。
 #   前缀误判会让"高质量"定义失真，必须逐条列举。
@@ -199,7 +201,7 @@ def load_core_journals() -> dict:
                     continue
                 fam[k] = [norm_venue(x) for x in (v or [])]
         except Exception as e:
-            print(f"⚠ refs/core_journals.json 解析失败，忽略：{e}", file=sys.stderr)
+            print(f"[WARN] refs/core_journals.json 解析失败，忽略：{e}", file=sys.stderr)
     return {k: [norm_venue(x) for x in v] for k, v in fam.items()}
 
 
@@ -267,7 +269,7 @@ def api(url: str, tries: int = 4):
         except Exception as e:        # 网络中断 / 超时
             last = e
             time.sleep(1.5 * (i + 1))
-    print(f"⚠ 请求失败（已重试 {tries} 次）：{url}\n   {last}", file=sys.stderr)
+    print(f"[WARN] 请求失败（已重试 {tries} 次）：{url}\n   {last}", file=sys.stderr)
     return None
 
 
@@ -323,7 +325,7 @@ def load_records() -> dict:
         ex = excluded_dois(CDPDIR, len(data)) or set()
         if ex:
             data = {k: v for k, v in data.items() if norm_doi(k) not in ex}
-            print(f"ℹ scope.py：已排除 {len(ex)} 篇同名他人论文")
+            print(f"[INFO] scope.py：已排除 {len(ex)} 篇同名他人论文")
     except Exception:
         pass          # scope 不可用不阻塞：宁可多留，不可漏收
     return {norm_doi(k): v for k, v in data.items() if isinstance(v, dict)}
@@ -358,7 +360,7 @@ def resolve_sources(recs: dict, limit: int = 0) -> dict:
                 "title": r.get("title") or rec.get("title") or "",
                 "year": r.get("publication_year") or rec.get("year"),
                 "refs": [wid(x) for x in (r.get("referenced_works") or [])],
-                # ★ source_id / venue 供阶段 G2 查期刊影响因子，避免重复请求
+                # source_id / venue 供阶段 G2 查期刊影响因子，避免重复请求
                 "source_id": wid(src.get("id")) if src.get("id") else "",
                 "venue": src.get("display_name") or rec.get("journal") or "",
                 "missing": False,
@@ -403,7 +405,7 @@ def fetch_pool(all_wids: list[str]) -> dict:
 def is_review(rec: dict) -> bool:
     """OpenAlex 没有 review 类型；用 type + 题名/刊名的经验判据。
 
-    ★ 明确标注为启发式：OpenAlex 的 `type` 只有 article/review 之外的粗分类，
+    明确标注为启发式：OpenAlex 的 `type` 只有 article/review 之外的粗分类，
       真正的综述标识来自期刊名（"… Reviews"）与题名（Review/A survey/…）。
       判据写在报告里，读者可自行复核。
     """
@@ -425,7 +427,7 @@ def is_review(rec: dict) -> bool:
 def priority_of(rec: dict, n_sources: int, recent_years: int, this_year: int):
     """v7.2 优先级评分。返回 (总分, 分量字典)。
 
-    ★ 为什么把 200 次被引从"门槛"降为"信号"：
+    为什么把 200 次被引从"门槛"降为"信号"：
       被引阈值会把**近两年的高质量综述**整批挡在门外 —— 而它们正是本版要重点看的。
       新版把"是不是综述 / 是不是 CNS / 够不够新"放在前三位，被引只占 15 分，
       并且用**对数尺度**：1000 次与 100 次被引只差几分，不主导排序。
@@ -449,7 +451,7 @@ def europepmc_fulltext(doi: str) -> tuple[str, str]:
 
     → (文本, 说明)。取不到返回 ("", 原因)。
 
-    ★ 为什么这条路是允许的（§5.1 分层策略）：
+    为什么这条路是允许的（§5.1 分层策略）：
       它不是"从出版社网页抓正文"，而是 **Europe PMC 的开放获取结构化接口**，
       与我们一直在用的 `jats_to_text.py` 是同一条路。**非 OA 一律返回空**，
       绝不拿它去绕付费墙 —— 那种情况走"详细摘要"。
@@ -545,7 +547,7 @@ def build_quality(pool: dict, sources: dict, min_cites: int,
         rev = is_review(rec)
         cited = rec["cited_by_count"]
         core = rec["core_family"]
-        # ★ 必须把刚算出的 is_review **带进去**再评分：
+        # 必须把刚算出的 is_review **带进去**再评分：
         #   priority_of 读的是 rec["is_review"]，而该字段要到下面 rec.update() 才写回。
         #   直接传原始 rec 会让「综述」这一项恒为 0 分 —— 权重最高的 40 分静默失效，
         #   排序退化成"按被引排"，恰好是本次改版要摆脱的行为。
@@ -553,7 +555,7 @@ def build_quality(pool: dict, sources: dict, min_cites: int,
                                   recent_years, this_year)
 
         # ── 入选门槛（v7.2）────────────────────────────────────
-        #   ★ 关键：**"近期"只影响排序，不能单独构成入选理由**。
+        #   关键：**"近期"只影响排序，不能单独构成入选理由**。
         #     若让"近 5 年"单独放行，等于把近五年的参考文献**全部**收进来
         #     （实测 235 条 → 几乎全进），"高质量"就没有意义了。
         #   真正的门槛是：综述 / 核心期刊 / 高被引(仅在设了阈值时) / 强共引。
@@ -581,7 +583,7 @@ def build_quality(pool: dict, sources: dict, min_cites: int,
             "reasons": reasons,
             "priority": prio,
             "priority_parts": parts,
-            # ★ 排序：优先级 → 综述优先 → 共引 → 被引 → 年份新
+            # 排序：优先级 → 综述优先 → 共引 → 被引 → 年份新
             "rank": (-prio, 0 if rev else 1, -len(srcs), -cited,
                      -(rec.get("year") or 0)),
         })
@@ -621,7 +623,7 @@ def gbt(rec: dict) -> str:
     for a in au[:3]:
         names.append(a)
     astr = ", ".join(names) + (", et al." if len(au) > 3 else "")
-    # ★ 作者串以 "et al." 结尾时**不再补句点**，否则会出现 "et al.." 双句点
+    # 作者串以 "et al." 结尾时**不再补句点**，否则会出现 "et al.." 双句点
     #   （[版本变动.md](版本变动.md) ⑦ 修过同一个错，这里保持一致）
     sep = "" if astr.endswith(".") else "."
     title = (rec.get("title") or "").rstrip(".")
@@ -664,7 +666,7 @@ def write_report(quality: dict, sources: dict, top: int = 0) -> pathlib.Path:
                  f"{(r.get('venue') or '—')} | {r.get('year') or '—'} | "
                  f"{r['cited_by_count']} | {r['n_sources']} | {'；'.join(r['reasons'])} |")
     if top and len(items) > top:
-        L.append(f"\n> ⚠ 表内仅列前 {top} 条（共 {len(items)} 条）；全量见 "
+        L.append(f"\n> [WARN] 表内仅列前 {top} 条（共 {len(items)} 条）；全量见 "
                  f"`.work_cdp/refs/high_quality.json`。**这里是有意截断，不是全部。**")
     L.append("")
 
@@ -710,12 +712,12 @@ def self_test() -> int:
         ("Nature Reviews Molecular Cell Biology", "Nature 家族", True),
         ("Science", "Science 家族", True),
         ("Science Advances", "Science 家族", True),
-        ("Science of the Total Environment", "", False),      # ★ 前缀陷阱
+        ("Science of the Total Environment", "", False),      # 前缀陷阱
         ("Cell", "Cell 家族", True),
         ("Cell Reports", "Cell 家族", True),
-        ("Cellulose", "", False),                             # ★ 前缀陷阱
-        ("Cells", "", False),                                 # ★ 前缀陷阱
-        ("Cellular Signalling", "", False),                   # ★ 前缀陷阱
+        ("Cellulose", "", False),                             # 前缀陷阱
+        ("Cells", "", False),                                 # 前缀陷阱
+        ("Cellular Signalling", "", False),                   # 前缀陷阱
         ("Proceedings of the National Academy of Sciences", "PNAS", True),
         ("Journal of the American Chemical Society", "", False),
     ]
@@ -725,7 +727,7 @@ def self_test() -> int:
         ok = (got == want_fam) if want_hit else (got == "")
         if not ok:
             bad += 1
-            print(f"  ✗ core_family({venue!r}) = {got!r}，期望 {want_fam!r}")
+            print(f"  [X] core_family({venue!r}) = {got!r}，期望 {want_fam!r}")
     print(f"核心期刊判定：{len(cases) - bad}/{len(cases)} 通过")
 
     rv = [
@@ -739,7 +741,7 @@ def self_test() -> int:
         got = is_review(rec)
         if got != want:
             bad2 += 1
-            print(f"  ✗ is_review({rec['title']!r} @ {rec['venue']!r}) = {got}，期望 {want}")
+            print(f"  [X] is_review({rec['title']!r} @ {rec['venue']!r}) = {got}，期望 {want}")
     print(f"综述判定：{len(rv) - bad2}/{len(rv)} 通过")
 
     pool = {
@@ -761,7 +763,7 @@ def self_test() -> int:
     assert got_ids == ["W2", "W1"], f"排序错误：{got_ids}（综述 W2 应在最前）"
     assert q["stats"]["候选（高质量）文献数"] == 2, q["stats"]
     assert q["stats"]["其中综述"] == 1, q["stats"]
-    # ★ v7.2 关键不变量：**被引 0 次但近年的核心期刊综述**也必须入选
+    # v7.2 关键不变量：**被引 0 次但近年的核心期刊综述**也必须入选
     #   （旧版 200 次被引门槛会把它整条挡掉 —— 这正是本次改版要修的问题）
     fresh = {"id": "W9", "doi": "10.1/z", "title": "A review of X",
              "year": 2026, "venue": "Nature Reviews Chemistry", "type": "article",
@@ -778,7 +780,7 @@ def self_test() -> int:
     assert "et al." in s and "Nature" in s and "https://doi.org/10.1/a" in s, s
     assert "et al.." not in s, "出现 et al.. 双句点"
     print("GB/T 7714 著录：通过")
-    print("\n✅ 自检全部通过" if bad == 0 and bad2 == 0 else "\n❌ 自检有失败项")
+    print("\n[OK] 自检全部通过" if bad == 0 and bad2 == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 and bad2 == 0 else 1
 
 
@@ -791,7 +793,7 @@ def main() -> int:
     try:
         recent_years = int(_argval("recent-years", "5") or 5)
     except ValueError:
-        print("✗ --recent-years 必须是整数")
+        print("[X] --recent-years 必须是整数")
         return 2
     no_review_ft = "--no-review-fulltext" in sys.argv
     limit = int(_argval("limit-sources", "0") or 0)
@@ -802,7 +804,7 @@ def main() -> int:
 
     recs = load_records()
     if not recs:
-        print("✗ 找不到题录总表 .work_cdp/crossref_all.json")
+        print("[X] 找不到题录总表 .work_cdp/crossref_all.json")
         print("  请先跑阶段 C/D：orcid_extract → fetch_crossref_all → disambiguate")
         return 2
     print(f"作者论文：{len(recs)} 篇" + ("（离线模式，只读缓存）" if OFFLINE else ""))
@@ -819,7 +821,7 @@ def main() -> int:
         json.dumps(pool, ensure_ascii=False, indent=2), encoding="utf-8")
 
     quality = build_quality(pool, sources, min_cites, recent_years=recent_years)
-    # ★ v7.2：为综述补 OA 全文 / 标注证据层级 —— 下游 review 的置信度靠它
+    # v7.2：为综述补 OA 全文 / 标注证据层级 —— 下游 review 的置信度靠它
     ev = enrich_reviews(quality, pool, flag=not no_review_ft)
     quality["evidence_stats"] = ev
     (REFDIR / "high_quality.json").write_text(
@@ -831,7 +833,7 @@ def main() -> int:
 
     if not no_report:
         p = write_report(quality, sources, top=top)
-        print(f"\n✅ 交付物：{p}")
+        print(f"\n[OK] 交付物：{p}")
 
     journal("D2", "refs.backfill", n_sources=len(sources), n_refs=len(all_wids),
             n_quality=quality["stats"]["候选（高质量）文献数"],
@@ -840,9 +842,9 @@ def main() -> int:
             min_citations=min_cites, recent_years=recent_years,
             evidence=ev,
             offline=OFFLINE, api_calls=_CALLS["n"])
-    log.info(f"✓ 阶段 D2 完成 → {REFDIR}")
+    log.info(f"[OK] 阶段 D2 完成 → {REFDIR}")
     if quality["stats"]["作者论文无参考文献记录"]:
-        print(f"⚠ {quality['stats']['作者论文无参考文献记录']} 篇作者论文在 OpenAlex "
+        print(f"[WARN] {quality['stats']['作者论文无参考文献记录']} 篇作者论文在 OpenAlex "
               f"没有参考文献记录 —— 属正常（期刊未存缴），不是流程错误。")
     return 0
 

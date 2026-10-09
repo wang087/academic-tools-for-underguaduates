@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # 全文 PDF 的存放 / 命名 / 去重 / 校验（全流程唯一定义）
 #
-# ★ 为什么单独抽出来：历史上「是否已下载」的判据在两个脚本里各写一遍，
+# 为什么单独抽出来：历史上「是否已下载」的判据在两个脚本里各写一遍，
 #   且只看 `{year}_{doi}.pdf` 一种命名，于是对早期下载的
 #   `{doi}.pdf`（无年份前缀）视而不见 → 重复下载，甚至在
 #   「下载成功但校验不通过」时把**原有好文件删掉**。
@@ -32,6 +32,8 @@ import re
 import sys
 import tempfile
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # 真实 1 页 PDF（勘误 / Author Correction / 简讯）体积通常 > 100 KB；
 # 而「渲染兜底产出的 1 页空壳」「验证页打印」通常 < 60 KB。
 MIN_BYTES = 45000
@@ -39,7 +41,7 @@ ONE_PAGE_MIN_BYTES = 100_000
 
 
 def workdir() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+    return pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 
 # 规范目录名：<作者名>_paper_Exports（见 SKILL.md §7 产出物规范）。
@@ -60,13 +62,13 @@ def _safe_dir_name(s: str) -> str:
 def _exports_candidates(wd: pathlib.Path) -> list[pathlib.Path]:
     """返回候选全文目录，**顺序即优先级**。
 
-    ★ 目录要「以作者命名」（见原始需求），因此名字来源按优先级取：
+    目录要「以作者命名」（见原始需求），因此名字来源按优先级取：
         ① PAPER_EXPORTS_NAME（显式覆盖）
         ② PAPER_AUTHOR      （全流程统一的作者名变量）
         ③ 工作目录名         （历史行为；正常流程里 run_all.sh 建的目录
                               就是 <作者名>，二者一致）
       再 × {规范名 _paper_Exports, 历史名 _Exports}。
-    ★ 把所有候选都列出来（而不是只算一个名字），是为了让**既有产物
+    把所有候选都列出来（而不是只算一个名字），是为了让**既有产物
       无论用的是哪个名字都能被找到**，不会因为改了取名规则就「明明下好了
       却查不到」——那正是 [版本变动.md](版本变动.md) 记录过的老毛病。
     """
@@ -84,7 +86,7 @@ def _exports_candidates(wd: pathlib.Path) -> list[pathlib.Path]:
 
 def exports_dir(wd: pathlib.Path | None = None) -> pathlib.Path:
     global _LEGACY_NOTED
-    # ★ 必须 resolve：相对路径（如 Path(".")）的 .name 为空串，
+    # 必须 resolve：相对路径（如 Path(".")）的 .name 为空串，
     #   会拼出 "_Exports" 这种错误目录，导致「明明下好了却查不到」。
     wd = pathlib.Path(wd).resolve() if wd else workdir()
 
@@ -106,7 +108,7 @@ def exports_dir(wd: pathlib.Path | None = None) -> pathlib.Path:
                 if d is cands[1] and not _LEGACY_NOTED:
                     _LEGACY_NOTED = True
                     sys.stderr.write(
-                        f"ℹ 沿用历史全文目录 {d.name}/（规范名为 {cands[0].name}/）。"
+                        f"[INFO] 沿用历史全文目录 {d.name}/（规范名为 {cands[0].name}/）。"
                         f"如需迁移：把 PDF 移入规范目录即可，流程会自动改用它。\n")
                 return d
         except OSError:
@@ -145,7 +147,11 @@ def title_slug(title: str, maxlen: int = 120) -> str:
     t = re.sub(r"<[^>]+>", " ", title or "")
     t = html.unescape(t)
     t = _WIN_BAD.sub(" ", t)
-    t = re.sub(r"[\s  -​　]+", " ", t).strip(" .-")
+    # 用显式 \uXXXX 转义而不是字面字符：这几个是不可见空白（NBSP / U+2000-U+200B /
+    # 全角空格 U+3000）。写成字面量时，任何「清理不可见字符」的批量处理都会把它们
+    # 一并吃掉，正则静默退化成只剩 \s —— 中文题名里的全角空格不再被归一化，直接
+    # 残留在生成的文件名里。转义写法对这类处理免疫。
+    t = re.sub(r"[\s\u00a0\u2000-\u200b\u3000]+", " ", t).strip(" .-")
     if len(t) > maxlen:
         t = t[:maxlen].rstrip(" .-")
     if t.split(".")[0].strip().upper() in _RESERVED:
@@ -281,21 +287,45 @@ def validate_pdf(path, min_pages: int = 2, min_bytes: int = MIN_BYTES):
         return False, str(e)[:40]
 
 
-def save_pdf(raw: bytes, doi: str, year=None, wd: pathlib.Path | None = None,
-             title: str | None = None):
-    """原子落盘并校验；失败时绝不破坏同名已有有效 PDF。"""
-    p = exports_dir(wd) / f"{stem_for(doi, year, title)}.pdf"
+def save_bytes(raw: bytes, out_path, *, min_pages: int = 2,
+               min_bytes: int = MIN_BYTES):
+    """原子落盘并校验：同目录临时文件写盘 → 校验临时文件 → os.replace 到最终路径。
+
+    返回 (path, why) 或 (None, why)。
+
+    为什么必须这样写、而不是「直写最终路径 + 失败再删」：后者存在一个窗口，
+    期间**最终路径上是一个无效文件**。窗口本身不致命，真正的问题在于它和
+    去重判据相互作用 —— 判据看的是磁盘上有没有这个文件，于是「写出坏文件
+    → 校验失败 → 删掉 → 下一轮判定为缺失 → 重下」构成闭环，同一篇取不到的
+    论文会被反复重下，反复消耗同一站点的访问配额，进而可能把整个站点打进
+    site_fail_limit 熔断。改成「校验通过才落到最终路径」后，最终路径要么不存在、
+    要么是有效文件，坏内容从头到尾只存在于临时文件里。
+
+    校验不通过时只清理临时文件，**绝不触碰同名已有文件**（历史上曾因去重漏判
+    而误删已下好的 PDF）。
+    """
+    p = pathlib.Path(out_path)
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{p.stem}.", suffix=".part", dir=str(p.parent))
     tmp = pathlib.Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(raw)
-        ok, why = validate_pdf(tmp)
+        ok, why = validate_pdf(tmp, min_pages=min_pages, min_bytes=min_bytes)
         if not ok:
             return None, why
         os.replace(tmp, p)
-        register_pdf(doi, p, wd)
         return p, why
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def save_pdf(raw: bytes, doi: str, year=None, wd: pathlib.Path | None = None,
+             title: str | None = None):
+    """原子落盘并校验；失败时绝不破坏同名已有有效 PDF。"""
+    p = exports_dir(wd) / f"{stem_for(doi, year, title)}.pdf"
+    got, why = save_bytes(raw, p)
+    if got is None:
+        return None, why
+    register_pdf(doi, p, wd)
+    return p, why

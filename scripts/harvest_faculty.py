@@ -38,6 +38,8 @@ import time
 import urllib.error
 import urllib.request
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # ── UTF-8 兜底（幂等）──
 
 
@@ -78,7 +80,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 (academic-use)")
 
@@ -138,10 +140,15 @@ def fetch(url: str, timeout: int = 30, retries: int = 3) -> str:
 def load_config(path: pathlib.Path | None = None) -> dict:
     p = pathlib.Path(path) if path else CONFIG_PATH
     if not p.exists():
-        raise SystemExit(f"✗ 找不到配置文件 {p}")
+        raise SystemExit(f"[X] 找不到配置文件 {p}")
     cfg = json.loads(p.read_text(encoding="utf-8"))
     if "universities" not in cfg:
-        raise SystemExit(f"✗ 配置文件缺少 universities 段：{p}")
+        raise SystemExit(f"[X] 配置文件缺少 universities 段：{p}")
+    # 复用模式：引擎分派型 list_type 由代码提供，避免配置缺项导致 KeyError
+    cfg.setdefault("list_types", {}).setdefault(
+        "engine_dispatch",
+        {"_desc": "引擎分派：解析规则见 scripts/faculty_engines.py",
+         "_engine_dispatch": True})
     return cfg
 
 
@@ -162,7 +169,7 @@ def resolve_unit(cfg: dict, key: str) -> tuple[str, str, dict]:
         sk, uk = sk.strip(), uk.strip()
         if sk in unis and uk in unis[sk].get("units", {}):
             return sk, uk, unis[sk]["units"][uk]
-        raise SystemExit(f"✗ 找不到 {k}；用 --list-units 看可选项")
+        raise SystemExit(f"[X] 找不到 {k}；用 --list-units 看可选项")
 
     # ② 学校 key 且只有一个学院 → 直接用它
     if k in unis:
@@ -170,7 +177,7 @@ def resolve_unit(cfg: dict, key: str) -> tuple[str, str, dict]:
         if len(units) == 1:
             uk = next(iter(units))
             return k, uk, units[uk]
-        raise SystemExit(f"✗ {k} 有多个学院，请用 `{k}:<学院key>`；"
+        raise SystemExit(f"[X] {k} 有多个学院，请用 `{k}:<学院key>`；"
                          f"可选：{list(units)}")
 
     # ③ 中文名 / 别名 / 学院名 模糊匹配
@@ -185,7 +192,7 @@ def resolve_unit(cfg: dict, key: str) -> tuple[str, str, dict]:
             if len(units) == 1:
                 uk = next(iter(units))
                 return sk, uk, units[uk]
-    raise SystemExit(f"✗ 无法识别 {key!r}；用 --list-units 看可选项")
+    raise SystemExit(f"无法识别 {key!r}；用 --list-units 看可选项")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -205,6 +212,12 @@ _NOT_DIRECTION = re.compile(
     r"|@[A-Za-z0-9.\-]+\.(?:com|cn|edu|org)"             # 邮箱
     r"|(?:国家自然科学基金|青年科学基金|面上项目|基金项目|"
     r"重点研发计划|973|863)"                              # 基金
+    r"|(?:校长|副校长|院长|副院长|所长|副所长|系主任|党委书记|"
+    r"学部委员|政协委员|人大代表|先进工作者)"              # 职务 / 荣誉
+    r"|(?:讲席教授|特聘教授|特任教授|兼职教授|客座教授|博导|博士生导师|"
+    r"总编辑|副总编辑|Associate\s+Editor|编委)"            # 头衔
+    r"|(?:Google\s+Scholar|总引用|引用频次|H\s*指数)"      # 计量
+    r"|(?:国家科学技术进步奖|自然科学奖|技术发明奖|杰出青年基金获得者)"
     r"|^(?:招生|招聘|报考|招收)方向"
     r"|(?:主要学术成就|学术成就)")
 
@@ -224,16 +237,16 @@ _ACHIEVE = re.compile(
 def strip_fund(t: str) -> str:
     """只剥掉条目里的**基金/项目括号**，保留中文主干。
 
-    ★ 为什么必须有这一步：实测（USTC 涂晓明）三条方向写成
+    为什么必须有这一步：实测（USTC 涂晓明）三条方向写成
         「锥体虫细胞周期调控的分子机制研究（国家自然科学基金项目,中科院创新项目子课题）」
       括号里是基金信息应当去掉，但**主干是真实研究方向**。
       若因为"含基金字样"整条丢弃，会误杀真方向（实测丢过 3 条）。
 
-    ⛔ 调用顺序很重要：**先 strip_fund 再 is_direction**。
+    [STOP] 调用顺序很重要：**先 strip_fund 再 is_direction**。
       is_direction 保留了「含基金词即拒」的兜底（防其它形式漏过），
       顺序反了就会整条误杀。
 
-    ⛔ 括号内可能**含逗号/分号**（如「（国家自然科学基金项目,中科院创新项目子课题）」），
+    [STOP] 括号内可能**含逗号/分号**（如「（国家自然科学基金项目,中科院创新项目子课题）」），
       而方向分隔符恰恰就是逗号分号 —— 若先按分隔符切，括号会被切碎，
       留下 `中科院创新项目子课题）` 这种残缺片段（实测出现过）。
       因此**必须整条先剥括号，再交给上层按分隔符切**。
@@ -248,13 +261,13 @@ def strip_fund(t: str) -> str:
         t = new
     # 兜底：若还剩**未闭合**的括号残片（说明原文括号不配对），把整段尾巴切掉
     t = re.sub(r"[（(][^（()）]*$", "", t)
-    return squash(t).strip("　 ·-—，,。.；;：:、")
+    return squash(t).strip("  ·-—，,。.；;：:、")
 
 
 def is_direction(t: str) -> bool:
     """判断一段文本像不像「研究方向」。
 
-    ★ 这是**唯一**判据入口 —— harvest_faculty / harvest_colleges /
+    这是**唯一**判据入口 —— harvest_faculty / harvest_colleges /
       harvest_mentors 三处共用同一套规则，避免标准漂移
       （曾经漂移导致 9 条残留漏网）。
     """
@@ -292,19 +305,19 @@ def split_directions(raw: str, cfg: dict) -> list[str]:
     """把「方向a，方向b、方向c」拆成条目并按判据过滤。"""
     if not raw:
         return []
-    # ★ 关键顺序：**先整条剥基金括号，再按分隔符切**。
+    # 关键顺序：**先整条剥基金括号，再按分隔符切**。
     #   括号内可能含逗号/分号（「（国家自然科学基金项目,中科院创新项目子课题）」），
     #   先切会把括号切碎，留下 `中科院创新项目子课题）` 这种残片（实测出现过）。
     raw = strip_fund(raw)
 
     pat = (cfg.get("parse_rules", {}).get("direction_split")) or "[，,、；;]"
-    # ★ 补充分隔符：站群里有用「·」「•」「/」「|」分隔的
+    # 补充分隔符：站群里有用「·」「•」「/」「|」分隔的
     #   实测周如鸿页写「计算生物学 · 生物物理学 · 人工智能+」，
     #   只按逗号/分号切会整条留下，去重合并时又和另一种写法并存 → 重复条目。
     pat = pat.rstrip("]") + r"·•・|｜/／]"
     out = []
     for part in re.split(pat, raw):
-        t = squash(part).strip("　 ·-—，,。.；;：:、")
+        t = squash(part).strip("  ·-—，,。.；;：:、")
         # 去掉可能带的「研究方向：」前缀
         t = re.sub(r"^(?:主要)?研究(?:方向|领域|兴趣)\s*[：:]\s*", "", t)
         # 去掉句末的「等」「等研究」这类尾巴
@@ -319,7 +332,7 @@ def split_directions(raw: str, cfg: dict) -> list[str]:
 def split_name_title(name_raw: str, cfg: dict) -> tuple[str, str]:
     """从「易文  教授」「徐良 百人计划研究员」里拆出 (姓名, 职称)。
 
-    ★ 实测坑：浙大把职衔写成「百人计划研究员」「求是特聘教授」这类**复合词**，
+    实测坑：浙大把职衔写成「百人计划研究员」「求是特聘教授」这类**复合词**，
       若只按最长的单个关键词匹配，会出现
         「朱强 百人计划 研究员」→ 姓名="朱强 百人计划"、职称="研究员"
       姓名里残留"百人计划"。因此把常见**职衔前缀**一并识别。
@@ -343,11 +356,11 @@ def split_name_title(name_raw: str, cfg: dict) -> tuple[str, str]:
         m = re.search(rf"\s*(?:{PREFIX})?\s*{re.escape(kw)}\s*$", t)
         if m:
             title = squash(t[m.start():])
-            name = t[: m.start()].strip(" 　·-—")
+            name = t[: m.start()].strip("  ·-—")
             # ② 姓名里若还残留裸前缀/标记词，再去一次
-            name = re.sub(rf"\s*{PREFIX}\s*$", "", name).strip(" 　·-—")
+            name = re.sub(rf"\s*{PREFIX}\s*$", "", name).strip("  ·-—")
             name = re.sub(rf"[\s（(]*{MARK}[\s）)]*\s*$", "", name).strip()
-            name = name.strip(" 　·-—（）()")
+            name = name.strip("  ·-—（）()")
             return name, title
     # 没匹配到职称词时，也把标记词清掉
     t = re.sub(rf"[\s（(]*{MARK}[\s）)]*\s*", " ", t).strip()
@@ -360,7 +373,7 @@ def split_name_title(name_raw: str, cfg: dict) -> tuple[str, str]:
 def _abs_url(base: str, url: str) -> str:
     """把相对 URL 补成绝对 URL。
 
-    ★ 实测坑：浙大兼聘/支撑队伍列表里有 `<a href="/clscn/2022/0920/…/page.htm">`
+    实测坑：浙大兼聘/支撑队伍列表里有 `<a href="/clscn/2022/0920/…/page.htm">`
       这种**站内相对路径**，直接拿去 fetch 会失败（缺主机名），
       导致这些人被静默跳过、方向永远补不到。
     """
@@ -379,7 +392,7 @@ def _abs_url(base: str, url: str) -> str:
 def _clean_name(name: str) -> str:
     """规范姓名：去掉站群为排版插入的**字间空格**。
 
-    ★ 实测：站点把两字姓名排成「周 琦」「叶 升」「张 龙」，
+    实测：站点把两字姓名排成「周 琦」「叶 升」「张 龙」，
       而另一处又写「周琦」—— 不去空格会导致同一个人被当成两个，
       跨栏目去重失效。
     """
@@ -390,9 +403,84 @@ def _clean_name(name: str) -> str:
     return t
 
 
+def _browser_fetch(page: str, eng: str, section: dict, base: str,
+                   cfg: dict) -> str:
+    """为 render / interactive 家族准备「可被引擎解析的 page 内容」。
+
+    · interactive：调 faculty_interact 驱动浏览器**点击分类**枚举教师，
+      把结果以 `__INTERACTIVE_RESULT__` 标记注入 page，供 eng_interactive 解析。
+    · render：调 faculty_render 整页渲染，把渲染后的 HTML 直接返回。
+
+    两条路都**优雅降级**：浏览器不可用时返回空串并打印原因，
+    由上层如实报告"该栏位未取到"，而不是伪造数据。
+    """
+    u = section.get("_url") or (base.rstrip("/") + section.get("path", ""))
+    try:
+        if eng == "interactive":
+            from faculty_interact import CdpUnavailable, enumerate_by_clicking
+            try:
+                res = enumerate_by_clicking(
+                    u,
+                    click_selector=section.get("click_selector", "a.col_item_link"),
+                    card_selector=section.get("card_selector", ""),
+                    wait=float(section.get("click_wait", 3.0)),
+                    port=int(os.environ.get("CDP_PORT", "9222")),
+                )
+            except CdpUnavailable as e:
+                print(f"  [WARN] 交互枚举不可用（{e}）；该栏位未取到", file=sys.stderr)
+                return ""
+            n = len(res.get("teachers") or [])
+            print(f"  交互枚举：点击 {res.get('clicks', 0)} 个分类 → {n} 人")
+            if not n:
+                return ""
+            return "__INTERACTIVE_RESULT__\n" + json.dumps(res, ensure_ascii=False)
+        if eng == "render":
+            from faculty_render import crawler_available, render_for_engine
+            if not crawler_available():
+                print("  [WARN] 未找到 robot/crawl_site.py；该栏位未取到", file=sys.stderr)
+                return ""
+            html = render_for_engine(
+                u, virtual_time_budget=int(section.get("virtual_time_budget", 12000)))
+            if not html:
+                print("  [WARN] 渲染未返回内容；该栏位未取到", file=sys.stderr)
+            return html
+    except Exception as e:                       # noqa: BLE001
+        print(f"  [WARN] 浏览器链路异常：{type(e).__name__}: {e}", file=sys.stderr)
+    return ""
+
+
 def parse_list_page(page: str, lt: dict, cfg: dict, section: dict,
                     base: str = "") -> list[dict]:
-    """按 list_type 的规则解析列表页 → [{name,title,directions,email,url}]。"""
+    """按 list_type 的规则解析列表页 → [{name,title,directions,email,url}]。
+
+    `engine_dispatch`（复用模式）：不在此处写任何站点特有正则，
+      而是按 `section["engine"]` 交给 `faculty_engines.py` 的家族引擎。
+      新增学校因此**只需在配置里写引擎名**，不必改本脚本。
+    """
+    # ── 复用模式：家族引擎分派 ──
+    if lt.get("_engine_dispatch") or section.get("engine"):
+        eng = section.get("engine") or ""
+        if not eng:
+            return []
+        try:
+            from faculty_engines import parse_with  # type: ignore
+        except Exception:  # pragma: no cover
+            return []
+        # 需要真实浏览器的两个家族（render / interactive）：
+        #   页面上拿不到数据，必须先驱动浏览器。
+        #   §5.1：师资页属公开元数据 → 直连是第一层；此处是**第一层失败后的转 CDP 分支**。
+        if eng in ("render", "interactive"):
+            page = _browser_fetch(page, eng, section, base, cfg)
+            if not page:
+                return []
+        got = parse_with(eng, page, base, section.get("name", ""), cfg)
+        for r in got:
+            # 引擎已给出方向（列表页含方向）时不必再进详情页
+            if r.get("_dir_from_title"):
+                r["direction_source"] = "列表页"
+            r.pop("_block", None)
+        return got
+
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -442,7 +530,18 @@ def parse_list_page(page: str, lt: dict, cfg: dict, section: dict,
 
 
 def parse_page_count(page: str, lt: dict) -> int:
-    """从「页码 1 / 3」推断总页数（容忍 &nbsp; 与标签）。"""
+    """从「页码 1 / 3」推断总页数（容忍 &nbsp; 与标签）。
+
+    引擎链路（复用模式）改用 faculty_engines.page_count：
+      除「页码 x/y」外还能识别 WebPlus 的 `listN.htm` 尾页链接 ——
+      实测中科大化学系/复旦生科院只给 `尾页 /js/list3.htm`，没有「页码」字样。
+    """
+    if lt.get("_engine_dispatch"):
+        try:
+            from faculty_engines import page_count as _pc  # type: ignore
+            return _pc(page)
+        except Exception:  # pragma: no cover
+            pass
     pat = lt.get("pages_re") or r"页码[^0-9]{0,12}(\d+)\s*/\s*(\d+)"
     txt = strip_tags(page)
     m = re.search(pat, txt)
@@ -467,6 +566,12 @@ def page_url(base: str, path: str, page_no: int, paging: str) -> str:
 
     站群惯例：第 1 页 list.htm，第 2 页起 list2.htm、list3.htm…
     """
+    # 跨主机的绝对 URL：原样使用（分页交给 paging 规则处理）
+    if path.startswith("http"):
+        if paging == "single" or page_no <= 1:
+            return path
+        head, _, tail = path.rpartition(".htm")
+        return f"{head}{page_no}.htm{tail}" if head else path
     d = path.rsplit("/", 1)[0]                  # 去掉 list.htm 得到目录
     if paging == "single":
         return f"{base}{path}"
@@ -485,7 +590,7 @@ def page_url(base: str, path: str, page_no: int, paging: str) -> str:
 def dedupe_people(people: list[dict], log=None) -> list[dict]:
     """按姓名合并跨栏目重复。
 
-    ★ 为什么必须合并：浙大把同一人同时列在「人才队伍」（求是特聘/百人计划）
+    为什么必须合并：浙大把同一人同时列在「人才队伍」（求是特聘/百人计划）
       和其所属「研究所」下 —— 实测 209 条记录里只有 184 个唯一姓名，
       25 条重复。若按「栏目+姓名」去重，报告里同一人会出现两次。
 
@@ -510,7 +615,7 @@ def dedupe_people(people: list[dict], log=None) -> list[dict]:
         if sec and sec not in cur["sections"]:
             cur["sections"].append(sec)
         # 方向并集。
-        # ★ 两个栏目的**表述可能不同**（一个写「计算生物学 · 生物物理学」，
+        # 两个栏目的**表述可能不同**（一个写「计算生物学 · 生物物理学」，
         #   另一个已拆成数组）。合并时对**入库的字符串再拆一次**，
         #   否则会出现「计算生物学 · 生物物理学」与「计算生物学」并存，
         #   看似两条实则重复。实测周如鸿页如此。
@@ -528,7 +633,7 @@ def dedupe_people(people: list[dict], log=None) -> list[dict]:
 
     out = [merged[k] for k in order]
     if log and len(out) != len(people):
-        log.info(f"✓ 跨栏目去重：{len(people)} 条 → {len(out)} 人"
+        log.info(f"[OK] 跨栏目去重：{len(people)} 条 → {len(out)} 人"
                  f"（合并 {len(people) - len(out)} 条重复）")
     return out
 
@@ -549,11 +654,18 @@ def stage_list(unit: dict, d: pathlib.Path, log, cfg: dict,
             continue
         paging = sec.get("paging", "auto")
         log.info(f"[{sec['name']}] 抓列表 …")
+        # 把本栏目的绝对 URL 挂到 section 上，供需要浏览器的家族
+        # （render / interactive）使用 —— 它们在直连拿不到数据时要自己去驱动浏览器。
+        sec["_url"] = page_url(base, sec["path"], 1, paging)
         try:
-            first = fetch(page_url(base, sec["path"], 1, paging))
+            first = fetch(sec["_url"])
         except Exception as e:
-            log.warn(f"  ⚠ 首页失败：{e}")
-            continue
+            log.warn(f"  [WARN] 首页失败：{e}")
+            # 直连失败但栏目声明了浏览器家族 → 仍给一次机会（§5.1 转 CDP）
+            if sec.get("engine") in ("render", "interactive"):
+                first = ""
+            else:
+                continue
         (raw / f"{safe_filename(sec['name'])}_1.html").write_text(first, encoding="utf-8")
 
         npages = 1 if paging == "single" else parse_page_count(first, lt)
@@ -566,7 +678,7 @@ def stage_list(unit: dict, d: pathlib.Path, log, cfg: dict,
             try:
                 page = fetch(page_url(base, sec["path"], p, paging))
             except Exception as e:
-                log.warn(f"  ⚠ 第 {p} 页失败：{e}")
+                log.warn(f"  [WARN] 第 {p} 页失败：{e}")
                 continue
             (raw / f"{safe_filename(sec['name'])}_{p}.html").write_text(page, encoding="utf-8")
             g = parse_list_page(page, lt, cfg, sec, base)
@@ -585,7 +697,7 @@ def stage_list(unit: dict, d: pathlib.Path, log, cfg: dict,
     people = dedupe_people(people, log)
     (d / "faculty_list.json").write_text(
         json.dumps(people, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info(f"✓ 列表完成：{len(people)} 人"
+    log.info(f"[OK] 列表完成：{len(people)} 人"
              f"（有方向 {sum(1 for p in people if p['directions'])}）")
     return people
 
@@ -595,7 +707,7 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
     """对需要进详情页的栏目补抓研究方向。"""
     lf = d / "faculty_list.json"
     if not lf.exists():
-        raise SystemExit(f"✗ 缺少 {lf}；先跑 --stage=list")
+        raise SystemExit(f"[X] 缺少 {lf}；先跑 --stage=list")
     people = json.loads(lf.read_text(encoding="utf-8"))
 
     df = d / "faculty_detail.json"
@@ -603,6 +715,15 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
     if df.exists():
         try:
             for rec in json.loads(df.read_text(encoding="utf-8")):
+                # 只把**真正抓过**的人算作已完成。
+                #   实测坑：用 `--limit=8` 试跑时，合并阶段会把**没抓到的其余人**
+                #   一并写成 status=no_direction（why 标记为"未补详情"）。
+                #   若不剔除，随后跑全量会认为"都已完成"而**只补 0 人** ——
+                #   试跑一次就永久废掉这次采集。复用模式必须能先小样试跑。
+                if rec.get("why") == _NEVER_FETCHED_WHY:
+                    continue
+                if rec.get("status") not in ("ok", "no_direction"):
+                    continue
                 done[rec["name"] + "|" + rec.get("section", "")] = rec
         except Exception:
             pass
@@ -629,13 +750,24 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
         (raw / f"{slug}.html").write_text(page, encoding="utf-8")
 
         dirs = extract_directions_from_detail(page, cfg)
+        dir_src = "详情页正文"
+        if not dirs and unit.get("list_type") == "engine_dispatch":
+            # 复用模式：详情页模板更多样（页签式/行内式/正文式），
+            #   用引擎库的通用抽取再试一次，避免"抓到了但解析不出"。
+            try:
+                from faculty_engines import extract_directions_detail  # type: ignore
+                dirs = extract_directions_detail(page, cfg)
+                if dirs:
+                    dir_src = "详情页正文（引擎抽取）"
+            except Exception:  # pragma: no cover
+                pass
         rec = {**p, "directions": dirs}
         if dirs:
             rec["status"] = "ok"
-            rec["direction_source"] = "详情页正文"
+            rec["direction_source"] = dir_src
             hit += 1
         else:
-            # ★ 如实分类原因：区分「网站没填」与「解析不到」，
+            # 如实分类原因：区分「网站没填」与「解析不到」，
             #   使用者才知道该不该换个方法再抓。
             reason = classify_no_direction(page)
             rec["status"] = "no_direction"
@@ -656,28 +788,86 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
             merged.append(rec)
         else:
             p.setdefault("status", "ok" if p.get("directions") else "no_direction")
-            p.setdefault("why", "" if p.get("directions") else "列表页无方向且未补详情")
+            p.setdefault("why", "" if p.get("directions") else _NEVER_FETCHED_WHY)
             p.setdefault("direction_source", "列表页" if p.get("directions") else "")
             merged.append(p)
 
     df.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
     withdir = sum(1 for r in merged if r.get("directions"))
-    log.info(f"✓ 详情完成：{withdir}/{len(merged)} 人有研究方向")
+    log.info(f"[OK] 详情完成：{withdir}/{len(merged)} 人有研究方向")
     return merged
 
 
 # 详情页方向线索词（比列表页宽松：允许"及内容"变体与独立成行）
+# 实测三种写法都要认：
+#   ① 「研究方向：…」   标签 + 冒号
+#   ② 「主要研究方向是…」标签 + 系动词
+#   ③ 「主要研究兴趣利用冷冻电镜解析…」**标签与正文直接相连、无任何分隔符**
+#      （UISTC 王雪娟 / 江维 页实测）；③ 必须放在最后，且用后继字符
+#      排除「研究领域」这类会被前缀吃掉的相邻词。
 _LEAD = re.compile(
     r"(?:课题组|实验室|团队)?\s*(?:主要|目前|当前)?\s*"
-    r"(?:研究(?:方向|领域|兴趣|内容|方向及内容)|科研(?:方向|领域))\s*"
+    # 长标签必须排在短标签**前面**：Python 的 `|` 是左侧优先，
+    #   若先写 `研究(?:方向|领域|兴趣|…)`，遇到「研究兴趣和方向」
+    #   会先在 `研究兴趣` 处匹配成功，`和方向` 就留在正文里了
+    #   （实测 潘峰「研究兴趣和方向疼痛表型的识别…」）。
+    r"(?:研究(?:兴趣和方向|方向和兴趣|方向及内容|兴趣及方向|方向及兴趣)|"
+    r"研究(?:方向|领域|兴趣|内容)|"
+    r"科研(?:方向|领域))\s*"
+    r"(?:[和及与]\s*(?:方向|领域|内容))?\s*"
     r"(?:主要)?\s*(?:为|是|包括|有|如下|：|:)"
-    r"|^(?:主要)?研究(?:方向|领域|兴趣|内容)\s*$",
+    r"|^(?:主要)?研究(?:方向|领域|兴趣|内容)\s*$"
+    r"|(?:主要|目前|当前)?研究(?:方向|兴趣|内容)"
+    r"(?:[和及与]\s*(?:方向|领域|内容))?"
+    r"(?!\s*[：:为是])\s*(?=\S)",
     re.I | re.M)
 _SECTION_STOP = re.compile(
     r"^(?:代表性?(?:学术)?论文|主要论文|发表文章|已发表文章|论文列表|"
     r"招生招聘|招生信息|联系方式|获奖信息|科研项目|Selected\s+Publications)",
     re.I)
 _NUM_ITEM = re.compile(r"^\s*[（(]?\s*[1-9]\d?\s*[)）、.．]\s*\S")
+
+# ── 「研究兴趣」段的结束判据（见 _trim_interest_segment）────────────
+# ① 行内出现的终止小标题（不要求在行首 —— 实测常与正文连排）
+_STOP_HEAD_ANY = re.compile(
+    r"(?:代表性?(?:学术)?论著|代表性?(?:学术)?论文|主要论文|发表文章|"
+    r"已发表文章|已发表论文|已发表论著|论文列表|部分学术论文|学术论文|"
+    r"主要论著|代表性成果|研究成果|"
+    r"承担(?:的)?(?:科研)?项目|科研项目|研究项目|"
+    r"学术经历|教育经历|工作经历|学习和工作经历|获奖(?:情况|信息)|"
+    r"教学情况|学生培养|招生(?:信息|招聘)|联系方式|基本信息|"
+    r"个人简介|专利|Selected\s+Publications|Publications)\s*[：:]?")
+# ② 自述式简介起点。实测三种写法：
+#    「刘北明，教授，博士生导师」  姓名+逗号+职称
+#    「丁勇 中国科学技术大学生命科学院教授、博士生导师」 姓名+单位+职称
+#    「翁建平 安徽医科大学校长，中国科学技术大学讲席教授」 姓名+职务
+_BIO_HEAD = re.compile(
+    r"[\u4e00-\u9fff]{2,4}\s*[，,]\s*"
+    r"(?:特任|讲席|兼职|客座)?(?:教授|研究员|副教授|副研究员|讲师|院士|"
+    r"博导|博士生导师|校长|院长|主任|所长)"
+    r"|[\u4e00-\u9fff]{2,4}\s*[，,]?\s*"
+    r"(?:中国科学技术大学|清华大学|北京大学|复旦大学|浙江大学|"
+    r"上海交通大学|南京大学|安徽医科大学)[^\n]{0,24}?"
+    r"(?:教授|研究员|副教授|讲师|院士|校长|院长)"
+    r"|[\u4e00-\u9fff]{2,4}\s+[^\n]{0,20}?"
+    r"(?:大学|学院|研究院|研究所)[^\n]{0,16}?(?:教授|研究员|副教授)")
+# ③ 履历词（毕业 / 学位 / 博士后 / 受聘 / 任职 …）
+_BIO_CUE = re.compile(
+    r"(?:毕业于|获(?:得)?[^。；;]{0,12}(?:学[士位]|博士|硕士|学位)|"
+    r"博士后|受聘于|历任|先后(?:担任|在)|进入科大工作|"
+    r"发表于|发表论文\s*\d+\s*余?篇|总引用|学术期刊发表)")
+# ④ **孤立的职称串**：句末标点之后紧跟「特任教授 博导」「教授 博士生导师」
+#    这类没有姓名的头衔行。实测王雪娟页：「…的分子机制。特任教授 博导 合肥微尺度…」
+#    方向段在此已结束，但 ③ 的「毕业于」在更后面，会导致职称被并进方向条目、
+#    进而被 is_direction 整条否掉 → 该页方向变空（假「官网无该栏位」）。
+_TITLE_RUN = re.compile(
+    r"(?:[。.；;]|(?<=[\u4e00-\u9fff)）])\s*)"
+    r"(?=(?:特任|讲席|特聘|兼职|客座)?"
+    r"(?:教授|研究员|副教授|副研究员|讲师|院士|博导|博士生导师)"
+    r"(?:[\s、，,]+(?:特任|讲席|特聘|兼职|客座)?"
+    r"(?:教授|研究员|副教授|副研究员|讲师|院士|博导|博士生导师|"
+    r"国家\S{0,8}?研究员|研究员))*[\s、，,]*"
+    r"(?:\S{0,30}?(?:研究员|博导|教授)|$))")
 
 
 def _slice_balanced_div(page: str, start: int) -> str:
@@ -694,7 +884,7 @@ def _slice_balanced_div(page: str, start: int) -> str:
 
 
 # 「官网确实没有研究方向」的原因分类
-#   ★ 为什么要分类：使用者最常问的是「换个方法还能不能抓到」。
+#   为什么要分类：使用者最常问的是「换个方法还能不能抓到」。
 #     把「网站没填」与「解析不到」区分开，才能回答这个问题。
 _NO_HOMEPAGE = ("你访问的主页不存在", "没有上线发布", "遇到错误啦")
 _EMPTY_MARKERS = ("暂无内容", "暂无信息", "尚未填写", "No content")
@@ -710,11 +900,17 @@ _NO_DIR_REASON_CN = {
     "fetch_failed": "页面抓取失败",
 }
 
+# 「尚未抓取」的标记 —— 与「抓了但网站没填」必须区分：
+#   · 前者是**可续跑**的（下次全量会补）
+#   · 后者是**数据源固有缺失**（再抓也没有）
+# 混为一谈会导致 --limit 试跑一次就永久跳过其余人。
+_NEVER_FETCHED_WHY = "列表页无方向且未补详情"
+
 
 def classify_no_direction(page: str) -> str:
     """判定「没有研究方向」的**具体原因**。
 
-    ★ 实测价值（USTC 生医部 237 人）：130 人「无方向」中，
+    实测价值（USTC 生医部 237 人）：130 人「无方向」中，
       128 人是网站上**真的没填**（页签是 `<p>暂无内容</p>` 或只有空占位注释），
       2 人主页根本没发布。这是**数据源的固有缺失**，不是解析能力问题；
       如实分类可避免使用者误以为"再爬一次就能拿到"。
@@ -723,7 +919,7 @@ def classify_no_direction(page: str) -> str:
     if any(mk in text for mk in _NO_HOMEPAGE):
         return "no_homepage"
 
-    # ★ 必须先去注释：实测有页面全页只有一句 `<!--研究方向-->` 占位注释，
+    # 必须先去注释：实测有页面全页只有一句 `<!--研究方向-->` 占位注释，
     #   不过滤注释会被误判成"页面有研究方向字样"。
     visible = re.sub(r"<!--.*?-->", " ", page, flags=re.S)
     if "研究方向" not in visible:
@@ -737,6 +933,50 @@ def classify_no_direction(page: str) -> str:
     if any(mk in text for mk in _EMPTY_MARKERS):
         return "empty_panel"
     return "detail_no_lead"
+
+
+def _trim_interest_segment(seg: str) -> str:
+    """把「研究兴趣」正文截到**本栏位真正结束处**。
+
+    为什么需要：不少页面把研究兴趣写成**无编号**的一段
+    （实测 USTC「主要研究兴趣 : A；B。早期工作… 刘北明，教授，博士生导师。
+      1989 年毕业于… 代表性论著：Lau, P.-M., Zucker, R. S. & …」），
+    此时抽取走 split_directions 兜底分支。若直接喂 tail[:400]，
+    这段窗口会**越过研究兴趣、吃进个人简介与论文列表**，于是把
+    「教授」「博士生导师」甚至 `Lau`/`Zucker`/`Springer` 当成研究方向
+    （实测 刘北明 15 条里 7 条是这类噪声，全学部 19/126 人受影响）。
+
+    截断依据按优先级：
+      ① 显式的终止小标题（代表性论著 / 承担项目 / 联系方式 …）
+      ② 自述式简介起点：「<姓名>，教授/研究员/特聘教授…」这类
+         姓名紧跟职称的行，通常就是研究兴趣段的自然结尾
+      ③ 兜底：首个句末出现「毕业于 / 获…学位 / 博士后」等履历词的位置
+    """
+    if not seg:
+        return ""
+    cut = len(seg)
+
+    # ① 显式小标题
+    m = _SECTION_STOP.search(seg) or _STOP_HEAD_ANY.search(seg)
+    if m:
+        cut = min(cut, m.start())
+
+    # ② 姓名 + 职称（自述简介的起点）
+    m = _BIO_HEAD.search(seg)
+    if m:
+        cut = min(cut, m.start())
+
+    # ③ 履历词
+    m = _BIO_CUE.search(seg)
+    if m:
+        cut = min(cut, m.start())
+
+    # ④ 孤立的职称串（句末标点 + 头衔行）
+    m = _TITLE_RUN.search(seg)
+    if m:
+        cut = min(cut, m.end())
+
+    return seg[:cut].strip(" \t\u00a0；;，,。.、")
 
 
 def extract_directions_from_detail(page: str, cfg: dict) -> list[str]:
@@ -761,7 +1001,11 @@ def extract_directions_from_detail(page: str, cfg: dict) -> list[str]:
     m = _LEAD.search(body)
     if not m:
         return []
-    tail = body[m.end():].lstrip("　 \t：:\n")
+    tail = body[m.end():].lstrip("  \t：:\n")
+    # 先截到本栏位真正结束处，再做行扫描 / 兜底切分。
+    # 实测：无编号的行内式页面（「主要研究兴趣 : A；B。早期工作… 姓名，教授…」）
+    # 若不截断，兜底分支会把个人简介与论文列表一并切进方向条目。
+    tail = _trim_interest_segment(tail)
 
     picked, blanks, scanned, intro = [], 0, 0, ""
     for ln in tail.split("\n"):
@@ -795,13 +1039,93 @@ def extract_directions_from_detail(page: str, cfg: dict) -> list[str]:
                        r"重点研发|面上项目|中科院|资助)[^（()）]*[)）]", "", t)
             t = re.split(r"(?:论文(?:发表|列表)|发表论文|SCI\s*论文|代表性论文|"
                          r"已发表|主持(?:国家|项目)|相关研究工作|研究成果)", t)[0]
-            t = t.strip("　 ·-—，,。.；;：:、")
+            t = t.strip("  ·-—，,。.；;：:、")
             if is_direction(t) and t not in out:
                 out.append(t)
             if len(out) >= 12:
                 break
+        # 行扫描只按 \n 切：编号条目**挤在同一行**时（实测 申勇
+        #   「研究兴趣及方向：1) … 2) … 3) …」），整行会变成**一条**超长条目。
+        #   此时按行内编号就地重切。
+        if len(out) == 1 and _has_inline_numbering(tail):
+            inline = _split_inline_numbered(tail)
+            if len(inline) > len(out):
+                out = inline
     else:
-        out = split_directions(intro or tail[:400], cfg)
+        # 兜底 A（**优先**）：编号条目挤在同一行
+        #   （实测 申勇「研究兴趣及方向：1) … 2) … 3) …」、
+        #     郭傲「…聚焦在：1）…；2）…；3）…；4）…」）。
+        #   这批页面里方向正文本身含「、」「；」，先走 split_directions
+        #   会把一条方向按顿号切碎（郭傲 4 条被切成 11 条碎片）。
+        #   编号是比顿号更强的结构信号 —— 有编号时**以编号为准**。
+        if _has_inline_numbering(tail):
+            out = _split_inline_numbered(tail)
+        else:
+            out = split_directions(intro or tail[:400], cfg)
+        # 兜底 B：有些页面把多条方向**直接连排、中间没有任何分隔符**
+        #   （实测 王雪娟 / 江维「模式识别受体活化…研究模式识别受体调节…研究」），
+        #   split_directions 切不出来 → 空。**保留整段原文**比丢掉更好：
+        #   报告里方向列写「官网原文」，用户能自己读懂；丢空则会被误报成
+        #   「官网无该栏位」，那是假信息。is_direction 已排除简介/论文/职务。
+        if not out and tail:
+            cand = squash(tail[:300])
+            # 先剥掉**粘连的头衔尾巴**：实测江维页方向与头衔之间无任何分隔符
+            #   「…发育分化研究教授 博士生导师 2007年毕业于…」，
+            #   而 _TITLE_RUN 要求标点/汉字边界，这个「研究教授」接得上去却切不开。
+            #   这里直接找「教授|研究员|博导…」首次出现处截断，再校验。
+            m = re.search(
+                r"(?:特任|讲席|特聘|兼职|客座)?"
+                r"(?:教授|研究员|副教授|副研究员|讲师|院士|博导|博士生导师)",
+                cand)
+            if m and m.start() >= 8:
+                cand = cand[:m.start()]
+            cand = cand.strip("  ·-—，,。.；;：:、")
+            if is_direction(cand):
+                out = [cand]
+    return out
+
+
+def _has_inline_numbering(t: str) -> bool:
+    """一行里是否含 ≥2 个行内编号（`1)` `2)` `（3）`）。"""
+    return len(re.findall(r"[（(]?\s*[1-9]\d?\s*[)）]\s*\S", t)) >= 2
+
+
+def _split_inline_numbered(seg: str) -> list[str]:
+    """把「1) … 2) … 3) …」按编号切成条目。
+
+    只在**第一个连续编号区**内切：实测申勇页的方向是 1)2)3)，
+    但紧随其后的论文列表里也有大量「2010)」「101)」这类年份/卷号，
+    若不设界会一起切进来（一次能切出 20+ 条假条目）。
+    界 = 最后一个「N) 且 N ≤ 前一个编号 + 1」的位置。
+    """
+    if not seg:
+        return []
+    seg = squash(seg)
+    marks = [(m.start(), m.end(), int(m.group(1)))
+             for m in re.finditer(r"[（(]?\s*([1-9]\d?)\s*[)）]\s*(?=\S)", seg)]
+    if len(marks) < 2:
+        return []
+    # 取从 1 开始、编号连续递增的最长前缀
+    seq = []
+    expect = 1
+    for st, en, n in marks:
+        if n == expect:
+            seq.append((st, en))
+            expect += 1
+        elif seq:
+            break
+    if not seq:
+        return []
+    end = seg.find("\n", seq[-1][0])
+    end = len(seg) if end < 0 else end
+    out: list[str] = []
+    for i, (st, en) in enumerate(seq):
+        stop = seq[i + 1][0] if i + 1 < len(seq) else end
+        t = squash(seg[en:stop]).strip("  ·-—，,。.；;：:、")
+        # 编号条目末尾常粘上「教授 博士生导师」等头衔，去掉
+        t = _TITLE_RUN.sub("", t).strip("  ·-—，,。.；;：:、")
+        if is_direction(t):
+            out.append(t)
     return out
 
 
@@ -858,12 +1182,12 @@ def classify(people: list[dict], rules: dict) -> dict[str, list[dict]]:
 def reparse_only(d: pathlib.Path, log, cfg: dict) -> None:
     """**不联网**：用 raw_list/ 与 raw_detail/ 下已存的 HTML 重新解析全部字段。
 
-    ★ 用途：改抽取规则后先离线看效果，确认无误再决定要不要重抓。
+    用途：改抽取规则后先离线看效果，确认无误再决定要不要重抓。
       联网重抓上百页要一两分钟；离线重解析不到 1 秒，且结果完全可复现。
     """
     lf = d / "faculty_list.json"
     if not lf.exists():
-        raise SystemExit(f"✗ 缺少 {lf}；请先跑一次 --stage=list")
+        raise SystemExit(f"[X] 缺少 {lf}；请先跑一次 --stage=list")
     people = json.loads(lf.read_text(encoding="utf-8"))
     before = sum(1 for p in people if p.get("directions"))
 
@@ -911,7 +1235,7 @@ def reparse_only(d: pathlib.Path, log, cfg: dict) -> None:
 
     print()
     print("═" * 62)
-    print(f"✓ 离线重解析完成（未联网，{len(people)} 人）")
+    print(f"[OK] 离线重解析完成（未联网，{len(people)} 人）")
     print(f"  有研究方向：{before} → **{after}**"
           + (f"（+{after-before}）" if after != before else "（无变化）"))
     print(f"  详情页补到 {hit} 人 / 仍未解析出 {miss} 人")
@@ -928,7 +1252,7 @@ def _rename_archives(d: pathlib.Path, log) -> None:
     """把 raw_detail/ 下的存档按 `<姓名>_<栏目>.html` 规范命名。"""
     raw = d / "raw_detail"
     if not raw.exists():
-        raise SystemExit(f"✗ 缺少 {raw}")
+        raise SystemExit(f"[X] 缺少 {raw}")
     n = 0
     for f in sorted(raw.glob("*.html")):
         # 去掉可能的序号/哈希前缀，统一成 姓名_栏目.html
@@ -939,7 +1263,7 @@ def _rename_archives(d: pathlib.Path, log) -> None:
             if not target.exists():
                 f.rename(target)
                 n += 1
-    log.info(f"✓ 存档改名完成：{n} 个")
+    log.info(f"[OK] 存档改名完成：{n} 个")
 
 
 def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
@@ -955,10 +1279,10 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
     A(f"> 数据源：**学部官网** [{unit['base']}]({unit['base']})"
       f"（栏目 {len(unit['sections'])} 个）")
     A("> ")
-    A(f"> 抓取时间：{time.strftime('%Y-%m-%d %H:%M')}　|　"
+    A(f"> 抓取时间：{time.strftime('%Y-%m-%d %H:%M')} | "
       f"共 **{len(people)}** 人，其中 **{len(withdir)}** 人有研究方向")
     A("")
-    A("> ⚠️ **方向归类是关键词粗分类**，不是权威学科划分；一位老师可能出现在"
+    A("> [WARN] **方向归类是关键词粗分类**，不是权威学科划分；一位老师可能出现在"
       "多个方向下。**请以学院官网原文为准**（下表保留原文与链接）。")
     A("")
     A("---")
@@ -1006,7 +1330,7 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
         A("")
         A("## 附：官网未提供研究方向的人数与原因")
         A("")
-        A("> ⚠️ 下列人员的学院官网页面**没有研究方向数据**，脚本如实标注，")
+        A("> [WARN] 下列人员的学院官网页面**没有研究方向数据**，脚本如实标注，")
         A("> **未用印象补全**。如需了解请点其主页或查阅论文成果。")
         A("")
         A("| 原因 | 人数 |")
@@ -1027,7 +1351,7 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
     }
     (d / "faculty_grouped.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info(f"✓ 归类完成：{len(groups)} 个方向桶；报告 → {out}")
+    log.info(f"[OK] 归类完成：{len(groups)} 个方向桶；报告 → {out}")
     return payload
 
 
@@ -1071,8 +1395,8 @@ def _list_units(cfg: dict) -> None:
             print(f"          栏目：{len(uv['sections'])} 个"
                   f"（列表页含方向 {star} / 需进详情页 {fetch}）")
             for s in uv["sections"]:
-                tag = "★" if s.get("detail") == "star" else "→"
-                note = f"　{s['note']}" if s.get("note") else ""
+                tag = "" if s.get("detail") == "star" else "→"
+                note = f" {s['note']}" if s.get("note") else ""
                 print(f"            {tag} {s['name']}  {s['path']}{note}")
         print()
     print("用法：--unit <学校key> 或 --unit <学校key>:<学院key>")
@@ -1092,7 +1416,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--unit-name", help="只抓某个师资栏目（名称模糊匹配）")
     ap.add_argument("--stage", choices=["list", "detail", "all"], default="all")
     ap.add_argument("--limit", type=int, default=0, help="详情最多抓几人（调试）")
-    ap.add_argument("--out", default="outputs/01_导师名单", help="输出目录")
+    ap.add_argument("--out", default=str(WD / "outputs" / "01_导师名单"),
+                    help="输出目录（默认 <流程1>/<年月日>/outputs/01_导师名单）")
     ap.add_argument("--config", help="自定义配置文件路径")
     ap.add_argument("--list-units", action="store_true", help="列出全部数据源后退出")
     ap.add_argument("--reparse-only", action="store_true",
@@ -1142,10 +1467,10 @@ def main(argv: list[str] | None = None) -> int:
         elif lf.exists():
             people = json.loads(lf.read_text(encoding="utf-8"))
         else:
-            raise SystemExit("✗ 没有抓到数据")
+            raise SystemExit("[X] 没有抓到数据")
         payload = build_report(d, uni, unit, people, log)
         print()
-        print(f"✓ 共 {payload['total']} 人，"
+        print(f"[OK] 共 {payload['total']} 人，"
               f"{payload['with_directions']} 人有研究方向")
         print(f"→ 报告：{d / '导师名单与方向归类.md'}")
         print(f"→ 机读：{d / 'faculty_grouped.json'}")

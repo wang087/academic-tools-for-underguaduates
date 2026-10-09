@@ -3,11 +3,11 @@
 # 页面状态判定（ok / challenge / blocked / paywall / not-ready）
 # —— 全流程唯一判定源
 #
-# ★ 为什么单独抽出来：旧脚本用「文本长度 < 6000 就当 CAPTCHA」这种启发式，
+# 为什么单独抽出来：旧脚本用「文本长度 < 6000 就当 CAPTCHA」这种启发式，
 #   导致大量**误触发**——页面只是还没渲染完、或本身就是短页面（勘误、
 #   简讯、PDB 条目），脚本就弹窗并空等 15 分钟 → 表现为「死机」。
 #
-# ★ 修复后的判定原则（三条铁律）：
+# 修复后的判定原则（三条铁律）：
 #   1) **绝不**仅凭文本长度判定 challenge。
 #   2) challenge / block 必须命中**精确标记**；且正文类标记只在
 #      「页面很短（< SHORT_PAGE）且标记出现在页面开头」时才算数
@@ -51,7 +51,7 @@ PROBE_JS = r"""
   const HEAD = LOW.slice(0, 2500);
   const TLOW = (document.title || '').toLowerCase();
 
-  // ★ v8：把**完整正文**一并回传（上限见 MAX_FULL），供"边下 PDF 边解读"复用。
+  // v8：把**完整正文**一并回传（上限见 MAX_FULL），供"边下 PDF 边解读"复用。
   //   为什么顺带取：正文此刻已在内存里（T 就是它），多回传一份几乎零成本；
   //   若等下载完再取，就得为每篇重新导航一次 —— 那才是真正的浪费。
   //   默认只回传前 FULL_CAP 字符，避免普通判定调用被大文本拖慢。
@@ -284,7 +284,7 @@ def judge(c, timeout: int = 30, http_status: int | None = None,
     if fulltext_cap > 0:
         r["fulltext"] = d.get("fulltext") or ""
         r["fulltext_len"] = d.get("fulltext_len") or 0
-    # ★ 判定失败（挑战页/封禁页）时正文无意义，清掉以免污染解读素材
+    # 判定失败（挑战页/封禁页）时正文无意义，清掉以免污染解读素材
     if r.get("state") in (CHALLENGE, BLOCKED, NOT_READY, ERROR):
         r["fulltext"] = ""
     return r
@@ -357,7 +357,7 @@ def site_of_doi(doi: str) -> str:
 # 这些站点不是「被风控」，而是网络层面根本连不上（或需境外网络）。
 # 反复重试既无意义，也会浪费配额，因此在选取待办时直接跳过。
 #
-# ★ 实测（2026-09，中国科大校园网 202.141.176.10）：
+# 实测（2026-09，中国科大校园网 202.141.176.10）：
 #   · ssrn.com —— 国内 IP 无法访问（用户确认）
 CN_INACCESSIBLE = {
     "ssrn.com": "SSRN 国内 IP 无法访问（网络层不可达，非风控）",

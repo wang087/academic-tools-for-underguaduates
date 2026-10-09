@@ -27,12 +27,13 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 
 def main() -> int:
     if len(sys.argv) < 4:
-        print(__doc__)
+        print(__doc__ or "用法: uv run --with pymupdf python crop_by_images.py "
+                         "<pdf> <out.json> <页码,逗号分隔> [dpi] [pad]")
         return 1
     try:
         import fitz
     except ImportError:
-        print("✗ 需要 PyMuPDF：uv run --with pymupdf python crop_by_images.py ...")
+        print("[X] 需要 PyMuPDF：uv run --with pymupdf python crop_by_images.py ...")
         return 1
 
     src = pathlib.Path(sys.argv[1]).resolve()
@@ -80,7 +81,7 @@ def main() -> int:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, ensure_ascii=False), encoding="utf-8")
-    print(f"✅ {len(results)} 图 → {out.name}（{out.stat().st_size // 1024} KB）")
+    print(f"[OK] {len(results)} 图 → {out.name}（{out.stat().st_size // 1024} KB）")
     if results:
         print("   在内容 JSON 里用 ref=\"" + results[0]["ref"] + "\" 这类值引用对应图。")
     return 0

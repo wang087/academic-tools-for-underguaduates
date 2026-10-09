@@ -6,12 +6,12 @@
 #   阶段 S（faculty.ustc.edu.cn）与阶段 S2（学院官网）是两套站点、两种模板，
 #   各自抽出的方向条目质量不同，必须**合并后再统一清洗一次**。
 #
-# ⛔ 踩过的坑（务必按这个顺序，且**只做一遍**）
+# [STOP] 踩过的坑（务必按这个顺序，且**只做一遍**）
 #   曾经先跑 merge、再跑 clean(松)、再跑 clean(严)，三个脚本串跑，
 #   每个都在前一个的输出上再过滤，误差累积，把 190 人砍到 144 人。
 #   正确顺序：**恢复 → 合并 → 清洗**，在一次运行内完成。
 #
-# ⛔ 另一条教训：清洗后为空时**不要**覆盖原有的 no_direction_reason。
+# [STOP] 另一条教训：清洗后为空时**不要**覆盖原有的 no_direction_reason。
 #   否则「官网暂无内容（empty_panel）」会被错写成
 #   「判定为导航行（filtered_as_non_direction）」，丢失真实原因。
 #
@@ -33,6 +33,8 @@ import os
 import pathlib
 import re
 import sys
+
+from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底 ──
 
@@ -74,7 +76,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 # 判据集中在这里引用的 harvest_mentors._is_direction —— 不要在本文件另写一套，
 # 否则两处标准会漂移（曾经漂移导致 9 条残留漏网）。
@@ -89,7 +91,7 @@ def _norm(n: str) -> str:
 def _valid(ds) -> list[str]:
     """只保留通过判据的方向条目。
 
-    ★ 为什么先过滤再比数量：旧判据直接比 `len()`，遇到
+    为什么先过滤再比数量：旧判据直接比 `len()`，遇到
       「roster 1 条面包屑 vs 学院页 1 条真方向」这种 tie 时会跳过合并，
       实测侯文韬/项晟祺/马洪第 3 人的真方向因此被丢弃。
     """
@@ -135,14 +137,14 @@ def merge(roster: list[dict], college: list[dict]) -> dict:
 def _strip_fund(t: str) -> str:
     """只剥掉条目里的**基金/项目括号**，保留中文主干。
 
-    ★ 为什么需要：实测涂晓明的三条是
+    为什么需要：实测涂晓明的三条是
         「锥体虫细胞周期调控的分子机制研究（国家自然科学基金项目,中科院创新项目子课题）」
       括号里是基金信息应当去掉，但**主干是真实研究方向**。
       若因为"含基金字样"整条丢弃，会误杀 3 条真方向（实测发生过）。
     """
     t2 = re.sub(r"[（(][^（()）]*(?:基金|项目|子课题|973|863|重点研发|"
                 r"面上项目|中科院|资助)[^（()）]*[)）]", "", t)
-    return re.sub(r"\s+", " ", t2).strip("　 ·-—，,。.；;：:、")
+    return re.sub(r"\s+", " ", t2).strip("  ·-—，,。.；;：:、")
 
 
 def clean(roster: list[dict]) -> int:
@@ -157,8 +159,8 @@ def clean(roster: list[dict]) -> int:
         keep = []
         for d in before:
             t = re.sub(r"\s+", " ", d).strip()
-            t = _strip_fund(t)              # ★ 先剥括号
-            if t and HM._is_direction(t):   # ★ 再判定
+            t = _strip_fund(t)              # 先剥括号
+            if t and HM._is_direction(t):   # 再判定
                 if t not in keep:
                     keep.append(t)
             else:
@@ -195,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.from_backup:
         bak = rp.with_name(rp.stem + ".backup" + rp.suffix)
         if not bak.exists():
-            raise SystemExit(f"✗ 找不到备份 {bak}")
+            raise SystemExit(f"[X] 找不到备份 {bak}")
         roster = json.loads(bak.read_text(encoding="utf-8"))
         log.info(f"已从备份恢复：{bak.name}（{len(roster)} 人）")
     else:
@@ -213,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     wd = sum(1 for x in roster if x.get("directions"))
     print()
     print("═" * 62)
-    print(f"✓ 合并完成：新补 {st['filled']} 人，升级 {st['upgraded']} 人，"
+    print(f"[OK] 合并完成：新补 {st['filled']} 人，升级 {st['upgraded']} 人，"
           f"无变化 {st['skipped']} 人")
     print(f"  清洗剔除 {removed} 条")
     print(f"  最终：**{wd}/{len(roster)} 人有研究方向**"

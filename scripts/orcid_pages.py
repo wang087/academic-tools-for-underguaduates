@@ -4,7 +4,9 @@
 # 未设置时使用当前工作目录。所有中间数据存于 <WORKDIR>/.work_cdp/
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)
@@ -22,7 +24,7 @@ from cdp import CDP, first_page_tab
 ORCID_ID = (os.environ.get("PAPER_ORCID") or (sys.argv[1].strip() if len(sys.argv) > 1 else "")).strip()
 if not ORCID_ID:
     sys.stderr.write(
-        "✗ 未指定 ORCID iD。\n"
+        "未指定 ORCID iD。\n"
         "  用法：PAPER_ORCID=0000-0000-0000-0000 uv run --with websocket-client python orcid_pages.py\n"
         "     或：uv run --with websocket-client python orcid_pages.py <ORCID>\n")
     sys.exit(2)
@@ -31,7 +33,7 @@ URL = f"https://orcid.org/{ORCID_ID}"
 OUT = str(CDPDIR / "orcid_works_all.txt")
 
 # ── 与 orcid_extract.py 共用的页面脚本（两处改动必须同步）──────────
-# ★ ORCID 3.x 改版：成果卡片元素名 `app-work-statement` → `app-work`，
+# ORCID 3.x 改版：成果卡片元素名 `app-work-statement` → `app-work`，
 #   且成果面板**默认折叠**。不展开就直接取文本，只会拿到个人信息
 #   （实测整页仅 6.5 KB，parse_orcid.py 找不到 "Works (" 而解析出 0 条）。
 COUNT_JS = r"""
@@ -63,7 +65,7 @@ EXPAND_JS = r"""
     if (seen.has(b)) continue;
     const t = (b.textContent || '').trim();
     const collapsed = b.getAttribute('aria-expanded') === 'false';
-    // ★ 只认**区块级**折叠开关，刻意排除每条的 "Show more detail"（见 orcid_extract.py 说明）
+    // 只认**区块级**折叠开关，刻意排除每条的 "Show more detail"（见 orcid_extract.py 说明）
     const blockToggle = /^expand_more$/.test(t) || collapsed;
     const listMore = /^(show more|load more)$/i.test(t);
     if (blockToggle || listMore) {

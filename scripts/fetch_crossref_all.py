@@ -4,7 +4,9 @@
 # 未设置时使用当前工作目录。所有中间数据存于 <WORKDIR>/.work_cdp/
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)
@@ -42,7 +44,7 @@ def fetch(doi):
         for a in m.get("author", []):
             fam = strip_tags(a.get("family", ""))
             giv = strip_tags(a.get("given", ""))
-            # ★ 采集**逐作者单位**：同名消歧最强的判据是「署名单位指纹」，
+            # 采集**逐作者单位**：同名消歧最强的判据是「署名单位指纹」，
             #   而此前根本没把 affiliation 取下来 —— 没有单位数据，
             #   disambiguate.py 的单位判据就永远无从施加（实测 2026-09-18 暴露：
             #   郭傲案例里 13 篇全部落到「数据缺失、无法判定」）。

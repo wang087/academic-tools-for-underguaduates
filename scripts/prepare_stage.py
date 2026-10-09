@@ -30,13 +30,19 @@
 #   uv run python 流程1/scripts/prepare_stage.py --check translate   # 0=执行 3=跳过
 #   uv run python 流程1/scripts/prepare_stage.py --check-all         # 打印全部闸门状态
 #
-#   # ⑥ ★ v9：解读档位查询（参数，不是开关 —— 所以不能用 --check 问）
+#   # ⑥ v9：解读档位查询（参数，不是开关 —— 所以不能用 --check 问）
 #   uv run python 流程1/scripts/prepare_stage.py --tier H    # 作者论文档位
 #   uv run python 流程1/scripts/prepare_stage.py --tier H2   # 综述网络档位
 #   uv run python 流程1/scripts/prepare_stage.py --tier R2   # 领域概貌档位
 #   #     stdout 只有档位本身（L1|L2|L3），便于 `T=$(… --tier H)` 捕获
 #
-#   # ⑦ ★ v9：门控齐全性自检
+#   # ⑥b v17：解读引擎查询（同样是参数，不是开关）
+#   uv run python 流程1/scripts/prepare_stage.py --engine H  # legacy | paper-card
+#   #     stdout 只有引擎本身，便于 `E=$(… --engine H)` 捕获
+#   #     paper-card = 阶段 H 额外产出 16 节 Paper Card（已并入的 nature-paper-card）
+#   #     接线权威见 流程1/nature-integration/SKILL.md
+#
+#   # ⑦ v9：门控齐全性自检
 #   uv run python 流程1/scripts/prepare_stage.py --audit
 #
 # 可移植配置：PAPER_WORKDIR
@@ -49,10 +55,12 @@ import os
 import pathlib
 import sys
 
+from logutil import run_root as _run_root  # noqa: E402
+
 def _fix_streams() -> None:
     """UTF-8 兜底（**必须幂等**）。
 
-    ★ 为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
+    为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
       本流程的脚本之间会互相 import（refs_bibliography → refs_backfill，
       refs_build → refs_prepare）。每 import 一次就重包一层，中间那层 wrapper
       被 GC 时会**关掉底层 buffer**，表现为后续所有 print 抛
@@ -94,7 +102,7 @@ except Exception:                      # 单文件运行时也要能用
     def journal(*a, **k):               # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 PLAN = CDPDIR / "prepare_plan.json"
 
@@ -117,7 +125,7 @@ OPTIONS = [
         "kind": "enum",
         "values": ["markdown", "pdf", "both"],
         "default": "markdown",
-        # ★ v13.1：本项**不再是闸门**，改为纯参数。
+        # v13.1：本项**不再是闸门**，改为纯参数。
         #   改前 gates=["F","G"] 且 gate_rule 把 markdown 映射成 F=skip，
         #   与它自己的 note、translate 的 note、_f_mode="html-only"、
         #   _translate_output="markdown"、render() 的提示语**五处**相互矛盾：
@@ -128,8 +136,8 @@ OPTIONS = [
         "gate_rule": {},
         "note": ("markdown = 只出 .md 交付物（论文列表 / 解读 / 综述），不渲染 PDF；"
                  "pdf = 额外渲染中译 PDF；both = 两者都要。"
-                 "★ 只影响**产物格式**，不影响是否下载原文 PDF —— 原文 PDF 是解读的输入，一律要下。"
-                 "★ 也**不决定阶段 F 是否执行**：那由 `translate` 单独判定。"
+                 "只影响**产物格式**，不影响是否下载原文 PDF —— 原文 PDF 是解读的输入，一律要下。"
+                 "也**不决定阶段 F 是否执行**：那由 `translate` 单独判定。"
                  "本项只在阶段 F 执行时决定「要不要顺带渲染 PDF」"
                  "（translate=yes 且 output_format=markdown → 产出中译 Markdown，不渲染 PDF）。"),
     },
@@ -142,7 +150,7 @@ OPTIONS = [
         "gate_rule": {True: {"F": "run"}, False: {"F": "skip"}},
         "note": ("翻译是逐篇人工级工作量（素材链 → HTML → PDF → CJK 校验），"
                  "且只在确实要中文精读时才值得做。"
-                 "★ 与 output_format 的关系：translate=no 时阶段 F 整体跳过；"
+                 "与 output_format 的关系：translate=no 时阶段 F 整体跳过；"
                  "translate=yes 而 output_format=markdown 时，产出中译 Markdown 而不渲染 PDF。"),
     },
     {
@@ -155,7 +163,7 @@ OPTIONS = [
                       False: {"D2": "skip", "G2": "skip", "H2": "skip"}},
         "note": ("反向查找 = 取作者每篇论文的**参考文献**，倒推出这位作者站在谁的肩上，"
                  "从而还原整个研究方向的全景（而不只是这位作者自己的产出）。"
-                 "★ 强烈建议开启：这是把「作者论文分析」升级为「研究方向综述」的关键一步，"
+                 "强烈建议开启：这是把「作者论文分析」升级为「研究方向综述」的关键一步，"
                  "且全程只走元数据 API（OpenAlex），零风控风险、不额外下载任何 PDF。"),
     },
     {
@@ -168,10 +176,10 @@ OPTIONS = [
         "note": ("三张图：① overview（作者为中心、阶段→方向→综述、Louvain 社区上色、"
                  "记忆连接）；② 词云（剔除小鼠等误导词，聚焦方法与实验范式）；"
                  "③ 方向聚类（近 3 年热点）。"
-                 "★ 位置固定在**所有搜集工作完成之后、PPT 制作之前**（阶段 H2 之后、"
+                 "位置固定在**所有搜集工作完成之后、PPT 制作之前**（阶段 H2 之后、"
                  "阶段 P 之前）—— 图要吃的正是「最终」产物，早画必然过期。"
-                 "★ SVG 优先、失败自动退 PNG，背景透明。"
-                 "★ 只有 `make_ppt` 或 `make_graphs` 至少一个开启时才需要跑本阶段。"),
+                 "SVG 优先、失败自动退 PNG，背景透明。"
+                 "只有 `make_ppt` 或 `make_graphs` 至少一个开启时才需要跑本阶段。"),
     },
     {
         "key": "graph_recent_years",
@@ -202,7 +210,7 @@ OPTIONS = [
         "gate_rule": {True: {"G2": "run"}, False: {"G2": "skip"}},
         "note": ("代表性文献 = 发表于 Nature/Science/Cell/PNAS 等核心期刊，"
                  "或「本人为第一/通讯作者」，或「中科院一区 / IF>5.0」。"
-                 "★ 与 reverse_refs 的关系：reverse_refs 关掉时本项**自动关闭**（没有参考文献可取）。"),
+                 "与 reverse_refs 的关系：reverse_refs 关掉时本项**自动关闭**（没有参考文献可取）。"),
     },
     {
         "key": "curate_review",
@@ -213,7 +221,7 @@ OPTIONS = [
         "gate_rule": {True: {"H2": "run"}, False: {"H2": "skip"}},
         "note": ("去重 + 剔除与作者主体研究方向无关的论文，形成最终文献列表，"
                  "再据此产出研究方向综述（review）。"
-                 "★ 与 reverse_refs 的关系：reverse_refs 关掉时本项**自动关闭**。"),
+                 "与 reverse_refs 的关系：reverse_refs 关掉时本项**自动关闭**。"),
     },
     {
         "key": "undergrad_prelude",
@@ -223,11 +231,11 @@ OPTIONS = [
         "gates": ["N", "S", "R", "R2"],
         "gate_rule": {True: {"N": "run", "S": "run", "R": "run", "R2": "run"},
                       False: {"N": "skip", "S": "skip", "R": "skip", "R2": "skip"}},
-        "note": ("★ 前置链路与原有链路的关系：本科入门场景通常**只走 N→S→R→R2** 就到交付"
+        "note": ("前置链路与原有链路的关系：本科入门场景通常**只走 N→S→R→R2** 就到交付"
                  "（领域概貌 + 导师候选 + 综述清单）；只有用户已锁定某位导师、想深挖其成果时，"
                  "才需要再接阶段 0 之后的原有链路。"
-                 "★ 默认开启：这是 v8 起为本科生设定的默认入口。"
-                 "★ 关掉它并不会关闭原有链路（A→…→I）；两条链路相互独立。"),
+                 "默认开启：这是 v8 起为本科生设定的默认入口。"
+                 "关掉它并不会关闭原有链路（A→…→I）；两条链路相互独立。"),
     },
     {
         "key": "interpret_tier",
@@ -243,10 +251,32 @@ OPTIONS = [
                  "不含误差项 / 样本量 / 图表引用 / 实验步骤，适合表格；"
                  "L2 = 另加误差项、样本量、有限实验过程与排除性证据，适合逐篇卡片；"
                  "L3 = 另加完整论证链、机制细节与逐条局限，适合综述与代表作。"
-                 "★ 默认 L2：阶段 H 的产物《<作者名>_论文解读.md》是**逐篇卡片**，"
+                 "默认 L2：阶段 H 的产物《<作者名>_论文解读.md》是**逐篇卡片**，"
                  "正是 L2 的目标形态。要恢复到与旧版等深的全量解读，选 L3。"
-                 "★ 规范性规则见 skill：`paper-interpretation-writing`"
+                 "规范性规则见 skill：`paper-interpretation-writing`"
                  "（档位规范、句式库、跨 agent 数据契约）。"),
+    },
+    {
+        "key": "interpret_engine",
+        "question": "论文解读引擎（阶段 H）：legacy 原有解读卡 / paper-card 额外产出 16 节深读卡？",
+        "kind": "enum",
+        "values": ["legacy", "paper-card"],
+        "default": "legacy",
+        "gates": [],
+        "gate_rule": {},
+        "note": ("`legacy` = 既有形态：每篇产出一张 11 字段解读卡，下游"
+                 "（《论文解读》汇总、PPT、知识图谱）零改动。"
+                 "`paper-card` = 在原有 11 字段卡之外**额外**产出一份 16 节 Paper Card"
+                 "（已并入的 nature-paper-card），把图表清单、三态定位"
+                 "（page-grounded / structure-grounded / source-limited）、"
+                 "五类溯源标签（[Paper]/[External]/[Analysis]/[Hypothesis]/[User]）、"
+                 "以及「作者自述局限」与「Agent 批判」分列带进阶段 H；"
+                 "交付前强制跑结构审计 + **数字回查原文**（NUMBER_NOT_IN_SOURCE）。"
+                 "**只增不减**：11 字段卡照旧产出，因此下游脚本无需改动。"
+                 "代价：每篇 subagent 的工作量约增一倍（多写 16 节 + 跑审计），"
+                 "适合代表作精读、组会材料、进组前深读；"
+                 "批量速览仍建议 legacy。"
+                 "接线权威见 流程1/nature-integration/SKILL.md。"),
     },
     {
         "key": "review_interpret_tier",
@@ -256,13 +286,13 @@ OPTIONS = [
         "default": "L3",
         "gates": [],
         "gate_rule": {},
-        "note": ("★ 默认 L3：阶段 H2 的《<作者名>_研究方向综述.md》与阶段 R2 的《领域概貌.md》"
+        "note": ("默认 L3：阶段 H2 的《<作者名>_研究方向综述.md》与阶段 R2 的《领域概貌.md》"
                  "都是**独立成篇**的综述类交付物，需要完整论证链、排除性证据与逐条局限。"
                  "综述读者要据此判断一篇文献在网络中的位置与证据强度 —— "
                  "低档会丢掉排除性证据与作者语气限定，而那正是综述最需要的部分。"
-                 "★ 阶段 R2 的读者是没有科研经验的本科生，L3 还要额外解释术语、"
+                 "阶段 R2 的读者是没有科研经验的本科生，L3 还要额外解释术语、"
                  "给出推荐阅读顺序（见 subagent-driven-review § 7.2）。"
-                 "★ 规范性规则见 skill：`paper-interpretation-writing`。"),
+                 "规范性规则见 skill：`paper-interpretation-writing`。"),
     },
     {
         "key": "ppt_pages",
@@ -278,7 +308,7 @@ OPTIONS = [
 
 BY_KEY = {o["key"]: o for o in OPTIONS}
 
-# ★ 物理执行顺序：准备阶段在最前（它产出闸门表），随后是前置链路，
+# 物理执行顺序：准备阶段在最前（它产出闸门表），随后是前置链路，
 #   再接原有链路。A→I 的相对顺序与编号语义**完全未变**（v9 只在前面插入了
 #   前置链路与准备阶段），因此既有脚本与文档的引用不受影响。
 VALID_STAGES = ["0", "N", "S", "R", "R2",
@@ -307,7 +337,7 @@ STAGE_LABEL = {
     "I": "收尾",
 }
 
-# ★ 解读档位的查询表：阶段 → 决定它档位的选项 key。
+# 解读档位的查询表：阶段 → 决定它档位的选项 key。
 #   两个档位是**参数**而非开关（gates 为空），所以不能用 --check 问，
 #   要用 --tier 问。H 用作者档位；H2 与 R2 都是综述类，共用综述档位。
 TIER_STAGE_KEYS = {
@@ -321,6 +351,15 @@ TIER_STAGE_KEYS = {
 
 TIER_VALUES = ("L1", "L2", "L3")
 
+# 解读引擎查询表：阶段 → 决定它引擎的选项 key（v17）。
+#   与 TIER_STAGE_KEYS 同款：引擎也是**参数**而非开关（gates 为空），
+#   所以不能用 --check 问，要用 --engine 问。目前只有阶段 H 有引擎概念
+#   （H2/R2 的综述解读暂不走 paper-card —— 它们读的是摘要级材料）。
+ENGINE_STAGE_KEYS = {
+    "H": "interpret_engine",
+}
+ENGINE_VALUES = ("legacy", "paper-card")
+
 BOOL_TRUE = {"1", "true", "yes", "y", "on", "是", "要", "需要", "开启", "做"}
 BOOL_FALSE = {"0", "false", "no", "n", "off", "否", "不要", "不需要", "关闭", "不做"}
 
@@ -328,7 +367,7 @@ BOOL_FALSE = {"0", "false", "no", "n", "off", "否", "不要", "不需要", "关
 def _arg(name, default=None):
     """取参数值。**同时支持 `--check=D2` 与 `--check D2` 两种写法。**
 
-    ★ 为什么两种都要支持：`--check D2` 是几乎所有人第一反应的写法。
+    为什么两种都要支持：`--check D2` 是几乎所有人第一反应的写法。
       只认 `=` 形式时，`--check D2` 会被解析成「--check 无值（True）」+「D2 被忽略」，
       然后拿 True 去查阶段表 → 报「未知阶段」并退出 2。
       这不会崩溃，但会把调用方（run_all.sh / 自检 / agent）引到错误结论上。
@@ -348,7 +387,7 @@ def _arg(name, default=None):
 def _arg_multi(name):
     """收集可重复参数。**同时支持 `--set k=v` 与 `--set=k=v`。**
 
-    ★ 为什么必须两种都认：只认 `=` 形式时，`--set output_format=pdf`
+    为什么必须两种都认：只认 `=` 形式时，`--set output_format=pdf`
       会**被整个忽略**（既不报错也不生效），随后 `build_plan` 退化成全默认值 ——
       用户明确给的选择被静默丢弃，是比崩溃严重得多的失败模式。
       实测就是自检脚本用空格写法调用时，选项全部落回默认。
@@ -377,7 +416,7 @@ def coerce(key: str, raw):
         raise ValueError(f"{key}: 无法识别的布尔值 {raw!r}（可用 yes/no、true/false、是/否）")
     vals = o["values"]
     s = str(raw).strip()
-    # ★ 大小写不敏感匹配，但返回**规范写法**。解读档位的取值是 L1/L2/L3，
+    # 大小写不敏感匹配，但返回**规范写法**。解读档位的取值是 L1/L2/L3，
     #   而 --set interpret_tier=L3 里的 "L3" 若按 .lower() 比对就永远匹配不上
     #   'L3'（枚举里就是大写），用户会收到"取值不在列表内"这种莫名其妙的话。
     #   返回规范写法还顺带统一了 l3/L3 两种输入落到同一取值。
@@ -405,7 +444,7 @@ def resolve_gates(plan: dict) -> dict:
                 hard_off[stage] = o["key"]
 
     # ── 依赖收敛：上游关掉时下游必须一起关，且要说明**是因为谁** ──
-    # ★ 图谱关掉不强制关闭 PPT（PPT 只用文字素材也能做），但要能解释
+    # 图谱关掉不强制关闭 PPT（PPT 只用文字素材也能做），但要能解释
     #   "为什么 PPT 里没有图" —— 写进 gate_reasons，别让人以为是漏跑了。
     if plan.get("make_graphs") is False and plan.get("make_ppt") is True:
         plan["_ppt_note"] = "make_graphs=no → 阶段 P 不会带知识图谱，只做文字版面"
@@ -467,14 +506,14 @@ def load() -> dict | None:
     try:
         return json.loads(PLAN.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"✗ prepare_plan.json 解析失败：{e}", file=sys.stderr)
+        print(f"[X] prepare_plan.json 解析失败：{e}", file=sys.stderr)
         return None
 
 
 def gate_audit() -> list[str]:
     """门控齐全性自检 —— 每个阶段都有标签、每个闸门都指向真实阶段。
 
-    ★ 为什么要机器自检：阶段 N/S/R/R2 在 v8 加入时**没有同步进闸门表**，
+    为什么要机器自检：阶段 N/S/R/R2 在 v8 加入时**没有同步进闸门表**，
       于是 `--check N` 返回 2（未知阶段），而 run_all.sh 的 `gate()` 用
       `if gate N; then` 判定 —— 2 与 3 一样落进 else 分支，该阶段被**静默当成跳过**。
       这类缺口靠人记得是不行的，必须能被一条命令查出来。
@@ -498,6 +537,13 @@ def gate_audit() -> list[str]:
     for s in TIER_STAGE_KEYS:
         if s not in VALID_STAGES:
             problems.append(f"TIER_STAGE_KEYS 引用了未知阶段 {s}")
+    for s, key in ENGINE_STAGE_KEYS.items():
+        if s not in VALID_STAGES:
+            problems.append(f"ENGINE_STAGE_KEYS 引用了未知阶段 {s}")
+        if key not in BY_KEY:
+            problems.append(f"ENGINE_STAGE_KEYS 的 {s} 指向未知选项 {key}")
+        elif BY_KEY[key]["kind"] != "enum" or not BY_KEY[key]["values"]:
+            problems.append(f"引擎选项 {key} 必须是带候选值的 enum")
     return problems
 
 
@@ -508,7 +554,7 @@ def ungated_stages() -> list[str]:
 
 
 #: 门控表里**已知的语义矛盾**，固化在此以便每次 --audit 都看得见。
-#: ★ 只记录、不自动修：改它会变动既有行为，属于另一件事，须单独决策。
+#: 只记录、不自动修：改它会变动既有行为，属于另一件事，须单独决策。
 #:   加进来是因为「文档说 A、规则做 B」这类问题人眼扫一遍表格是发现不了的。
 #:
 #: 当前为空 —— 原第 1 条（`output_format=markdown` 关掉阶段 F，与自身 note 及
@@ -530,6 +576,22 @@ def resolve_tier(plan: dict | None, stage: str) -> tuple[str, str, bool]:
     return value, key, False
 
 
+def resolve_engine(plan: dict | None, stage: str) -> tuple[str, str, bool]:
+    """(引擎, 选项 key, 是否为缺省回退) —— 供 --engine 查询与阶段 H 复用。
+
+    与 resolve_tier 完全同构：读不到 / 取值非法一律回退默认 legacy 并置回退位，
+      绝不因为一个**参数**读不到就中断阶段 H。
+    """
+    key = ENGINE_STAGE_KEYS[stage]
+    default = BY_KEY[key]["default"]
+    if not plan:
+        return default, key, True
+    value = plan.get(key, default)
+    if value not in ENGINE_VALUES:
+        return default, key, True
+    return value, key, False
+
+
 def render(plan: dict) -> str:
     L = []
     L.append("准备阶段计划（.work_cdp/prepare_plan.json）")
@@ -546,7 +608,7 @@ def render(plan: dict) -> str:
     reasons = plan.get("_gate_reasons") or {}
     for s in VALID_STAGES:
         st = gate.get(s, "run")
-        mark = "✅ run " if st == "run" else "⏭  skip"
+        mark = "[OK] run " if st == "run" else "[SKIP]  skip"
         why = f"   ← 由 {reasons[s]} 关闭" if s in reasons else ""
         L.append(f"  {mark}  阶段 {s:<3} {STAGE_LABEL[s]}{why}")
 
@@ -559,37 +621,66 @@ def render(plan: dict) -> str:
             continue                     # P 只是消费方，不单独列
         o = BY_KEY[key]
         v = plan.get(key, o["default"])
-        L.append(f"  · 阶段 {stage:<3} → {v}　（{o['question']}）")
+        L.append(f"  · 阶段 {stage:<3} → {v} （{o['question']}）")
     L.append(f"      H  = 作者论文卡片；H2 / R2 = 综述类交付物，共用 review_interpret_tier。")
-    L.append("      ★ 三档只差细节量，语气强度一致；规范见 skill：paper-interpretation-writing。")
+    L.append("      三档只差细节量，语气强度一致；规范见 skill：paper-interpretation-writing。")
+
+    # ── 解读引擎（同样是参数，不是开关）────────────────────────
+    L.append("")
+    L.append("解读引擎（参数；用 `--engine <阶段>` 查询，用 `--set interpret_engine=legacy|paper-card` 改）")
+    L.append("─" * 66)
+    for stage, key in ENGINE_STAGE_KEYS.items():
+        o = BY_KEY[key]
+        v = plan.get(key, o["default"])
+        L.append(f"  · 阶段 {stage:<3} → {v} （{o['question']}）")
+    L.append("      legacy    = 既有 11 字段解读卡，下游零改动；")
+    L.append("      paper-card = 额外产出 16 节 Paper Card + 结构审计 + 数字回查原文。")
+    L.append("      接线权威见 流程1/nature-integration/SKILL.md。")
 
     ungated = ungated_stages()
     if ungated:
         L.append("")
-        L.append(f"  ℹ 恒定执行（无选项管辖）：{'、'.join(ungated)}")
+        L.append(f"  [INFO] 恒定执行（无选项管辖）：{'、'.join(ungated)}")
 
     if plan.get("_f_mode") == "html-only":
         L.append("")
-        L.append("  ℹ 阶段 F 已开启但 output_format=markdown → 只产出中译 Markdown，不渲染 PDF。")
+        L.append("  [INFO] 阶段 F 已开启但 output_format=markdown → 只产出中译 Markdown，不渲染 PDF。")
     return "\n".join(L)
 
 
 def main() -> int:
-    # ★ --tier 必须**在 get("prepare") 之前**处理：logutil.get() 会往 stdout
+    # --tier 必须**在 get("prepare") 之前**处理：logutil.get() 会往 stdout
     #   打一行「=== prepare 启动 … ===」，而 --tier 的约定是 stdout 只有档位本身
     #   （调用方写 `T=$(… --tier H)`）。日志行混进去会让捕获到 "INFO … L2"，
     #   下游再拿它去比对 "L2" 就永远不相等 —— 而且是静默失败。
     tier_stage = _arg("tier")
     if tier_stage:
         if tier_stage not in TIER_STAGE_KEYS:
-            print(f"✗ 未知阶段 {tier_stage!r}；可查询：{', '.join(TIER_STAGE_KEYS)}",
+            print(f"未知阶段 {tier_stage!r}；可查询：{', '.join(TIER_STAGE_KEYS)}",
                   file=sys.stderr)
             return 2
         value, key, fallback = resolve_tier(load(), tier_stage)
         print(value)                     # stdout 只有这一样东西
         if fallback:
-            print(f"ℹ 尚无 prepare_plan.json 或取值非法 → 阶段 {tier_stage} 用**默认档位** "
+            print(f"[INFO] 尚无 prepare_plan.json 或取值非法 → 阶段 {tier_stage} 用**默认档位** "
                   f"{value}（选项 {key}）。建议先跑阶段 0 确认。", file=sys.stderr)
+        return 0
+
+    # --engine 与 --tier 同款：必须在 logutil.get() 之前处理，
+    #   否则 stdout 会混进日志行，调用方 `E=$(… --engine H)` 就再也比不中。
+    engine_stage = _arg("engine")
+    if engine_stage:
+        if engine_stage not in ENGINE_STAGE_KEYS:
+            print(f"未知阶段 {engine_stage!r}；可查询："
+                  f"{', '.join(ENGINE_STAGE_KEYS)}（目前只有阶段 H 有引擎概念）",
+                  file=sys.stderr)
+            return 2
+        value, key, fallback = resolve_engine(load(), engine_stage)
+        print(value)                     # stdout 只有这一样东西
+        if fallback:
+            print(f"[INFO] 尚无 prepare_plan.json 或取值非法 → 阶段 {engine_stage} "
+                  f"用**默认引擎** {value}（选项 {key}）。建议先跑阶段 0 确认。",
+                  file=sys.stderr)
         return 0
 
     log = get("prepare")
@@ -597,7 +688,7 @@ def main() -> int:
     if _arg("show"):
         plan = load()
         if not plan:
-            print("✗ 尚未生成 prepare_plan.json；先跑 --defaults 或 --set …")
+            print("[X] 尚未生成 prepare_plan.json；先跑 --defaults 或 --set …")
             return 2
         print(render(plan))
         return 0
@@ -605,7 +696,7 @@ def main() -> int:
     if _arg("check-all"):
         plan = load()
         if not plan:
-            print("✗ 尚未生成 prepare_plan.json；先跑阶段 0。")
+            print("[X] 尚未生成 prepare_plan.json；先跑阶段 0。")
             return 2
         gate = plan.get("_gates") or {}
         for s in VALID_STAGES:
@@ -617,23 +708,29 @@ def main() -> int:
             value, _, fallback = resolve_tier(plan, stage)
             note = "（缺省回退）" if fallback else ""
             print(f"{stage}\t{key}\t{value}{note}")
+        print("---interpret_engine---")
+        for stage, key in ENGINE_STAGE_KEYS.items():
+            value, _, fallback = resolve_engine(plan, stage)
+            note = "（缺省回退）" if fallback else ""
+            print(f"{stage}\t{key}\t{value}{note}")
         return 0
 
     if _arg("audit"):
         problems = gate_audit()
         print("门控齐全性自检（prepare_stage.gate_audit）")
         print("─" * 66)
-        print(f"  阶段数：{len(VALID_STAGES)}　选项数：{len(OPTIONS)}")
+        print(f"  阶段数：{len(VALID_STAGES)} 选项数：{len(OPTIONS)}")
         print(f"  无选项管辖、恒定执行：{'、'.join(ungated_stages()) or '（无）'}")
         print(f"  解读档位查询表：{', '.join(f'{k}→{v}' for k, v in TIER_STAGE_KEYS.items())}")
+        print(f"  解读引擎查询表：{', '.join(f'{k}→{v}' for k, v in ENGINE_STAGE_KEYS.items())}")
         if problems:
-            print("\n✗ 发现缺口：")
+            print("\n[X] 发现缺口：")
             for p in problems:
                 print(f"  · {p}")
             return 1
-        print("\n✅ 门控齐全：每个阶段都有标签，每个闸门都指向真实阶段。")
+        print("\n[OK] 门控齐全：每个阶段都有标签，每个闸门都指向真实阶段。")
         if AUDIT_NOTES:
-            print(f"\n⚠️ 已知语义矛盾 {len(AUDIT_NOTES)} 条（只记录，不自动修）：")
+            print(f"\n[WARN] 已知语义矛盾 {len(AUDIT_NOTES)} 条（只记录，不自动修）：")
             for note in AUDIT_NOTES:
                 print(f"  · {note}")
         return 0
@@ -642,23 +739,23 @@ def main() -> int:
     if chk:
         plan = load()
         if not plan:
-            print(f"✗ 尚未生成 prepare_plan.json → 视为**跳过**阶段 {chk}（保守）。", file=sys.stderr)
+            print(f"[X] 尚未生成 prepare_plan.json → 视为**跳过**阶段 {chk}（保守）。", file=sys.stderr)
             return 3
         st = (plan.get("_gates") or {}).get(chk)
         if st is None:
-            print(f"✗ 未知阶段 {chk!r}；可用：{', '.join(VALID_STAGES)}", file=sys.stderr)
+            print(f"未知阶段 {chk!r}；可用：{', '.join(VALID_STAGES)}", file=sys.stderr)
             return 2
         if st == "skip":
             r = (plan.get("_gate_reasons") or {}).get(chk, "准备阶段选项")
-            print(f"⏭  阶段 {chk}（{STAGE_LABEL[chk]}）已按准备阶段选择跳过 —— 原因：{r}")
+            print(f"[SKIP]  阶段 {chk}（{STAGE_LABEL[chk]}）已按准备阶段选择跳过 —— 原因：{r}")
             return 3
-        print(f"✅ 阶段 {chk}（{STAGE_LABEL[chk]}）已启用")
+        print(f"[OK] 阶段 {chk}（{STAGE_LABEL[chk]}）已启用")
         return 0
 
     sets = {}
     for kv in _arg_multi("set"):
         if "=" not in kv:
-            print(f"✗ --set 需要 k=v 形式，收到 {kv!r}", file=sys.stderr)
+            print(f"[X] --set 需要 k=v 形式，收到 {kv!r}", file=sys.stderr)
             return 2
         k, v = kv.split("=", 1)
         sets[k.strip()] = v.strip()
@@ -667,12 +764,12 @@ def main() -> int:
     if ans:
         p = pathlib.Path(ans)
         if not p.exists():
-            print(f"✗ 答案文件不存在：{p}", file=sys.stderr)
+            print(f"[X] 答案文件不存在：{p}", file=sys.stderr)
             return 2
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except Exception as e:
-            print(f"✗ 答案文件解析失败：{e}", file=sys.stderr)
+            print(f"[X] 答案文件解析失败：{e}", file=sys.stderr)
             return 2
         for k, v in (data or {}).items():
             if str(k).startswith("_"):
@@ -683,7 +780,7 @@ def main() -> int:
     try:
         plan = build_plan(sets, defaults=defaults)
     except (KeyError, ValueError) as e:
-        print(f"✗ {e}", file=sys.stderr)
+        print(f"[X] {e}", file=sys.stderr)
         return 2
 
     save(plan)

@@ -40,7 +40,7 @@ def main() -> int:
 
     pdfs = sorted(d.glob("*.pdf"))
     if not pdfs:
-        print(f"✗ {d} 下没有 PDF")
+        print(f"[X] {d} 下没有 PDF")
         return 1
 
     bad, short = [], []
@@ -52,7 +52,7 @@ def main() -> int:
         pages = match.group(1) if match else "?"
         n = int(pages) if match else None
         print(f"{f.name[:74]:<74} {pages:>6} {f.stat().st_size // 1024:>7} KB  "
-              f"{'✅' if ok else '❌ ' + why}")
+              f"{'[OK]' if ok else '[X] ' + why}")
         if not ok:
             bad.append((f.name, why))
         elif n is not None and n < SHORT_PAGES and "Correction" not in f.name:
@@ -64,7 +64,7 @@ def main() -> int:
         for n, w in bad:
             log.warn(f"校验不通过: {n} ({w})")
     if short:
-        print(f"\n⚠️ 页数偏少、建议人工确认是否为补充材料/图注页（{len(short)} 个）：")
+        print(f"\n[WARN] 页数偏少、建议人工确认是否为补充材料/图注页（{len(short)} 个）：")
         for n, k in short:
             print(f"   {n}  —— {k} 页")
         log.warn(f"{len(short)} 个文件页数 < {SHORT_PAGES}，需确认非补充材料")

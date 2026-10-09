@@ -8,11 +8,11 @@
 #         交给并行 subagent 精读（提示词模板见
 #         `流程1/subagent-driven-review/SKILL.md` §7 的综述网络版）。
 #
-# ★ 本脚本**不联网**。摘要来自阶段 D2 已取好的 OpenAlex 数据。
+# 本脚本**不联网**。摘要来自阶段 D2 已取好的 OpenAlex 数据。
 #   这是刻意的：subagent 必须无网可上，从机制上杜绝「顺手 curl 一篇」，
 #   从而不可能违反流程 §5.1 的 CDP 强制抓取禁令。
 #
-# ★ 关于 evidence.source：本阶段的文献**绝大多数只有摘要**（它们是别人的论文，
+# 关于 evidence.source：本阶段的文献**绝大多数只有摘要**（它们是别人的论文，
 #   本流程只下载了作者自己的全文）。任务包会如实标注 `abstract`，
 #   提示词也要求 subagent 在报告里承认这一限制。**不得**假装读到了全文。
 #
@@ -30,7 +30,7 @@
 #                         再退回**默认 L3**）
 #     --self-test         纯逻辑自检（不联网）
 #
-# ★ 综述解读档位（阶段 H2 用 `review_interpret_tier`）
+# 综述解读档位（阶段 H2 用 `review_interpret_tier`）
 #   档位是**参数不是闸门**：计划文件缺失或取值非法时只提示并回退 L3，不中断流程。
 #   本脚本只负责把档位**如实带进每个任务包与 manifest**（供 refs_build 与 subagent 读取），
 #   不改变任何既有渲染行为。语义见 skill：`paper-interpretation-writing`。
@@ -45,6 +45,8 @@ import os
 import pathlib
 import re
 import sys
+
+from logutil import run_root as _run_root  # noqa: E402
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
@@ -84,7 +86,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 TASKDIR = REFDIR / "tasks"
@@ -97,12 +99,12 @@ AUTHOR = (os.environ.get("PAPER_AUTHOR", "").strip() or WD.name)
 # ══════════════════════════════════════════════════════════════
 # 综述解读档位（阶段 H2 / R2 共用 `review_interpret_tier`）
 #
-# ★ 为什么这四个脚本各存一份助手函数而**不互相 import**：
+# 为什么这四个脚本各存一份助手函数而**不互相 import**：
 #   本流程的脚本彼此 import 会带来模块级副作用与 stdout 重包的坑
 #   （见 `_fix_streams` 的注释：中间层 wrapper 被 GC 会关掉底层 buffer）。
 #   档位解析只有几十行，自包含更稳，也避免 refs_build → refs_prepare 的方向反转。
 #
-# ★ 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
+# 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
 #   计划文件缺失/损坏/取值非法只能提示 + 回退默认，绝不报错退出。
 # ══════════════════════════════════════════════════════════════
 TIER_KEY = "review_interpret_tier"          # prepare_plan.json 里的键
@@ -125,17 +127,17 @@ def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
     """
     p = plan_path or PLAN_PATH
     if not p.exists():
-        return DEFAULT_TIER, (f"⚠ 找不到 {p}（阶段 0 未跑？）→ "
+        return DEFAULT_TIER, (f"[WARN] 找不到 {p}（阶段 0 未跑？）→ "
                               f"综述解读档位回退默认 {DEFAULT_TIER}")
     try:
         plan = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        return DEFAULT_TIER, (f"⚠ {p.name} 解析失败（{e}）→ "
+        return DEFAULT_TIER, (f"[WARN] {p.name} 解析失败（{e}）→ "
                               f"综述解读档位回退默认 {DEFAULT_TIER}")
     raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
     got = normalize_tier(raw)
     if not got:
-        return DEFAULT_TIER, (f"⚠ {p.name} 的 {TIER_KEY}={raw!r} 非法"
+        return DEFAULT_TIER, (f"[WARN] {p.name} 的 {TIER_KEY}={raw!r} 非法"
                               f"（应为 L1/L2/L3）→ 回退默认 {DEFAULT_TIER}")
     return got, ""
 
@@ -143,7 +145,7 @@ def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
 def _tier_arg() -> tuple[str, bool]:
     """取 `--tier` 的原始值 + 是否给出。**同时认 `--tier=L3` 与 `--tier L3`。**
 
-    ★ 为什么两种都要认：只认 `=` 形式时，`--tier L3` 会被**静默忽略** ——
+    为什么两种都要认：只认 `=` 形式时，`--tier L3` 会被**静默忽略** ——
       用户明确给的档位被丢掉，比报错严重得多（同 prepare_stage._arg 的教训）。
       裸 `--tier`（后面没有值）返回空串，由调用方判为非法值。
     """
@@ -196,14 +198,14 @@ def load_json(p: pathlib.Path, default=None):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
+        print(f"[WARN] {p.name} 解析失败：{e}", file=sys.stderr)
         return default
 
 
 def doi_slug(doi: str, wid: str = "") -> str:
     """任务包文件名**只由内容决定**（DOI 优先，回退 OpenAlex ID）。
 
-    ★ 与[版本变动.md](版本变动.md)-I-3 同一条教训：绝不按「第几篇」命名 ——
+    与[版本变动.md](版本变动.md)-I-3 同一条教训：绝不按「第几篇」命名 ——
       排序一变（补一条年份、改一次阈值）序号就会重排，
       历史解读卡会**错位到别的文献上**，比缺卡严重得多。
     """
@@ -232,12 +234,12 @@ def main() -> int:
         return 0
 
     # ── 档位：命令行 > prepare_plan.json > 默认 L3 ──────────────
-    # ★ 放在最前面：非法 --tier 直接退出 2，不产生任何中间产物。
+    # 放在最前面：非法 --tier 直接退出 2，不产生任何中间产物。
     tier_raw, tier_given = _tier_arg()
     if tier_given:
         tier = normalize_tier(tier_raw)
         if not tier:
-            print(f"✗ --tier 取值 {tier_raw!r} 非法；只能是 "
+            print(f"[X] --tier 取值 {tier_raw!r} 非法；只能是 "
                   f"{' / '.join(TIER_VALUES)}", file=sys.stderr)
             return 2
         tier_src, tier_note = "命令行 --tier", ""
@@ -254,7 +256,7 @@ def main() -> int:
 
     data = load_json(REFDIR / "final_list.json")
     if not data or not data.get("items"):
-        print("✗ 找不到 .work_cdp/refs/final_list.json（或为空）")
+        print("[X] 找不到 .work_cdp/refs/final_list.json（或为空）")
         print("  请先跑阶段 H2 ①：uv run python 流程1/scripts/refs_curate.py")
         return 2
 
@@ -266,7 +268,7 @@ def main() -> int:
     if top:
         items = items[:top]
     if not items:
-        print("✗ 选中的文献为空（检查 --only / --top）")
+        print("[X] 选中的文献为空（检查 --only / --top）")
         return 2
 
     vocab = load_json(CDPDIR / "tag_vocabulary.json") \
@@ -302,7 +304,7 @@ def main() -> int:
             n_full += 1
         task = {
             "schema": "refs-review/v1",
-            "interpret_tier": tier,          # ★ 综述解读档位（供 subagent 与 refs_build）
+            "interpret_tier": tier,          # 综述解读档位（供 subagent 与 refs_build）
             "seq": i,
             "id": r.get("id") or "",
             "doi": r.get("doi") or "",
@@ -326,7 +328,7 @@ def main() -> int:
             "fulltext_chars": len(fulltext),
             "abstract_truncated": truncated,
             "evidence": {
-                # ★ v7.2：综述可能拿到了 OA 全文（阶段 D2 的 enrich_reviews 抓的），
+                # v7.2：综述可能拿到了 OA 全文（阶段 D2 的 enrich_reviews 抓的），
                 #   有全文时证据层级直接升级 —— 下游 review 的置信度就靠这个字段。
                 "source": ("fulltext" if fulltext
                            else ("detailed-abstract" if len(abstract) >= 800
@@ -379,26 +381,26 @@ def main() -> int:
     (REFDIR / "manifest.json").write_text(json.dumps({
         "author": AUTHOR,
         "generated_from": str(REFDIR / "final_list.json"),
-        "interpret_tier": tier,              # ★ 档位随清单落盘，下游无需再猜
+        "interpret_tier": tier,              # 档位随清单落盘，下游无需再猜
         "n_tasks": len(manifest),
         "n_with_abstract": n_abs,
         "tasks": manifest,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"✅ 已生成 {len(manifest)} 个综述任务包 → {TASKDIR}")
-    print(f"   含摘要：{n_abs}/{len(manifest)}　｜　**含 OA 全文：{n_full}/{len(manifest)}**"
+    print(f"已生成 {len(manifest)} 个综述任务包 → {TASKDIR}")
+    print(f"   含摘要：{n_abs}/{len(manifest)} ｜ **含 OA 全文：{n_full}/{len(manifest)}**"
           + ("（全文级证据，置信度高于摘要级）" if n_full else ""))
     print(f"   解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）"
-          f"　综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
+          f" 综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
     if stale:
         print(f"   已清理陈旧任务包 {len(stale)} 个：{', '.join(stale[:6])}"
               + ("…" if len(stale) > 6 else ""))
     if orphans:
-        print(f"   ⚠ 遗留孤儿解读卡 {len(orphans)} 个（未删除，可能仍有价值）："
+        print(f"   [WARN] 遗留孤儿解读卡 {len(orphans)} 个（未删除，可能仍有价值）："
               + ", ".join(orphans[:6]) + ("…" if len(orphans) > 6 else ""))
     miss = [m for m in manifest if m["evidence_source"] == "metadata-only"]
     if miss:
-        print(f"   ⚠ {len(miss)} 条**摘要为空**（OpenAlex 未存缴摘要）→ "
+        print(f"   [WARN] {len(miss)} 条**摘要为空**（OpenAlex 未存缴摘要）→ "
               f"subagent 只能依据题录，报告须如实标注。"
               f"例如：{miss[0]['title'][:50]}")
 
@@ -408,7 +410,7 @@ def main() -> int:
     print("        跑完再执行 refs_build.py 汇总。")
     journal("H2", "refs.prepare", n_tasks=len(manifest), n_with_abstract=n_abs,
             interpret_tier=tier)
-    log.info(f"✓ 阶段 H2 ②（综述任务包）完成 → {TASKDIR}")
+    log.info(f"[OK] 阶段 H2 ②（综述任务包）完成 → {TASKDIR}")
     return 0
 
 
@@ -453,7 +455,7 @@ def self_test() -> int:
         got = doi_slug(doi, wid)
         if got != want:
             bad += 1
-            print(f"  ✗ doi_slug({doi!r},{wid!r}) = {got!r}，期望 {want!r}")
+            print(f"  [X] doi_slug({doi!r},{wid!r}) = {got!r}，期望 {want!r}")
     print(f"文件名生成：{len(cases) - bad}/{len(cases)} 通过")
 
     assert authors_str(["A", "B", "C"]) == "A, B, C"
@@ -464,19 +466,19 @@ def self_test() -> int:
     assert set(REQUIRED) <= set(REQUIRED_FULL)
     print(f"schema 自洽：通过（{len(REQUIRED)} 个必需字段 + 2 个综述网络字段）")
 
-    # ★ 档位：取值规范化 + 计划文件缺失时的回退（档位是参数不是闸门，不许报错）
+    # 档位：取值规范化 + 计划文件缺失时的回退（档位是参数不是闸门，不许报错）
     assert normalize_tier("l3") == "L3" and normalize_tier("L9") == ""
     assert normalize_tier(None) == "" and normalize_tier(" L2 ") == "L2"
     miss_tier, miss_note = plan_tier(pathlib.Path("__no_such_plan__.json"))
     assert miss_tier == DEFAULT_TIER == "L3" and miss_note
     print(f"解读档位：通过（规范化 + 缺失回退 {DEFAULT_TIER}）")
 
-    # ★ 关键不变量：文件名只由内容决定 —— 同一篇在任何排序下都必须同名
+    # 关键不变量：文件名只由内容决定 —— 同一篇在任何排序下都必须同名
     a = [{"doi": "10.1/x"}, {"doi": "10.1/y"}]
     b = list(reversed(a))
     assert {doi_slug(r["doi"]) for r in a} == {doi_slug(r["doi"]) for r in b}
     print("命名稳定性：通过（与顺序无关）")
-    print("\n✅ 自检全部通过" if bad == 0 else "\n❌ 自检有失败项")
+    print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 else 1
 
 

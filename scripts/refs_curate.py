@@ -46,6 +46,8 @@ import sys
 
 from collections import Counter
 
+from logutil import run_root as _run_root  # noqa: E402
+
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
     for name in ("stdout", "stderr"):
@@ -84,7 +86,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 TPL = _HERE.parent / "templates"
@@ -123,7 +125,7 @@ def load_json(p: pathlib.Path, default=None):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
+        print(f"[WARN] {p.name} 解析失败：{e}", file=sys.stderr)
         return default
 
 
@@ -137,7 +139,7 @@ def norm_title(t: str) -> str:
     s = re.sub(r"<[^>]+>", " ", s)
     s = re.sub(r"[^\w\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    # ★ 循环剥离，不能只做一次：题录里真实存在 "The A Study of…" 这种
+    # 循环剥离，不能只做一次：题录里真实存在 "The A Study of…" 这种
     #   冠词叠写（出版社存缴时把刊名/系列名的冠词并了进来），
     #   只剥一次会留下 "a study of…"，与 "study of…" 判为不同而漏去重。
     while True:
@@ -260,7 +262,7 @@ def dedupe(items: list[dict]) -> tuple[list[dict], list[dict]]:
         srcs = list(dict.fromkeys((a.get("cited_by_sources") or [])
                                   + (b.get("cited_by_sources") or [])))
         better["cited_by_sources"] = srcs
-        # ★ n_sources 取「原值」与「合并后边数」的较大者：
+        # n_sources 取「原值」与「合并后边数」的较大者：
         #   只写 len(srcs) 会在上游没带 cited_by_sources 时把计数清零，
         #   而 n_sources 是「强制保留」规则的判据 —— 清零 = 悄悄丢核心文献。
         better["n_sources"] = max(a.get("n_sources") or 0,
@@ -387,7 +389,7 @@ def build_report(profile, kept, dropped, merges, cut, stats) -> str:
         for t, n in sorted(profile["direction_tags"].items(), key=lambda x: -x[1]):
             L.append(f"- {t} —— {n} 篇")
     else:
-        L.append("> ⚠ 未找到解读卡（`.work_cdp/interpret/results/`），"
+        L.append("> [WARN] 未找到解读卡（`.work_cdp/interpret/results/`），"
                  "方向画像退化为**题名/摘要词频 + 常投期刊**。"
                  "先跑阶段 H 会让本步明显更准。")
     L.append("")
@@ -519,7 +521,7 @@ def self_test() -> int:
              "venue": "V", "year": 2020, "doi": "10.1/x"})
     assert "et al." in g and "et al.." not in g
     print("GB/T 7714 著录：通过")
-    print("\n✅ 自检全部通过")
+    print("\n[OK] 自检全部通过")
     return 0
 
 
@@ -533,7 +535,7 @@ def main() -> int:
 
     hq = load_json(REFDIR / "high_quality.json")
     if not hq or not hq.get("items"):
-        print("✗ 找不到 .work_cdp/refs/high_quality.json（或为空）")
+        print("[X] 找不到 .work_cdp/refs/high_quality.json（或为空）")
         print("  请先跑阶段 D2：uv run python 流程1/scripts/refs_backfill.py")
         return 2
     items = hq["items"]
@@ -554,7 +556,7 @@ def main() -> int:
     print(f"语料：作者论文 {len(recs)} 篇，摘要 {len(abstracts)} 条，解读卡 {len(cards)} 张")
     profile = build_profile(recs, abstracts, cards, vocab)
     if profile["unnormalized_tags"]:
-        print(f"⚠ {len(profile['unnormalized_tags'])} 个标签未能归一（已保留原值）："
+        print(f"[WARN] {len(profile['unnormalized_tags'])} 个标签未能归一（已保留原值）："
               + "、".join(profile["unnormalized_tags"][:6]))
 
     deduped, merges = dedupe(items)
@@ -581,7 +583,7 @@ def main() -> int:
             r["_promoted"] = True
         kept.extend(promoted)
         dropped = pool[need:]
-        print(f"ℹ --keep-top={keep_top}：从剔除池补回 {len(promoted)} 条（已标注）")
+        print(f"[INFO] --keep-top={keep_top}：从剔除池补回 {len(promoted)} 条（已标注）")
 
     stats = {
         "阶段 D2 高质量文献": len(items),
@@ -607,11 +609,11 @@ def main() -> int:
     print("\n统计：")
     for k, v in stats.items():
         print(f"  {k}: {v}")
-    print(f"\n✅ 交付物：{p}")
+    print(f"\n[OK] 交付物：{p}")
     journal("H2", "refs.curate", cut=cut, **{k: v for k, v in stats.items()})
-    log.info(f"✓ 阶段 H2 ①（去重与相关性整理）完成 → {REFDIR / 'final_list.json'}")
+    log.info(f"[OK] 阶段 H2 ①（去重与相关性整理）完成 → {REFDIR / 'final_list.json'}")
     if not cards:
-        print("⚠ 未找到解读卡 → 方向画像退化为题名/摘要词频。"
+        print("[WARN] 未找到解读卡 → 方向画像退化为题名/摘要词频。"
               "先跑阶段 H 可显著提升本步准确性。")
     return 0
 

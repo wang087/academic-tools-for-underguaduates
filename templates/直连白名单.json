@@ -7,7 +7,7 @@
     "                  以及本文件列出的**已验证可行的开源数据库**。",
     "  第二层｜必须走 CDP：**原文全文**（PDF / HTML 正文）。",
     "  content_class 取值：metadata / abstract / abstract+oa-fulltext-xml。",
-    "  ★ 含 oa-fulltext-xml 的条目必须 oa_only=true（只取开放获取子集）。",
+    "  含 oa-fulltext-xml 的条目必须 oa_only=true（只取开放获取子集）。",
     "  回退：第一层尝试失败 → 转向 CDP（见 §5.1「回退规则」）。",
     "",
     "本文件的作用：把「工作文件夹下验证可行」这句话变成**可执行的判据** ——",
@@ -23,14 +23,14 @@
     "  verified_at   验证日期",
     "  note          注意事项",
     "",
-    "⛔ 收录判据（三条同时满足）：",
+    "[STOP] 收录判据（三条同时满足）：",
     "  ① 公开、无需密钥或仅有免费额度；",
     "  ② 返回**结构化数据**（JSON/XML），不是给人读的网页；",
     "  ③ 工作文件夹 `skills/` 下已有 skill 在用，或本流程已实跑成功。",
     "",
-    "⛔ 明确**不**收录：任何出版社内容站（nature.com / sciencedirect.com / …）——",
+    "[STOP] 明确**不**收录：任何出版社内容站（nature.com / sciencedirect.com / …）——",
     "  取它们的正文与 PDF 属于第二层，一律走 CDP。",
-    "★ 键名以 _ 开头的条目会被忽略。"
+    "键名以 _ 开头的条目会被忽略。"
   ],
   "sources": [
     {

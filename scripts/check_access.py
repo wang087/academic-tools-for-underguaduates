@@ -13,7 +13,7 @@ from cdp import CDP, first_page_tab
 TEST_DOI = (sys.argv[1].strip() if len(sys.argv) > 1 else os.environ.get("PAPER_TEST_DOI", "").strip())
 if not TEST_DOI:
     sys.stderr.write(
-        "✗ 未指定待测 DOI。\n"
+        "未指定待测 DOI。\n"
         "  用法：uv run --with websocket-client python check_access.py <DOI>\n"
         "     或：PAPER_TEST_DOI=<DOI> uv run --with websocket-client python check_access.py\n")
     sys.exit(2)
@@ -86,13 +86,13 @@ try:
     # 结论
     print("\n── 判定 ──")
     if any(x in low for x in ["get access", "purchase pdf", "add to cart", "buy article"]):
-        print("❌ 无全文权限（出现购买/订阅入口）")
+        print("[X] 无全文权限（出现购买/订阅入口）")
     elif len(txt) > 20000 and pdf_links:
-        print("✅ 疑似有全文权限（页面含正文且提供 PDF）")
+        print("[OK] 疑似有全文权限（页面含正文且提供 PDF）")
     elif len(txt) > 12000:
-        print("⚠️ 页面较长，可能含全文，需人工确认")
+        print("[WARN] 页面较长，可能含全文，需人工确认")
     else:
-        print("⚠️ 仅摘要或受限页面")
+        print("[WARN] 仅摘要或受限页面")
 
     # 摘要长度
     m = re.search(r"(abstract|摘要)", low)

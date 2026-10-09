@@ -14,10 +14,10 @@
 #   八 研究缺口与展望        —— 全部来自 open_questions，不臆造
 #   九 缺卡与限制申报        —— 缺卡 / 无摘要 / schema 不合规，逐条列出
 #
-# ★ 诚实性优先：缺卡的篇目、仅摘要级的篇目全部**显式列出**，不静默略过。
-# ★ 本脚本**只读本地文件**，不发起任何网络请求。
+# 诚实性优先：缺卡的篇目、仅摘要级的篇目全部**显式列出**，不静默略过。
+# 本脚本**只读本地文件**，不发起任何网络请求。
 #
-# ★ 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
+# 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
 #   **不改任何既有渲染行为**（默认 L3，等于现状）。读取优先级：
 #   task packet → manifest.json → .work_cdp/prepare_plan.json → 默认 "L3"。
 #   档位是参数不是闸门，读不到只回退、不报错。语义见 skill：`paper-interpretation-writing`。
@@ -29,7 +29,7 @@
 #   final_list.json   阶段 H2 ① 产出（取相关性排序与统计）
 #
 # 产出：
-#   <WORKDIR>/<作者名>_研究方向综述.md          ⭐ review 结果（PPT 的素材之一）
+#   <WORKDIR>/<作者名>_研究方向综述.md          review 结果（PPT 的素材之一）
 #
 # 用法：
 #   uv run python 流程1/scripts/refs_build.py
@@ -47,6 +47,8 @@ import re
 import sys
 
 from collections import Counter
+
+from logutil import run_root as _run_root  # noqa: E402
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
@@ -86,7 +88,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 TASKDIR = REFDIR / "tasks"
@@ -101,10 +103,10 @@ AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
 # ══════════════════════════════════════════════════════════════
 # 综述解读档位（阶段 H2 / R2 共用 `review_interpret_tier`）
 #
-# ★ 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
-# ★ 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
+# 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
+# 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
 #   档位改变的是细节量，而 L1/L2 的差异化渲染属于后续批次。
-# ★ 这里自包含一份助手而不 import refs_prepare：汇聚器与组装器的方向反转会带来
+# 这里自包含一份助手而不 import refs_prepare：汇聚器与组装器的方向反转会带来
 #   模块级副作用（见 _fix_streams 注释），几十行自包含更稳。
 # ══════════════════════════════════════════════════════════════
 TIER_KEY = "review_interpret_tier"
@@ -176,7 +178,7 @@ def load_json(p: pathlib.Path, default=None):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
+        print(f"[WARN] {p.name} 解析失败：{e}", file=sys.stderr)
         return default
 
 
@@ -248,7 +250,7 @@ def main() -> int:
     log = get("refs")
     man = load_json(REFDIR / "manifest.json")
     if not man:
-        print("✗ 找不到 .work_cdp/refs/manifest.json")
+        print("[X] 找不到 .work_cdp/refs/manifest.json")
         print("  请先运行：uv run python 流程1/scripts/refs_prepare.py")
         return 2
 
@@ -315,11 +317,11 @@ def main() -> int:
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
     if ORCID:
         L.append(f"> ORCID：https://orcid.org/{ORCID}")
-    L.append(f"> 共 **{n_all}** 条文献　｜　已解读 **{n_card}** 条　｜　综述 **{n_review}** 条")
+    L.append(f"> 共 **{n_all}** 条文献 ｜ 已解读 **{n_card}** 条 ｜ 综述 **{n_review}** 条")
     L.append("> 生成方式：反向查找作者论文的参考文献 → 去重与相关性整理 → "
              "并行 subagent 逐条精读（流程见 `流程1/subagent-driven-review/SKILL.md`）；"
              "**全程无网络抓取**。\n")
-    # ★ 档位是**参数不是闸门**：显式写在报告开头，读者才知道这份综述的细节量档位
+    # 档位是**参数不是闸门**：显式写在报告开头，读者才知道这份综述的细节量档位
     #   （L1/L2/L3 只差细节量，不差语气强度）。渲染逻辑本身不随档位变化。
     L.append(f"> {tier_banner(tier)}\n")
 
@@ -333,10 +335,10 @@ def main() -> int:
     L.append("- **开放获取的综述**已通过 Europe PMC `fullTextXML` 取到**全文**"
              "（结构化开放获取接口，非抓出版社网页）→ 这部分结论的**置信度显著更高**；"
              "非 OA 的取**详细摘要**；两者都拿不到时只有题录，已如实标注。")
-    L.append("- ⚠ 本阶段文献**不是作者本人的论文**，本流程只下载了作者自己的全文。"
+    L.append("- [WARN] 本阶段文献**不是作者本人的论文**，本流程只下载了作者自己的全文。"
              "**非全文级的结论不能等同于通读全文得到的结论** —— "
              "报告在每条解读卡上标注了证据来源，请按层级区分可信度。")
-    L.append("- ⚠ 被引次数来自 OpenAlex `cited_by_count`，"
+    L.append("- [WARN] 被引次数来自 OpenAlex `cited_by_count`，"
              "与 Google Scholar / Web of Science **口径不同、数值不同**，"
              "不可跨库直接比较。")
     L.append("")
@@ -400,7 +402,7 @@ def main() -> int:
     L.append("> 规范与作者论文解读一致："
              "方法论 / 已验证结论 / 二八关键信息 / 量化提升数据，四步齐备。\n")
     if bad:
-        L.append(f"> ⚠ 有 **{len(bad)}** 条解读卡 schema 不合规，"
+        L.append(f"> [WARN] 有 **{len(bad)}** 条解读卡 schema 不合规，"
                  "已在第九节列出，请**重派 subagent** 而不是手工修补。\n")
     for t in tasks_sorted:
         m, c = t["meta"], t["card"]
@@ -415,10 +417,10 @@ def main() -> int:
             tags.append(f"总被引 {m['cited_by_count']}")
         L.append(f"### {idx}. {title}\n")
         L.append(f"- 期刊：{m.get('venue') or '—'}（{m.get('year') or '—'}）"
-                 f"　｜　DOI：{m.get('doi') or '—'}")
-        L.append(f"- 相关性：{m.get('relevance')}　｜　" + "　｜　".join(tags))
+                 f" ｜ DOI：{m.get('doi') or '—'}")
+        L.append(f"- 相关性：{m.get('relevance')} ｜ " + " ｜ ".join(tags))
         if not isinstance(c, dict):
-            L.append("- ⛔ **缺解读卡** —— 本条未产出 result.json。")
+            L.append("- [STOP] **缺解读卡** —— 本条未产出 result.json。")
             L.append("")
             continue
         ev = (c.get("evidence") or {}).get("source") or "—"
@@ -483,7 +485,7 @@ def main() -> int:
         for v in as_list(c.get("verified_conclusions")):
             n += 1
             L.append(f"{n}. {one_line(v)}"
-                     f"　<span style=\"color:#888\">〔{t['meta'].get('title') or ''}〕</span>")
+                     f" <span style=\"color:#888\">〔{t['meta'].get('title') or ''}〕</span>")
     if not n:
         L.append("> 暂无可汇总的已验证结论。")
     L.append("")
@@ -500,7 +502,7 @@ def main() -> int:
         for v in as_list(c.get("open_questions")):
             m2 += 1
             L.append(f"{m2}. {one_line(v)}"
-                     f"　<span style=\"color:#888\">〔{t['meta'].get('title') or ''}〕</span>")
+                     f" <span style=\"color:#888\">〔{t['meta'].get('title') or ''}〕</span>")
     if not m2:
         L.append("> 暂无可汇总的待验证问题。")
     L.append("")
@@ -513,13 +515,13 @@ def main() -> int:
         L.append("\n**缺卡清单**（应重派 subagent，不应手工补）：\n")
         for t in missing:
             L.append(f"- [{t['meta'].get('seq')}] {t['meta'].get('title') or '（无题名）'}"
-                     f"　→ 期望结果文件：`{t['result_path']}`")
+                     f" → 期望结果文件：`{t['result_path']}`")
     if bad:
         L.append("\n**schema 不合规清单**：\n")
         for t in bad:
             lack = [k for k in REQUIRED if k not in t["card"]]
             L.append(f"- [{t['meta'].get('seq')}] {t['meta'].get('title') or '（无题名）'}"
-                     f"　缺少字段：{', '.join(lack)}")
+                     f" 缺少字段：{', '.join(lack)}")
     only_meta = [t for t in tasks
                  if (t["packet"].get("evidence") or {}).get("source") == "metadata-only"]
     if only_meta:
@@ -532,19 +534,19 @@ def main() -> int:
     L.append("")
 
     md = "\n".join(L)
-    # ★ 单一交付文件（同 interpret_build：不再写 `_完整版.md` 别名）
+    # 单一交付文件（同 interpret_build：不再写 `_完整版.md` 别名）
     p = WD / f"{AUTHOR}_研究方向综述.md"
     p.write_text(md, encoding="utf-8")
 
-    print(f"✅ 综述报告：{p}")
+    print(f"[OK] 综述报告：{p}")
     print(f"   任务 {n_all} / 解读卡 {n_card} / 缺卡 {len(missing)} / "
           f"schema 不合规 {len(bad)}")
     print(f"   解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）")
     if missing:
-        print(f"   ⚠ 缺卡 {len(missing)} 条 —— 请**重派 subagent**，不要手工修补。")
+        print(f"   [WARN] 缺卡 {len(missing)} 条 —— 请**重派 subagent**，不要手工修补。")
     journal("H2", "refs.build", n_tasks=n_all, n_cards=n_card,
             n_missing=len(missing), n_bad=len(bad), interpret_tier=tier)
-    log.info(f"✓ 阶段 H2 ③（研究方向综述）完成 → {p}　[解读档位 {tier}]")
+    log.info(f"[OK] 阶段 H2 ③（研究方向综述）完成 → {p} [解读档位 {tier}]")
     return 0
 
 
@@ -565,7 +567,7 @@ def self_test() -> int:
     assert "network_role" in REQUIRED and "relation_to_author" in REQUIRED
     print("schema 必需字段：通过（11 基础 + 2 综述网络）")
 
-    # ★ 档位：读取链与显示行都固化在自检里，避免以后被静默改掉
+    # 档位：读取链与显示行都固化在自检里，避免以后被静默改掉
     assert normalize_tier("l3") == "L3" and normalize_tier("L9") == ""
     assert normalize_tier(None) == ""
     assert resolve_tier([{"packet": {"interpret_tier": "L1"}}],
@@ -573,7 +575,7 @@ def self_test() -> int:
     assert resolve_tier([{"packet": {}}], {"interpret_tier": "L2"})[0] == "L2"
     assert tier_banner("L3") == "解读档位：**L3 完整**（综述类默认 L3；可在阶段 0 改档）"
     print("解读档位：通过（packet → manifest → plan → L3；显示行固定）")
-    print("\n✅ 自检全部通过")
+    print("\n[OK] 自检全部通过")
     return 0
 
 

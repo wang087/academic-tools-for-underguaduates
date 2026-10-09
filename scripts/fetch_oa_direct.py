@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ══════════════════════════════════════════════════════════════
-# ⛔⛔ 本脚本自 v4（2026-09-14）起【停用】，保留仅为历史回溯 ⛔⛔
+# [STOP][STOP] 本脚本自 v4（2026-09-14）起【停用】，保留仅为历史回溯 [STOP][STOP]
 #
 # 停用原因：违反【CDP 强制抓取禁令】——
 #   「如无特别要求，全部使用 CDP 完成抓取，不得自编脚本从 HTTP 直链获取」。
@@ -26,14 +26,14 @@ def _refuse() -> None:
     """拒绝执行（退出码 3）。**两条调用路径都必须经过它**：
       ① `python fetch_oa_direct.py`（__main__ 守卫）
       ② `import fetch_oa_direct; fetch_oa_direct.main()`（main() 内守卫）
-    ★ 只挡 ① 是不够的：本文件是「保留备查」的，很容易被 import 后调用，
+    只挡 ① 是不够的：本文件是「保留备查」的，很容易被 import 后调用，
       那样禁令就被绕过了 —— 而它一旦真的跑起来，就是**违反最高优先级禁令**
       的纯 HTTP 直取全文。
     """
     # 控制台默认 GBK，中文提示会乱码 → 包一层 UTF-8 容错包装
     _err = _io.TextIOWrapper(_sys.stderr.buffer, encoding="utf-8", errors="replace")
     _err.write(
-        "\n⛔ fetch_oa_direct.py 已于 v4 停用（违反 CDP 强制抓取禁令）。\n"
+        "\n[STOP] fetch_oa_direct.py 已于 v4 停用（违反 CDP 强制抓取禁令）。\n"
         "   全文获取一律经 CDP，请改用：\n"
         "     uv run --with websocket-client --with pypdf python download_all_fulltexts.py \\\n"
         "         --n=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35\n"
@@ -66,7 +66,7 @@ if str(_HERE) not in sys.path:
 import store                                         # noqa: E402
 from logutil import get as get_log, workdir as _wd   # noqa: E402
 
-# ★ 已停用：以下模块级初始化会创建目录、开日志文件。为免「仅 import 也产生副作用」，
+# 已停用：以下模块级初始化会创建目录、开日志文件。为免「仅 import 也产生副作用」，
 #    改为惰性初始化（仍保留旧名以便历史代码引用不报错）。
 WD = None
 CDPDIR = None
@@ -85,7 +85,7 @@ HEADERS = {
 
 # 直接 HTTP 通常拿不到、必须走浏览器的站点 → 直接跳过，省时间
 #
-# ★★ 硬性禁令（用户明确要求，2026-09-13）★★
+# [**] 硬性禁令（用户明确要求，2026-09-13）[**]
 #   以下出版社站点**绝不允许**用纯 HTTP / curl 直连尝试（包括「探活」式请求）：
 #   ScienceDirect / Cell Press / OUP / SAGE / Wiley / ACS / RSC / Springer / T&F……
 #   它们有人机验证（Cloudflare / DataDome 等），直连既拿不到内容，又是
@@ -119,7 +119,7 @@ def host_of(url: str) -> str:
 class HostPacer:
     """按**落地主机**节流：不同出版社可连续跑，同一出版社必须拉开间隔。
 
-    ★ 实测教训：用全局统一间隔时，同一主机的连续请求（如 nature.com 的
+    实测教训：用全局统一间隔时，同一主机的连续请求（如 nature.com 的
       多篇 OA）会在第 3~4 次开始返回 403 —— 出版社 WAF 是按 host 计数的。
     """
 
@@ -132,7 +132,7 @@ class HostPacer:
         gap = random.uniform(self.lo, self.hi)
         delay = self.last.get(host, 0) + gap - now
         if delay > 0:
-            self.log.info(f"    ⏳ 同主机节流 {delay:.0f}s（{host}）")
+            self.log.info(f"    [WAIT] 同主机节流 {delay:.0f}s（{host}）")
             time.sleep(delay)
         self.last[host] = time.time()
 
@@ -167,7 +167,7 @@ def download(url: str, out: pathlib.Path, timeout: float = 90, referer: str = ""
 
 
 def main():  # noqa: D401
-    # ★ import 后调用也必须被拒绝（见 _refuse 的说明）
+    # import 后调用也必须被拒绝（见 _refuse 的说明）
     _refuse()
     # 以下代码永不执行（_refuse 会 sys.exit）；保留仅为历史回溯
     if True:  # pragma: no cover
@@ -214,9 +214,9 @@ def main():  # noqa: D401
     failed = {}
     for i, (doi, meta, url, landing) in enumerate(todo, 1):
         pacer.wait(host_of(url))
-        # ★ 已存在（含历史无年份前缀命名）则跳过，绝不覆盖已下好的文件
+        # 已存在（含历史无年份前缀命名）则跳过，绝不覆盖已下好的文件
         if store.existing_pdf(doi, meta.get("year")):
-            LOG.info(f"  ⏭ 已有全文，跳过 {doi}")
+            LOG.info(f"  [SKIP] 已有全文，跳过 {doi}")
             continue
         out = EXPORTS / f"{safe_stem(doi, meta.get('year'), meta.get('title'))}.pdf"
         LOG.step(i, len(todo), f"{doi} ({meta.get('year')})")
@@ -224,7 +224,7 @@ def main():  # noqa: D401
         if r.get("ok"):
             ok += 1
             store.register_pdf(doi, out, WD)
-            LOG.ok(f"  ✅ {r['size']//1024} KB | {out.name} [{r['pages']}]")
+            LOG.ok(f"  [OK] {r['size']//1024} KB | {out.name} [{r['pages']}]")
         else:
             # 退一步：用 landing 页再试一次（部分站点需先建立会话）
             if r.get("error", "").startswith("html-not-pdf"):
@@ -232,12 +232,12 @@ def main():  # noqa: D401
                 if r2.get("ok"):
                     ok += 1
                     store.register_pdf(doi, out, WD)
-                    LOG.ok(f"  ✅(landing) {r2['size']//1024} KB | {out.name} [{r2['pages']}]")
+                    LOG.ok(f"  [OK](landing) {r2['size']//1024} KB | {out.name} [{r2['pages']}]")
                     r = r2
             if not r.get("ok"):
                 fail += 1
                 failed[doi] = {"url": url, "error": r.get("error")}
-                LOG.warn(f"  ⚠️ {r.get('error')}")
+                LOG.warn(f"  [WARN] {r.get('error')}")
         if i < len(todo):
             time.sleep(random.uniform(*delay))
 

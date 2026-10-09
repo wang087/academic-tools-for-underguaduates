@@ -49,10 +49,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from logutil import run_root as _run_root  # noqa: E402
+
 def _fix_streams() -> None:
     """UTF-8 兜底（**必须幂等**）。
 
-    ★ 为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
+    为什么不能无条件 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`：
       本流程的脚本之间会互相 import（refs_bibliography → refs_backfill，
       refs_build → refs_prepare）。每 import 一次就重包一层，中间那层 wrapper
       被 GC 时会**关掉底层 buffer**，表现为后续所有 print 抛
@@ -95,7 +97,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 REFDIR = CDPDIR / "refs"
 CACHEDIR = REFDIR / "cache"
@@ -184,11 +186,11 @@ def load_tiers() -> set[str]:
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ 分区表解析失败 {p}：{e}", file=sys.stderr)
+        print(f"[WARN] 分区表解析失败 {p}：{e}", file=sys.stderr)
         return set()
     if isinstance(data, dict):
         if user.exists() and "中科院一区" not in data:
-            print(f"⚠ {user} 里没有「中科院一区」键，分区判定将全部落到 IF 兜底",
+            print(f"[WARN] {user} 里没有「中科院一区」键，分区判定将全部落到 IF 兜底",
                   file=sys.stderr)
         vals = data.get("中科院一区") or []
     else:
@@ -230,7 +232,7 @@ def api(url: str, tries: int = 4):
             last = e
             import time
             time.sleep(1.5 * (i + 1))
-    print(f"⚠ 请求失败：{url}\n   {last}", file=sys.stderr)
+    print(f"[WARN] 请求失败：{url}\n   {last}", file=sys.stderr)
     return None
 
 
@@ -268,7 +270,7 @@ def load_json(p: pathlib.Path, default=None):
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"⚠ {p.name} 解析失败：{e}", file=sys.stderr)
+        print(f"[WARN] {p.name} 解析失败：{e}", file=sys.stderr)
         return default
 
 
@@ -408,14 +410,14 @@ def build_report(recs, reps, source_refs, pool, if_thr, max_refs, unresolved):
                  + ("（该文在 OpenAlex 无参考文献记录）" if not wids else ""))
         L.append("")
         if not rows:
-            L.append("> ⚠ 无可列条目。可能是该文未存缴参考文献，或题录未取到。"
+            L.append("> [WARN] 无可列条目。可能是该文未存缴参考文献，或题录未取到。"
                      "**不臆造、不补齐。**\n")
             continue
         shown = rows[:max_refs] if max_refs else rows
         for k, rec in enumerate(shown, 1):
             L.append(f"{k}. {gbt(rec)}")
         if max_refs and len(rows) > max_refs:
-            L.append(f"\n> ⚠ 仅列前 {max_refs} 条（共 {len(rows)} 条，**有意截断**）。")
+            L.append(f"\n> [WARN] 仅列前 {max_refs} 条（共 {len(rows)} 条，**有意截断**）。")
         L.append("")
 
     # ── 第三部分：诚实性声明 ──────────────────────────────────
@@ -454,7 +456,7 @@ def self_test() -> int:
         role = role or "（未识别到本人署名）"
         if role != want_role or is_first_or_corresponding(role) != want_fc:
             bad += 1
-            print(f"  ✗ my_role({authors}) = {role}，期望 {want_role}")
+            print(f"  [X] my_role({authors}) = {role}，期望 {want_role}")
     print(f"署名位次判定：{len(cases) - bad}/{len(cases)} 通过")
 
     tiers = {"journal of the american chemical society", "nature"}
@@ -486,7 +488,7 @@ def self_test() -> int:
     assert any("未命中" in u for u in r["undetermined"]), r["undetermined"]
     assert any("IF≈1.20" in x for x in r["reasons"]) is False     # 1.2 < 5.0
     print("诚实性标注：通过")
-    print("\n✅ 自检全部通过" if bad == 0 else "\n❌ 自检有失败项")
+    print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 else 1
 
 
@@ -499,13 +501,13 @@ def main() -> int:
     max_refs = int(_argval("max-refs-per-paper", "0") or 0)
 
     if not (CDPDIR / "crossref_all.json").exists() and not (CDPDIR / "master.json").exists():
-        print("✗ 找不到题录总表 .work_cdp/crossref_all.json")
+        print("[X] 找不到题录总表 .work_cdp/crossref_all.json")
         return 2
 
     source_refs = load_json(REFDIR / "source_refs.json", {}) or {}
     pool = load_json(REFDIR / "refs_pool.json", {}) or {}
     if not source_refs:
-        print("✗ 找不到 .work_cdp/refs/source_refs.json")
+        print("[X] 找不到 .work_cdp/refs/source_refs.json")
         print("  请先跑阶段 D2：uv run python 流程1/scripts/refs_backfill.py")
         return 2
 
@@ -519,12 +521,12 @@ def main() -> int:
         ex = excluded_dois(CDPDIR, len(recs)) or set()
         if ex:
             recs = {k: v for k, v in recs.items() if k not in ex}
-            print(f"ℹ scope.py：已排除 {len(ex)} 篇同名他人论文")
+            print(f"[INFO] scope.py：已排除 {len(ex)} 篇同名他人论文")
     except Exception:
         pass
 
     # OpenAlex source（拿期刊 id → IF 代理值）
-    # ★ 必须覆盖**全部**作者论文，不能只用 source_refs 里那几篇：
+    # 必须覆盖**全部**作者论文，不能只用 source_refs 里那几篇：
     #   D2 可能带了 --limit-sources 调试参数，或部分论文在 OpenAlex 无参考文献记录，
     #   只覆盖一部分会让大量论文的 IF 落到「未判定」，而那是**假**的未判定。
     src_of_doi = {norm_doi(d): sr.get("source_id")
@@ -558,12 +560,12 @@ def main() -> int:
                     "n_refs_total": sum(r["n_refs"] for r in reps)},
                    ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"\n✅ 交付物：{p}")
+    print(f"\n[OK] 交付物：{p}")
     journal("G2", "refs.bibliography", n_reps=len(reps), if_threshold=if_thr,
             n_unresolved_if=len(unresolved))
-    log.info(f"✓ 阶段 G2 完成 → {p}")
+    log.info(f"[OK] 阶段 G2 完成 → {p}")
     if unresolved:
-        print(f"⚠ {len(unresolved)} 篇的期刊 IF 未取到 —— 报告已如实标注「未判定」，"
+        print(f"[WARN] {len(unresolved)} 篇的期刊 IF 未取到 —— 报告已如实标注「未判定」，"
               f"未按「不满足条件」处理。")
     return 0
 

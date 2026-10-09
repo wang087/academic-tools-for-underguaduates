@@ -32,6 +32,8 @@ import shutil
 import subprocess
 import sys
 
+from logutil import run_root as _run_root  # noqa: E402
+
 MIN_NODE_MAJOR = 22
 
 
@@ -53,7 +55,7 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 # 备选链路所在位置（按优先级探测）
 CANDIDATE_ROOTS = [
@@ -137,7 +139,7 @@ def main() -> int:
             "note": "Elsevier / Springer Nature / IEEE 的官方 API 路线。",
         }
         # ── 备选路线 3：机构 Web Access（需机构资源地址 + 已登录浏览器）
-        #   ★ 判定必须保守：`schools.yaml` 出厂是**故意留空**的
+        #   判定必须保守：`schools.yaml` 出厂是**故意留空**的
         #     （institution-neutral），只有用户跑过 configure_school.py 才会有内容。
         #     早先写成 `"schools: []" not in txt` 是**反了**，会把「未配置」
         #     报成「可用」—— 那正是本流程最忌讳的过度声称。
@@ -159,7 +161,7 @@ def main() -> int:
             "school_configured": school_configured,
             "session_selfreported": session_selfreported,
             "how": "python scripts/configure_school.py url \"https://<你的图书馆资源页>\"",
-            "note": "⚠️ 该路线需要**用户自己的**机构订阅与已登录会话；"
+            "note": "[WARN] 该路线需要**用户自己的**机构订阅与已登录会话；"
                     "本流程不代填、不代登录。未配置时如实报「不可用」。",
         }
         # ── 备选路线 4：CNKI（中文文献，需机构）──────────────
@@ -201,7 +203,7 @@ def main() -> int:
     print("═" * 68)
     node_s = rep["node"]["version"] or "未找到"
     print(f"  Node.js           {node_s}"
-          f"  {'✓' if rep['node']['ok'] else f'✗ 需要 >={MIN_NODE_MAJOR}'}")
+          f"  {'[OK]' if rep['node']['ok'] else f'[X] 需要 >={MIN_NODE_MAJOR}'}")
     print(f"  nature-downloader {rep['nature_downloader']['path'] or '未找到'}")
     print()
     print("  备选路线：")
@@ -209,14 +211,14 @@ def main() -> int:
               "institutional": "机构 Web Access（需机构地址）",
               "cnki": "CNKI 中文文献（需机构）"}
     for k, v in rep["routes"].items():
-        mark = "✓ 可用" if v.get("available") else "✗ 不可用"
+        mark = "可用" if v.get("available") else "不可用"
         print(f"    {mark}  {labels.get(k, k)}")
         if not v.get("available"):
             print(f"            需要：{v.get('needs')}")
     print()
     print("  外部依赖 skill：")
     for n, v in rep["external_skills"].items():
-        print(f"    {'✓' if v['present'] else '✗'} {n:<32} {v['why']}")
+        print(f"    {'[OK]' if v['present'] else '[X]'} {n:<32} {v['why']}")
     print()
     if usable:
         print(f"  结论（退出码 0）：可用路线 = {', '.join(usable)}")

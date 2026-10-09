@@ -4,7 +4,9 @@
 # 未设置时使用当前工作目录。所有中间数据存于 <WORKDIR>/.work_cdp/
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)
@@ -17,7 +19,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 
 OUT = str(CDPDIR / "orcid_works_parsed.json")
 
-# ★ 输入文件名兼容：orcid_pages.py 产 orcid_works_all.txt（带 PAGE 分隔），
+# 输入文件名兼容：orcid_pages.py 产 orcid_works_all.txt（带 PAGE 分隔），
 #   orcid_extract.py 产 orcid_page.txt。旧版只认前者，用另一个抓完就接不上。
 SRC = None
 for _name in ("orcid_works_all.txt", "orcid_page.txt"):
@@ -26,7 +28,7 @@ for _name in ("orcid_works_all.txt", "orcid_page.txt"):
         break
 if SRC is None:
     sys.stderr.write(
-        "✗ 找不到 ORCID 页面文本（orcid_works_all.txt / orcid_page.txt）。\n"
+        "[X] 找不到 ORCID 页面文本（orcid_works_all.txt / orcid_page.txt）。\n"
         "  请先运行 orcid_pages.py 或 orcid_extract.py。\n")
     sys.exit(2)
 print("source:", SRC)
@@ -105,11 +107,11 @@ for page in pages:
         i = j if j > i else i + 1
 
 # ── 兜底：页面文本解析不出成果时，回退到 ORCID 公共 API 的结果 ──────────
-# ★ 为什么需要：ORCID 3.x 改版后成果面板**默认折叠**、卡片元素名也从
+# 为什么需要：ORCID 3.x 改版后成果面板**默认折叠**、卡片元素名也从
 #   `app-work-statement` 变成 `app-work`，页面抓取可能得 0 条
 #   （2026-09-18 用本流程实测复现）。而 orcid_probe.py 走的是公共 API，
 #   与前端改版无关、始终可用 —— 不能因为站点改版就让整条链断掉。
-# ★ 已知差异：API 结果**没有 CONTRIBUTORS 字段**，故本人署名位次改由
+# 已知差异：API 结果**没有 CONTRIBUTORS 字段**，故本人署名位次改由
 #   enrich_crossref_authors.py 从 Crossref 结构化作者回填（该步本就在流程里）。
 if not recs:
     _probe = CDPDIR / "orcid_probe.json"
@@ -132,7 +134,7 @@ if not recs:
             })
         if recs:
             sys.stderr.write(
-                f"⚠ 页面文本未解析出成果（ORCID 可能改版）→ 已回退 ORCID API："
+                f"[WARN] 页面文本未解析出成果（ORCID 可能改版）→ 已回退 ORCID API："
                 f"{len(recs)} 条（出处 orcid_probe.json）\n"
                 f"  该结果不含 CONTRIBUTORS，署名位次将由 Crossref 回填。\n")
 

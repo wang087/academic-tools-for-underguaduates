@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # 站点可达性 / 挑战页 / 封禁 体检（单次、低频，只访问 1 个 URL）
 #
-# ★ 本次修复：旧版用 `len(txt) < 3000` 当作「出现 CHALLENGE」的判据，
+# 本次修复：旧版用 `len(txt) < 3000` 当作「出现 CHALLENGE」的判据，
 #   于是任何短页面（勘误、简讯、尚未渲染完的 SPA）都会被误判成人机验证，
 #   进而触发人工等待 → 表现为「卡住」。现改由 detect.judge() 精确判定。
 #
@@ -85,10 +85,10 @@ def main() -> int:
                  f"| 判定 {st} ({r['reason']})")
 
         if st == BLOCKED:
-            LOG.error(f"🛑 检测到封禁文案 {r.get('markers')} —— 该站点永久跳过，停止后续访问。")
+            LOG.error(f"[STOP] 检测到封禁文案 {r.get('markers')} —— 该站点永久跳过，停止后续访问。")
             return 2
         if st == CHALLENGE:
-            LOG.warn("⚠️  出现人机验证页 —— 请在 Edge 窗口人工完成一次（Cookie 会留存）。"
+            LOG.warn("[WARN]  出现人机验证页 —— 请在 Edge 窗口人工完成一次（Cookie 会留存）。"
                      "未完成前不要反复请求该站点。")
             return 3
         if st == NOT_READY:
@@ -100,7 +100,7 @@ def main() -> int:
         if st == PAYWALL:
             LOG.warn("页面正常，但无全文权限（付费墙）。")
             return 0
-        LOG.ok("✅ 可正常访问（无需人工）")
+        LOG.ok("[OK] 可正常访问（无需人工）")
         if r.get("subscribed"):
             LOG.ok("   检测到机构订阅授权（页面出现 Subscribed / Download PDF）")
         return 0

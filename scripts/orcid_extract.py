@@ -6,7 +6,7 @@
 #   orcid_page.txt    整页文本（供 parse_orcid.py 解析）
 #   orcid_works.json  逐条成果卡片的 innerText（结构化备份）
 #
-# ★ 2026-09-18 实测修正（ORCID 3.x 改版 + 一次真实翻车）：
+# 2026-09-18 实测修正（ORCID 3.x 改版 + 一次真实翻车）：
 #   ① 元素名：成果卡片已从 `app-work-statement` 变为 **`app-work`**（两代都认）；
 #   ② **不要再"点展开"**：曾试过点击 `aria-expanded="false"` 的元素来展开面板，
 #      结果点中了导航栏/语言选择器等 13 个无关控件，**把 Angular 应用点坏**
@@ -22,7 +22,9 @@
 # 用法：uv run --with websocket-client python orcid_extract.py [<ORCID>]
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)
@@ -41,7 +43,7 @@ from logutil import get as get_log, journal              # noqa: E402
 ORCID_ID = (os.environ.get("PAPER_ORCID") or (sys.argv[1].strip() if len(sys.argv) > 1 else "")).strip()
 if not ORCID_ID:
     sys.stderr.write(
-        "✗ 未指定 ORCID iD。\n"
+        "未指定 ORCID iD。\n"
         "  用法：PAPER_ORCID=0000-0000-0000-0000 uv run --with websocket-client python orcid_extract.py\n"
         "     或：uv run --with websocket-client python orcid_extract.py <ORCID>\n")
     sys.exit(2)
@@ -81,7 +83,7 @@ SCROLL_JS = r"""
 })()
 """
 
-# ★ 窄口径展开：**仅在记录主体内**找 `expand_more`，且排除 header/nav/menu。
+# 窄口径展开：**仅在记录主体内**找 `expand_more`，且排除 header/nav/menu。
 #   实测教训见文件头 ②——宽口径点击会把页面点坏。此脚本默认**不调用**它。
 NARROW_EXPAND_JS = r"""
 (() => {

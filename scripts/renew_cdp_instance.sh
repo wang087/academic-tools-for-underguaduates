@@ -5,13 +5,13 @@
 # 使用场景：
 #   出版社（ScienceDirect / RSC）的 Cloudflare 放行 Cookie 失效后，
 #   关闭该端口实例、换一个全新 profile 重新尝试。
-#   ★ 只重建**一个**端口，其余实例不受影响（多实例并行的意义所在）。
+#   只重建**一个**端口，其余实例不受影响（多实例并行的意义所在）。
 #
 # 启动参数原则（最小化，与 start_edge_cdp.sh 一致）：
-#   ✅ --remote-debugging-port / --remote-allow-origins=* / --user-data-dir
-#   ❌ 不加 --disable-blink-features=AutomationControlled、
+#   [OK] --remote-debugging-port / --remote-allow-origins=* / --user-data-dir
+#   [X] 不加 --disable-blink-features=AutomationControlled、
 #      --excludeSwitches、--headless 等 —— 非默认参数本身就是可检测特征
-#   ❌ 不做任何 JS 指纹注入
+#   [X] 不做任何 JS 指纹注入
 #
 # 用法: bash renew_cdp_instance.sh [工作目录] [端口] [profile后缀]
 # ══════════════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ for p in "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
          "/c/Program Files/Microsoft/Edge/Application/msedge.exe"; do
   [ -f "$p" ] && MSEDGE="$p" && break
 done
-[ -z "${MSEDGE:-}" ] && { echo "❌ 未找到 msedge.exe"; exit 1; }
+[ -z "${MSEDGE:-}" ] && { echo "未找到 msedge.exe"; exit 1; }
 
 PROFILE="${WORKDIR}/.edge-cdp-p${PORT}-${TAG}"
 LOGDIR="${WORKDIR}/.work_cdp/logs"
@@ -54,11 +54,11 @@ nohup "$MSEDGE" \
 sleep 8
 
 if curl -s --max-time 8 "http://127.0.0.1:${PORT}/json/version" | grep -q webSocketDebuggerUrl; then
-  echo "[3/3] ✅ 新实例就绪 (port=${PORT}, profile=$(basename "$PROFILE"))"
+  echo "[3/3] [OK] 新实例就绪 (port=${PORT}, profile=$(basename "$PROFILE"))"
   echo "     提示：全新 profile 未携带任何历史放行 Cookie；"
   echo "           若该站点风控严格，请在窗口中人工过一次验证再继续。"
 else
-  echo "[3/3] ❌ 启动失败，日志："
+  echo "[3/3] [X] 启动失败，日志："
   tail -15 "${LOGDIR}/edge_${PORT}.log" 2>/dev/null
   exit 1
 fi

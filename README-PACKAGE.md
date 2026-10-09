@@ -1,22 +1,24 @@
 # 流程1 · 打包发行版说明
 
-> 本目录是 `流程/` 的**自包含发行版**：全流程脚本 + 模板 + 子流程文档 + 依赖（`vendor/ppt-master`）。
-> 源目录：`C:\Users\22525\scientific-agent-skills\流程`
-> 文件数：**12995**　｜　路径重写：**21** 个文件
+> 本目录是 `流程1/` 的**自包含发行版**：全流程脚本 + 模板 + 子流程文档 + 依赖（`vendor/ppt-master`、`vendor/nature-paper-card`、`skills/`）。
+> 源目录：`流程1`
+> 文件数：**13136** ｜ 路径重写：**0** 个文件
 
-## 与原 `流程/` 目录的差异
+## 与原 `流程1/` 目录的差异
 
 | 项 | 说明 |
 |---|---|
-| 目录名 | `流程/` → `流程1/`；**文档与脚本里的路径引用已同步重写**（21 个文件），照着文档敲命令不会敲错 |
-| 依赖 | 新增 `vendor/ppt-master/`（pptx 生成依赖，阶段 P 用）。`ppt_brief.py` / `selftest_pipeline.py` **优先**用这份随包副本 |
-| 未包含 | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）、`docs/assets/`（官网素材）—— 属开发/用户数据，不应随包分发 |
+| 目录名 | `流程1/` → `流程1/`；**文档与脚本里的路径引用已同步重写**（0 个文件），照着文档敲命令不会敲错 |
+| 依赖 ① | `vendor/ppt-master/`（pptx 生成依赖，阶段 P 用）。`ppt_brief.py` / `selftest_pipeline.py` **优先**用这份随包副本 |
+| 依赖 ② | `vendor/nature-paper-card/`（**只并入了这一个** nature 技能，Apache-2.0，**已并入本流程，非外部依赖**）。阶段 H 的 `paper-card` 引擎用它产出 16 节深读卡；`nature_bridge.py` **优先**用这份随包副本 |
+| 依赖 ③ | `skills/paper-lookup/`（阶段 R 取数层）与 `skills/paper-interpretation-writing/`（内容级校验器 `check_interpretation.py` —— 「数字回查原文」的唯一实现） |
+| 未包含 | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）、`docs/assets/`（上游其余技能与官网素材）—— 属开发/用户数据或纯示例素材，不应随包分发 |
 | 内容 | 其余文件与源目录**逐字节一致**（除路径重写）；可用 `PACKAGE_MANIFEST.json` 的 sha256 核验 |
 
 ## 快速开始
 
 ```bash
-cd C:\Users\22525\scientific-agent-skills\流程1
+cd C:\Users\22525\AppData\Local\Temp\dsh-PhU9DN\pkgreal2_831c15\流程1
 
 # ① 端到端自检（离线 20 项，不联网、秒级）
 uv run python 流程1/scripts/selftest_pipeline.py --offline
@@ -45,9 +47,9 @@ uv run python 流程1/scripts/prepare_stage.py --check-all
 
 | 层 | 内容 | 方式 |
 |---|---|---|
-| 第一层 | 元数据 / **摘要** / **综述题录** / 白名单开源库 | ✅ 允许直连（白名单：`流程1/templates/直连白名单.json`） |
-| 第二层 | **原文全文**（PDF / HTML，含 OA） | ⛔ 禁止直连，一律走 CDP |
-| 回退 | 第一层失败 | ➡️ 转 CDP（`grab_abstracts.py --retry-failed`） |
+| 第一层 | 元数据 / **摘要** / **综述题录** / 白名单开源库 | 允许直连（白名单：`流程1/templates/直连白名单.json`） |
+| 第二层 | **原文全文**（PDF / HTML，含 OA） | 禁止直连，一律走 CDP |
+| 回退 | 第一层失败 | -> 转 CDP（`grab_abstracts.py --retry-failed`） |
 
 ## 核验这份包
 

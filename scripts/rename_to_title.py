@@ -25,6 +25,8 @@ import re
 import sys
 import io
 
+from logutil import run_root as _run_root  # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -33,7 +35,7 @@ if str(_HERE) not in sys.path:
 
 import store  # noqa: E402
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 EXPORTS = store.exports_dir(WD)
 
@@ -137,7 +139,7 @@ def main() -> None:
             idx[doi] = target.name
             renamed.append((p.name, target.name, "已改"))
         except OSError as e:
-            print(f"  ⚠️ 改名失败 {p.name}: {e}")
+            print(f"  [WARN] 改名失败 {p.name}: {e}")
 
     if not dry:
         store.save_index(idx, WD)
@@ -148,7 +150,7 @@ def main() -> None:
     if skipped:
         print(f"\n  已是题名命名，跳过 {len(skipped)} 个")
     if unknown:
-        print(f"\n  ⚠️ 无法匹配 DOI/题名，保持原样 {len(unknown)} 个：")
+        print(f"\n  [WARN] 无法匹配 DOI/题名，保持原样 {len(unknown)} 个：")
         for n in unknown:
             print(f"      {n}")
     print(f"\n合计：改名 {len(renamed)} | 跳过 {len(skipped)} | 未识别 {len(unknown)} "
