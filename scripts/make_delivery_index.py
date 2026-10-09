@@ -232,6 +232,9 @@ def main(argv: list[str] | None = None) -> int:
             ("**主交付物**：面向本科生的领域概貌（跨卡综合）",
              _pick([OUT / "04_领域概貌" / "领域概貌.md",
                     (rdir / "领域概貌.md") if rdir else None])),
+            ("阶段 I《全文清单.md》：逐篇正文/页数/来源通道/未获取原因",
+             _pick(sorted(WD.glob("*_paper_Exports/全文清单.md"))
+                   + sorted(WD.glob("*/*_paper_Exports/全文清单.md")))),
         ]
     else:
         rows = [
