@@ -295,6 +295,31 @@ OPTIONS = [
                  "规范性规则见 skill：`paper-interpretation-writing`。"),
     },
     {
+        "key": "fulltext_fallback",
+        "question": "综述全文的副链路（阶段 R①.5，只在 CDP 主链路失败后才启用）：关闭 / 只走白名单内 OA / 再加上出版商 API？",
+        "kind": "enum",
+        "values": ["off", "oa", "oa+api"],
+        "default": "oa",
+        # 纯参数，不是闸门：副链路寄生在阶段 R①.5 内部（reviews_fulltext.py
+        #   --fallback），并不单独构成一个可跳过的阶段。与 review_interpret_tier
+        #   同款处理 —— 挂 gates 会让「关掉它」变成「跳过整个 R①.5」。
+        "gates": [],
+        "gate_rule": {},
+        "note": ("主链路（download_all_fulltexts.py，走 CDP）取不到全文时，副链路"
+                 "（fulltext_router.py）接着判：这篇属于谁、有没有合法 OA 副本、"
+                 "有没有授权 API、下一步该交给谁。"
+                 "**两个前提缺一不可**：① 只对 CDP 已经失败的那些 DOI 生效"
+                 "（脚本层面硬性拒绝，不是提示）；② 直连取正文只允许"
+                 " templates/直连白名单.json 里 content_class 覆盖 fulltext 的源"
+                 "（当前只有 www.ebi.ac.uk 的 EPMC OA 全文 XML）—— 其余候选"
+                 "一律清点后交接给 CDP，绝不换域名再试。"
+                 "off = 完全不启用；oa = 只走白名单内 OA（零凭据，默认）；"
+                 "oa+api = 再加上出版商官方 API（Elsevier / Springer Nature / IEEE，"
+                 "需要用户自己配好凭据，且 LIT_FLOW1_ALLOW_PUBLISHER_API 闸门打开；"
+                 "本流程不代填、不代登录、不代持凭据）。"
+                 "取不到时**如实报告**，不伪装成已获取。"),
+    },
+    {
         "key": "ppt_pages",
         "question": "PPT 目标页数（简化 Strategist 用，无需交互确认）？",
         "kind": "enum",

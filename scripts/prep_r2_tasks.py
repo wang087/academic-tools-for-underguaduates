@@ -27,7 +27,7 @@
 #   既不受单行 2000 字符限制，也不丢正文。
 #
 # 用法：
-#   python scripts/prep_r2_tasks.py                 # 默认处理 03_领域概貌
+#   python scripts/prep_r2_tasks.py                 # 默认认**本次运行**的 .work_cdp/reviews/
 #   python scripts/prep_r2_tasks.py --stage-dir <path>
 #   python scripts/prep_r2_tasks.py --excerpt 3000
 #   python scripts/prep_r2_tasks.py --restore       # 从 tasks_full/ 还原
@@ -91,12 +91,32 @@ except Exception:                      # 单文件运行时也要能用
 
 FLOW1 = pathlib.Path(__file__).resolve().parent.parent
 
+# 本次运行的工作目录：与 `logutil.workdir()` **同一判据**（`流程1/<年月日>/`）。
+#   原来这里硬写 `FLOW1`，于是默认目录落到日期隔离前的旧布局 `流程1/outputs/03_领域概貌` ——
+#   不带 `--stage-dir` 时会去**改写历史案例的任务包**（静默、不报错）。
+try:
+    from logutil import workdir as _workdir          # noqa: E402
+    WD = _workdir()
+except Exception:  # noqa: BLE001
+    WD = FLOW1
+WORK = WD / ".work_cdp"
+
 
 def find_stage_dir(explicit: str | None) -> pathlib.Path | None:
+    """定位阶段 R 的任务包目录（含 tasks/ 的那一层），**只认本次运行的目录**。
+
+    优先级：① `<本次工作目录>/.work_cdp/reviews/`（`reviews_prepare.py` 的规范产物位置）
+    ② `<本次工作目录>/outputs/` 下含 tasks/ 的目录（历史布局）。
+    [X] 不回看 `流程1/outputs/` —— 那里躺着历史案例，静默选中会把它们的
+        任务包改写成本次的形态（宁可报错，也不要错答）。
+    """
     if explicit:
         p = pathlib.Path(explicit)
         return p if p.is_dir() else None
-    outs = FLOW1 / "outputs"
+    primary = WORK / "reviews"
+    if (primary / "tasks").is_dir():
+        return primary
+    outs = WD / "outputs"
     if not outs.is_dir():
         return None
     cands = [d for d in sorted(outs.iterdir()) if d.is_dir() and (d / "tasks").is_dir()]
@@ -146,8 +166,11 @@ def _run(log) -> int:
 
     stage = find_stage_dir(a.stage_dir)
     if not stage:
-        log.error("未找到阶段输出目录（需含 tasks/）")
-        print("[X] 未找到阶段输出目录（需含 tasks/）")
+        miss = (f"未找到阶段任务包目录（需含 tasks/）；"
+                f"已查 {WORK / 'reviews'} 与 {WD / 'outputs'}"
+                f" —— 先跑 reviews_prepare.py")
+        log.error(miss)
+        print(f"[X] {miss}")
         return 2
     tasks = stage / "tasks"
     full = stage / "fulltext"

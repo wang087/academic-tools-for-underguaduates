@@ -10,6 +10,13 @@
 #        └─ 未命中 / 非 OA → 落入缺口清单
 #     第二层（必须 CDP）：原文全文，一律经浏览器
 #        └─ 复用 download_all_fulltexts.py（不自建下载器，见 §5.1 四）
+#     副链路（CDP 备用，需 --fallback）：主链路三条通道都没拿到全文时，
+#        └─ 交给 fulltext_router.py 判「还有没有别的合法路线」：
+#           中文硬分流 CNKI / 出版商官方 API / 白名单内 OA 直连 /
+#           其余一律产出**交接单**（附上已排序的候选 URL），不越权去取。
+#           两个前提缺一不可：① 只对 CDP 已失败的 DOI 生效（脚本层硬拒绝）；
+#           ② 直连取正文只允许 templates/直连白名单.json 里 content_class
+#           覆盖 fulltext 的源。阶段 0 的 `fulltext_fallback` 决定开不开。
 #
 # 【为什么单独成模块】
 #   阶段 R 原本在 R① 就停住了 —— 任务包 evidence_source 恒为 abstract，
@@ -38,6 +45,12 @@
 #
 #   # 回填任务包的 evidence_source / text 字段（R① 产物原地升级）
 #   uv run python 流程1/scripts/reviews_fulltext.py --backfill
+#
+#   # 副链路（CDP 备用）：主链路跑完仍有缺口时才值得跑，顺序不能颠倒
+#   uv run python 流程1/scripts/reviews_fulltext.py --fallback --backfill
+#
+#   # 干跑：只看路由判定，一个请求都不发
+#   uv run python 流程1/scripts/fulltext_router.py --plan <DOI> [<DOI> ...]
 #
 # 可移植配置：PAPER_WORKDIR（透传给既有脚本）
 # ══════════════════════════════════════════════════════════════
@@ -98,8 +111,11 @@ try:
 except Exception:                                # noqa: BLE001
     WD = FLOW1
 WORK = WD / ".work_cdp"
-# 阶段 R 的产物（outputs/…）在**流程1 根**下，不在日期目录下 —— 两者要分开
-OUTPUTS = FLOW1 / "outputs"
+# 阶段 R 的产物根：**本次运行**的输出目录（与 WORK 同一判据）。
+#   这里曾经硬写 `FLOW1 / "outputs"` —— 日期隔离后本次产物在 `流程1/<年月日>/`，
+#   旧判据会扫到历史案例的 tasks/ 并**静默选中**，把别人的全文回填进本次任务包
+#   （实测把 10-06「免疫与感染」12 篇当成当日「神经与脑科学」12 篇跑了一遍分层）。
+OUTPUTS = WD / "outputs"
 
 UA = "flow1-reviews-fulltext/1.0 (mailto:researcher@example.org)"
 EMAIL = "researcher@example.org"
@@ -111,6 +127,19 @@ EPMC_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 PMC_IDCONV = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
 
 MIN_FULLTEXT_CHARS = 6000                  # 低于此值不当作正文（多为占位/勘误页）
+
+# 页内取正文的表达式（标题 + innerText）
+BODY_JS = ("JSON.stringify({t:document.title,"
+           "n:(document.body?document.body.innerText.length:0),"
+           "x:(document.body?document.body.innerText:'')})")
+
+# 页内「把正文读出来」的**功能按钮**链接（Full text / PDF / View on publisher site）。
+# [STOP] 只取页面功能链接，绝不碰人机验证控件（§5.2 鼠标自动化禁令）。
+LINKS_JS = ("JSON.stringify([].slice.call(document.querySelectorAll('a'))"
+            ".filter(function(a){var s=((a.textContent||'')+' '+(a.href||''));"
+            "return /full\\s?text|\\/pdf\\b|publisher|view on/i.test(s);})"
+            ".slice(0,4).map(function(a){"
+            "return {text:(a.textContent||'').trim().slice(0,44),href:a.href};}))")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -163,14 +192,20 @@ def jats_body_stats(xml: str) -> tuple[bool, int, int]:
 # 阶段 R 产物读取
 # ══════════════════════════════════════════════════════════════
 def find_stage_dir(explicit: str | None = None) -> pathlib.Path | None:
-    """定位阶段 R 的输出目录（含 tasks/ 的那一层）。
+    """定位阶段 R 的任务包目录（含 tasks/ 的那一层）。
 
-    按优先级找 03_领域概貌 一类目录；找不到再全 outputs/ 兜底搜索，
-    这样阶段 R 的输出被改名或挪到 04_xxx 时仍然可用。
+    判据只认**本次运行**的目录，按优先级：
+      ① `<本次工作目录>/.work_cdp/reviews/` —— `reviews_prepare.py` 的规范产物位置；
+      ② `<本次工作目录>/outputs/` 下含 tasks/ 的目录 —— 历史布局，输出被改名/挪走时仍可用。
+    **不回看 `流程1/outputs/`**：那里躺着历史案例，静默选中会让本次阶段把
+    别处抓来的全文回填进当前任务包（宁可报错，也不要错答）。
     """
     if explicit:
         p = pathlib.Path(explicit)
         return p if p.is_dir() else None
+    primary = WORK / "reviews"
+    if (primary / "tasks").is_dir():
+        return primary
     outs = OUTPUTS
     if not outs.is_dir():
         return None
@@ -382,6 +417,7 @@ def fetch_repo_via_cdp(layers: dict[str, dict], tasks: list[dict],
         print(f"\n  [{idx+1}/{len(todo)}] {doi}  {pmcid}  :{port}")
         rec = {"doi": doi, "pmcid": pmcid, "source": "cdp-pmc-repository",
                "url": url, "path": None, "chars": 0}
+        ws = None
         try:
             tabs = json.loads(urllib.request.urlopen(
                 f"http://127.0.0.1:{port}/json", timeout=10).read())
@@ -411,17 +447,14 @@ def fetch_repo_via_cdp(layers: dict[str, dict], tasks: list[dict],
             if not cmd("Page.navigate", {"url": url}, t=60):
                 rec["error"] = "navigate-no-response"
                 ws.close()
+                ws = None
                 results.append(rec)
                 continue
             time.sleep(7)
 
             # 取正文 + 检测 reCAPTCHA
             r = cmd("Runtime.evaluate", {
-                "expression": "JSON.stringify({t:document.title,"
-                              "n:(document.body?document.body.innerText.length:0),"
-                              "x:(document.body?document.body.innerText:'')})",
-                "returnByValue": True}, t=60)
-            ws.close()
+                "expression": BODY_JS, "returnByValue": True}, t=60)
             if not r:
                 rec["error"] = "eval-timeout"
                 results.append(rec)
@@ -437,9 +470,54 @@ def fetch_repo_via_cdp(layers: dict[str, dict], tasks: list[dict],
                 print("     [--] reCAPTCHA 拦截（PMC 也在限流，需冷却后重试）")
                 results.append(rec)
                 continue
-            if len(text) < 6000:
+            if len(text) < MIN_FULLTEXT_CHARS:
+                # 兜底（实测坑）：PMC 文章页**并不总是把正文渲染进 innerText** ——
+                #   摘要视图 / 「Loading PDF」外壳 / 只给「View on publisher site」入口时，
+                #   innerText 只有页面骨架。判据是「字数够」而不是「页面打开了」，
+                #   所以这里按页内**功能按钮**链接（Full text / PDF / View on publisher site）
+                #   逐个导航后再读一次；仍不足才认失败。
+                #   [X] 绝不点击人机验证控件（§5.2）—— 这里只走正文入口。
+                links = []
+                rl = cmd("Runtime.evaluate", {"expression": LINKS_JS,
+                                              "returnByValue": True}, t=30)
+                if rl:
+                    try:
+                        links = json.loads(rl.get("result", {}).get(
+                            "result", {}).get("value") or "[]")
+                    except Exception:  # noqa: BLE001
+                        links = []
+                tried = []
+                for lk in (links or [])[:3]:
+                    href = (lk or {}).get("href") or ""
+                    if not href.startswith("http") or href == url:
+                        continue
+                    tried.append({"text": lk.get("text"), "href": href})
+                    if not cmd("Page.navigate", {"url": href}, t=60):
+                        continue
+                    time.sleep(7)
+                    r2 = cmd("Runtime.evaluate", {"expression": BODY_JS,
+                                                  "returnByValue": True}, t=60)
+                    if not r2:
+                        continue
+                    try:
+                        d2 = json.loads(r2.get("result", {}).get(
+                            "result", {}).get("value") or "{}")
+                    except Exception:  # noqa: BLE001
+                        d2 = {}
+                    title = d2.get("t") or title
+                    text = d2.get("x") or ""
+                    print(f"     [..] 走功能入口「{(lk.get('text') or '')[:28]}」"
+                          f"→ 正文 {len(text):,} 字符")
+                    if len(text) >= MIN_FULLTEXT_CHARS:
+                        rec["via"] = "page-fulltext-link"
+                        rec["link"] = href
+                        break
+                if tried:
+                    rec["link_tries"] = tried
+            if len(text) < MIN_FULLTEXT_CHARS:
                 rec["error"] = f"too-short({len(text)})"
-                print(f"     [--] 正文过短 {len(text)}")
+                print(f"     [--] 正文过短 {len(text)}（功能入口兜底后仍不足，"
+                      f"记为未取到，交由后续层/人工）")
                 results.append(rec)
                 continue
 
@@ -458,6 +536,13 @@ def fetch_repo_via_cdp(layers: dict[str, dict], tasks: list[dict],
             rec["error"] = f"{type(e).__name__}: {str(e)[:70]}"
             print(f"     [X] {rec['error']}")
             results.append(rec)
+        finally:
+            # 每篇用完即关连接（原来在第一次取值后就 close，兜底导航没连接可用）
+            try:
+                if ws is not None:
+                    ws.close()
+            except Exception:  # noqa: BLE001
+                pass
 
         if idx + 1 < len(todo):
             time.sleep(pace)
@@ -605,27 +690,37 @@ def run_cdp(num: int, ports: str | None, manual_wait: float,
 
 
 # ══════════════════════════════════════════════════════════════
-# 回填：把全文写回任务包（R① 产物原地升级）
+# 候选池 + 回填：把全文写回任务包（R① 产物原地升级）
 # ══════════════════════════════════════════════════════════════
-def backfill(stage_dir: pathlib.Path, tasks: list[dict]) -> dict:
-    """把已取得的全文回填进 tasks/*.json 的 text / evidence_source。
+def _add_from_record(cands: dict[str, list[tuple[int, str, str]]], rec: dict) -> None:
+    """把副链路的一条记录并入候选池（与 `_add` 同判据：文件在、读得出才收）。
 
-    为什么必须回填而不是让 R2 自己找：
-      `reviews_prepare.py` 生成的任务包 schema 与 `interpret_prepare.py`
-      **逐字段同名**（SKILL §4 R①），R2 的 subagent 只读 tasks/*.json。
-      正文若不进任务包，subagent 依然只能看到摘要。
+    单独成函数是因为副链路的来源标签要带上 provider/status —— 择优时被弃用的
+    那一条会打印在 `[i] 择优：` 里，读者需要能看出「弃用的是哪条路线的产物」。
     """
-    # 收集**所有**候选，而不是先到先得。
-    #
-    # [STOP] 为什么要按长度择优：
-    #   实测 10.1037/a0035302 同时存在两份产物 ——
-    #     · CDP 落地页（APA 付费墙）  3,077 字   ← 只是付费墙提示页！
-    #     · PMC 仓库副本（CDP）    301,678 字   ← 真正文
-    #   若按「先到先得」，付费墙残页会**盖住**真正文，任务包里的
-    #   evidence_source 还是 "fulltext" —— 下游 subagent 会拿 3 千字
-    #   的广告页当综述读。**这种错误静默且致命。**
-    #   故：同篇多来源时按正文字数取最大者。
-    cands: dict[str, list[tuple[int, str, str]]] = {}   # doi -> [(chars, src, text)]
+    doi = (rec.get("doi") or "").strip()
+    path = rec.get("path")
+    if not doi or not path:
+        return
+    p = pathlib.Path(path)
+    if not p.exists():
+        return
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return
+    src = "fallback-" + str(rec.get("provider") or rec.get("status") or "router")
+    cands.setdefault(doi, []).append((len(text), src, text))
+
+
+def collect_fulltext_candidates() -> dict[str, list[tuple[int, str, str]]]:
+    """扫齐**所有**已落地的全文通道 → {doi: [(chars, src, text), ...]}。
+
+    抽成独立函数的理由：`backfill()` 要用它择优回填，`run_fallback()`
+    要用它判「哪些 DOI 主链路确实没拿到」。两处若各扫一遍，判据必然漂移 ——
+    副链路会对已经成功的论文再跑一次，白耗配额。
+    """
+    cands: dict[str, list[tuple[int, str, str]]] = {}
 
     def _add(doi: str, path, src: str) -> None:
         if not doi or not path:
@@ -665,6 +760,121 @@ def backfill(stage_dir: pathlib.Path, tasks: list[dict]) -> dict:
                 _add(r.get("doi"), r.get("path"), "cdp-pmc-repository")
         except Exception:  # noqa: BLE001
             pass
+
+    # ④ 副链路（CDP 备用）：fulltext_router.py 的产物
+    #   放进来有两个作用：
+    #     · 回填时与其它通道一起**按字数择优**（见 backfill 的 [STOP]）；
+    #     · 让 run_fallback 看见「上一轮副链路已经拿到过的」，不再重复跑一遍 ——
+    #       重复跑等于对同一站点再发一轮请求，那正是 fetch_pacing 要防的事。
+    #   记录里的 `path` 只在**有正文文本**时才给出（取到 PDF/HTML 而没文本时
+    #   是 null），因此不会把二进制字节当正文读进来 —— 那会按字数「胜出」
+    #   并盖住真正文，正是上面 [STOP] 说的事故。
+    p4 = WORK / "reviews_fallback.json"
+    if p4.exists():
+        try:
+            for r in json.loads(p4.read_text(encoding="utf-8")):
+                if isinstance(r, dict):
+                    _add_from_record(cands, r)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return cands
+
+
+# ══════════════════════════════════════════════════════════════
+# 副链路（CDP 备用）：fulltext_router.py 的编排入口
+# ══════════════════════════════════════════════════════════════
+def run_fallback(tasks: list[dict], cands: dict | None = None, *,
+                 mode: str | None = None, site_fail_limit: int = 2,
+                 timeout: float = 60.0, want_arxiv: bool = False) -> dict:
+    """对**主链路确实没拿到全文**的 DOI 跑副链路路由。
+
+    定位：备用，不是替代。候选池（collect_fulltext_candidates：第一层 EPMC /
+    CDP 落地页 / PMC 仓库副本 / 上一轮副链路产物）里已有正文的 DOI 一律排除，
+    剩下的才带着 `cdp_failed=True` 交给 `fulltext_router.route_many()`
+    —— 那个模块自己还有一道同款守卫（不显式声明就拒绝执行），
+    两处判据同源，不各算各的。
+
+    mode 缺省读阶段 0 的 `fulltext_fallback`（prepare_plan.json）；
+    `off` 时 router 会直接拒绝，本函数如实转述，不当成错误。
+    """
+    import fulltext_router as frt  # noqa: PLC0415
+    import fetch_pacing as _fp     # noqa: PLC0415
+
+    if cands is None:
+        cands = collect_fulltext_candidates()
+    # chars>0 才算「已有全文」：0 字节的产物是坏文件，不该挡住副链路
+    have = {d for d, lst in cands.items() if any(c > 0 for c, _, _ in lst)}
+
+    gap = []
+    for t in tasks:
+        doi = (t.get("doi") or "").strip()
+        if not doi or doi in have:
+            continue
+        gap.append({"doi": doi,
+                    "title": t.get("title") or "",
+                    "pmcid": t.get("pmcid") or (layers_ctx.get(doi) or {}).get("pmcid") or "",
+                    "cdp_failed": True})
+
+    m = mode or frt.plan_mode()[0]
+    print(f"\n{'=' * 74}\n副链路（CDP 备用）· mode={m}\n{'=' * 74}")
+    if m == "off":
+        print("  [SKIP] 阶段 0 已把 fulltext_fallback 设为 off —— 副链路不启用。")
+        return {"mode": m, "total": 0, "success": 0, "handoff": 0, "failure": 0,
+                "skipped_reason": "mode=off"}
+    if not gap:
+        print(f"  [SKIP] 候选池已覆盖全部 {len(have)} 篇"
+              f"（含上一轮副链路产物），无缺口。")
+        return {"mode": m, "total": 0, "success": 0, "handoff": 0, "failure": 0,
+                "skipped_reason": "no-gap"}
+
+    print(f"  缺口 {len(gap)} 篇（已有正文 {len(have)} 篇，已排除）")
+    out = WORK / "fallback"
+    out.mkdir(parents=True, exist_ok=True)
+    # 熔断计数跨轮持久化由 route_many 内部落盘，这里不重复调 save()
+    recs = frt.route_many(
+        gap, out_dir=out, mode=m,
+        guard=_fp.load_guard(wd=WD, limit=max(1, site_fail_limit)),
+        timeout=timeout, want_arxiv=want_arxiv)
+    report = WORK / "reviews_fallback.json"
+    report.write_text(json.dumps(recs, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    n_ok = sum(1 for r in recs if r["kind"] == "SUCCESS")
+    n_ho = sum(1 for r in recs if r["kind"] == "HANDOFF")
+    n_fa = sum(1 for r in recs if r["kind"] == "FAILURE")
+    print(f"  结果：成功 {n_ok} · 交接 {n_ho} · 失败 {n_fa}  →  {report}")
+    for r in recs:
+        if r["kind"] == "SUCCESS":
+            print(f"    [OK]   {r['doi']:34} {r['chars']:>8,} 字  [{r['provider']}]")
+        else:
+            print(f"    [{r['kind'][:4]}] {r['doi']:34} {r['status']}"
+                  f"{' → ' + r['next'] if r['next'] else ''}")
+    if n_ho:
+        print("  [INFO] 「交接」不是失败：路线存在，只是副链路不越权去取。"
+              "按 next 字段交回 CDP（cdp）或请用户授权（confirm/handoff）。")
+    return {"mode": m, "total": len(recs), "success": n_ok,
+            "handoff": n_ho, "failure": n_fa, "report": str(report)}
+
+
+def backfill(stage_dir: pathlib.Path, tasks: list[dict]) -> dict:
+    """把已取得的全文回填进 tasks/*.json 的 text / evidence_source。
+
+    为什么必须回填而不是让 R2 自己找：
+      `reviews_prepare.py` 生成的任务包 schema 与 `interpret_prepare.py`
+      **逐字段同名**（SKILL §4 R①），R2 的 subagent 只读 tasks/*.json。
+      正文若不进任务包，subagent 依然只能看到摘要。
+    """
+    # 收集**所有**候选，而不是先到先得。
+    #
+    # [STOP] 为什么要按长度择优：
+    #   实测 10.1037/a0035302 同时存在两份产物 ——
+    #     · CDP 落地页（APA 付费墙）  3,077 字   ← 只是付费墙提示页！
+    #     · PMC 仓库副本（CDP）    301,678 字   ← 真正文
+    #   若按「先到先得」，付费墙残页会**盖住**真正文，任务包里的
+    #   evidence_source 还是 "fulltext" —— 下游 subagent 会拿 3 千字
+    #   的广告页当综述读。**这种错误静默且致命。**
+    #   故：同篇多来源时按正文字数取最大者。
+    cands = collect_fulltext_candidates()
 
     pool: dict[str, tuple[str, str]] = {}
     shadowed: list[str] = []
@@ -755,11 +965,20 @@ def main() -> int:
                     help="第二层补充通道：出版社被 CAPTCHA 时改走 PMC 仓库副本（仍经 CDP）")
     ap.add_argument("--repo-pace", type=float, default=20.0,
                     help="仓库副本通道的篇间间隔秒数（默认 20）")
+    ap.add_argument("--fallback", action="store_true",
+                    help="副链路（CDP 备用）：对主链路三条通道都没拿到全文的 DOI "
+                         "跑 fulltext_router.py 的路由判定。**必须在 --cdp/--repo 之后跑**，"
+                         "否则「CDP 已失败」这个前提不成立")
+    ap.add_argument("--fallback-mode", choices=["off", "oa", "oa+api"], default=None,
+                    help="覆盖阶段 0 的 fulltext_fallback（缺省读 prepare_plan.json）")
+    ap.add_argument("--fallback-arxiv", action="store_true",
+                    help="副链路的 OA 瀑布里加查 arXiv（按题名匹配）")
     a = ap.parse_args()
 
     stage_dir = find_stage_dir(a.stage_dir)
     if not stage_dir:
-        print("[X] 未找到阶段 R 输出目录（需含 tasks/）")
+        print(f"[X] 未找到阶段 R 任务包（需含 tasks/）；已查 {WORK / 'reviews'} 与 {OUTPUTS}"
+              f" —— 先跑 reviews_prepare.py", file=sys.stderr)
         return 2
     tasks = load_tasks(stage_dir)
     if not tasks:
@@ -800,6 +1019,12 @@ def main() -> int:
             print("[X] 无可用 CDP 实例")
         else:
             fetch_repo_via_cdp(layers, tasks, pl, pace=a.repo_pace)
+    if a.fallback:
+        # 放在 --cdp / --repo 之后、--backfill 之前：
+        #   「CDP 已失败」这个前提只有在主链路真的跑过之后才成立，
+        #   而副链路的产物又要赶在回填之前落地，才能被第 ④ 通道收进候选池。
+        run_fallback(tasks, None, mode=a.fallback_mode,
+                     site_fail_limit=a.site_fail_limit, want_arxiv=a.fallback_arxiv)
     if a.backfill:
         backfill(stage_dir, tasks)
     return 0

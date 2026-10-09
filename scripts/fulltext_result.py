@@ -88,6 +88,10 @@ STATUS_KIND: dict[str, str] = {
     "retry_after_user_verification": "HANDOFF",
     "api_fallback_confirmation_required": "HANDOFF",
     "si_confirmation_required": "HANDOFF",
+    # 有合法候选、但都不在直连白名单内 → 路线存在，只是「谁来取」的问题。
+    #   与 `route_disabled`（FAILURE）的区别在于：后者是这条路本身不合法/没开，
+    #   前者是主链路的 CDP 完全能接手。fulltext_router.py 用它产出交接单。
+    "browser_handoff": "HANDOFF",
     # ── 凭据/授权问题（要用户动，但不是失败）──
     "credentials_missing": "HANDOFF",
     "credentials_invalid": "HANDOFF",
