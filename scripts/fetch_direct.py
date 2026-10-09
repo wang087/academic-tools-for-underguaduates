@@ -15,12 +15,12 @@
 #   · 产物写 `.work_cdp/abstracts_openalex.json`（主流程既有契约，interpret_prepare 直接读）；
 #   · 仍缺的 DOI 写 `.work_cdp/direct_failed.json`，并打印 CDP 回退命令。
 #
-# ★ 为什么要有这个脚本，而不是继续靠"agent 自己判断能不能直连"：
+# 为什么要有这个脚本，而不是继续靠"agent 自己判断能不能直连"：
 #   §5.1 的分层规则若只写在文档里，每次都要临场判断某个域名算不算
 #   「已验证可行的开源数据库」—— 这正是原禁令"一刀切"想避免的风险。
 #   白名单把这个判断**前置成配置**，脚本对表外域名直接拒绝。
 #
-# ★ 本脚本**绝不获取原文全文**：它只查询结构化元数据与摘要接口。
+# 本脚本**绝不获取原文全文**：它只查询结构化元数据与摘要接口。
 #   任何返回 HTML 页面、PDF 的路径都在第二层，不在这里。
 #
 # 用法：
@@ -51,6 +51,8 @@ import urllib.parse
 import urllib.request
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from logutil import run_root as _run_root  # noqa: E402
 
 def _fix_streams() -> None:
     """UTF-8 兜底（幂等；原因见 refs_backfill.py 同名函数）。"""
@@ -90,7 +92,7 @@ except Exception:
     def journal(*a, **k):   # noqa: D103
         pass
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 CACHEDIR = CDPDIR / "cache_direct"
 TPL = _HERE.parent / "templates"
@@ -134,7 +136,7 @@ def load_whitelist() -> list[dict]:
 def domain_allowed(url: str, entries: list[dict]) -> tuple[bool, str]:
     """→ (是否允许直连, 命中的 domain 或拒绝原因)。
 
-    ★ 匹配规则用**后缀边界**，不是 `in`：
+    匹配规则用**后缀边界**，不是 `in`：
       `evil-api.crossref.org.attacker.com` 里含 "api.crossref.org"，
       用子串匹配会放行 —— 必须是 host == domain 或 host 以 "." + domain 结尾。
     """
@@ -298,7 +300,7 @@ def src_pubmed(doi: str):
             xml = r.read().decode("utf-8", "replace")
     except Exception:
         return None
-    # ★ 从 XML 里取 AbstractText 段，不引入 XML 依赖
+    # 从 XML 里取 AbstractText 段，不引入 XML 依赖
     segs = re.findall(r"<AbstractText[^>]*>(.*?)</AbstractText>", xml, re.S)
     a = strip_jats(" ".join(segs))
     if not a:
@@ -340,7 +342,7 @@ def self_test() -> int:
         ("https://api.crossref.org/works/10.1/x", True),
         ("https://api.openalex.org/works/doi:10.1/x", True),
         ("https://www.ebi.ac.uk/europepmc/webservices/rest/search", True),
-        # ★ 后缀边界陷阱：子串匹配会把这些全放行
+        # 后缀边界陷阱：子串匹配会把这些全放行
         ("https://api.crossref.org.attacker.com/steal", False),
         ("https://evil-api.crossref.org.attacker.com/x", False),
         ("https://www.nature.com/articles/x", False),
@@ -352,7 +354,7 @@ def self_test() -> int:
         got, why = domain_allowed(url, entries)
         if got != want:
             bad += 1
-            print(f"  ✗ domain_allowed({url!r}) = {got}（{why}），期望 {want}")
+            print(f"  [X] domain_allowed({url!r}) = {got}（{why}），期望 {want}")
     print(f"白名单边界判定：{len(cases) - bad}/{len(cases)} 通过")
 
     wl = load_whitelist()
@@ -374,7 +376,7 @@ def self_test() -> int:
         print(f"白名单内容层级合法：{'通过' if ok2 else '失败 → ' + str(badc)}")
         bad += 0 if ok2 else 1
 
-        # ★ 含全文的源**必须** oa_only：否则等于放开了"直连取非 OA 正文"，
+        # 含全文的源**必须** oa_only：否则等于放开了"直连取非 OA 正文"，
         #   那正是 §5.1 第二层明令禁止的。
         bad_o = [s["domain"] for s in wl
                  if "oa-fulltext-xml" in str(s.get("content_class") or "")
@@ -387,7 +389,7 @@ def self_test() -> int:
     assert rebuild_inverted({"a": [1], "b": [0]}) == "b a"
     print("文本清洗：通过")
 
-    print("\n✅ 自检全部通过" if bad == 0 else "\n❌ 自检有失败项")
+    print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
     return 0 if bad == 0 else 1
 
 
@@ -401,7 +403,7 @@ def main() -> int:
     chk = _argval("check-domain")
     if chk:
         ok, why = domain_allowed(chk, entries)
-        print(f"{'✅ 允许直连' if ok else '⛔ 禁止直连'}：{chk}")
+        print(f"{'允许直连' if ok else '禁止直连'}：{chk}")
         print(f"   理由：{why}")
         if not ok:
             print("   → 按 §5.1：原文全文走 CDP；其他内容请确认是否属于第一层。")
@@ -413,7 +415,7 @@ def main() -> int:
                if s.strip()]
     unknown = [s for s in sources if s not in SOURCES and s != "s2"]
     if unknown:
-        print(f"✗ 未知源 {unknown}；可用：{list(SOURCES)} + s2")
+        print(f"未知源 {unknown}；可用：{list(SOURCES)} + s2")
         return 2
 
     cr = load_json(CDPDIR / "crossref_all.json", {}) or {}
@@ -421,7 +423,7 @@ def main() -> int:
     if limit:
         dois = dois[:limit]
     if not dois:
-        print("✗ 找不到题录 .work_cdp/crossref_all.json")
+        print("[X] 找不到题录 .work_cdp/crossref_all.json")
         return 2
 
     # 已有摘要：CDP（第二层）优先保留，其次第一层历史产物
@@ -507,7 +509,7 @@ def main() -> int:
     print(f"产物：{OUT}")
 
     if missing:
-        print(f"\n⚠ 仍有 {len(missing)} 篇在第一层取不到摘要 → **转第二层 CDP**：")
+        print(f"\n[WARN] 仍有 {len(missing)} 篇在第一层取不到摘要 → **转第二层 CDP**：")
         print("   uv run --with websocket-client python 流程1/scripts/grab_abstracts.py "
               "--retry-failed")
         print(f"   缺口清单：{FAILED}")
@@ -525,11 +527,11 @@ def main() -> int:
             else:
                 print("   （--offline 模式，跳过实际调起）")
     else:
-        print("\n✅ 第一层已覆盖全部摘要，无需动用 CDP。")
+        print("\n[OK] 第一层已覆盖全部摘要，无需动用 CDP。")
 
     journal("E", "abstracts.direct", total=len(dois), covered=len(have),
             missing=len(missing), sources=",".join(sources), offline=OFFLINE)
-    log.info(f"✓ 第一层摘要获取完成：{len(have)}/{len(dois)}")
+    log.info(f"[OK] 第一层摘要获取完成：{len(have)}/{len(dois)}")
     return 0
 
 

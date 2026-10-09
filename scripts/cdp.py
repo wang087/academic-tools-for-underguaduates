@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # CDP 客户端封装（多实例 / 硬超时 / 可诊断）
 #
-# ★ 本次修复的「死机」根因（旧版）：
+# 本次修复的「死机」根因（旧版）：
 #   1) `call()` 里 `while True: ws.recv()` —— 只靠 socket 超时兜底，
 #      浏览器进程若已退出或页面目标被销毁（导航到 PDF 时必然发生），
 #      recv 会长时间阻塞甚至永久挂起；
@@ -12,7 +12,7 @@
 #   4) `navigate()` 的每次 readyState 轮询都可能各阻塞 90s，
 #      最坏累计数分钟，表现为「卡死无输出」。
 #
-# ★ 修复方案：
+# 修复方案：
 #   · 每个调用都带**绝对截止时间**（deadline），超时抛 CDPTimeout，
 #     绝不无限等待；recv 单次超时 = 剩余预算，最小 0.5s。
 #   · 端口可配（--port / CDP_PORT），HTTP 端点全部参数化 → 支持多实例。
@@ -24,13 +24,62 @@
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.error
 import urllib.request
+
+from logutil import run_root as _run_root  # noqa: E402
+
+
+def _fix_streams() -> None:
+    """UTF-8 兜底（幂等；与本流程其余脚本同名函数同判据）。
+
+    为什么 `cdp.py` 也要有一份：本模块是**库**，被 cdp_pool /
+    download_all_fulltexts / orcid_extract / faculty_* 等大量脚本 import。
+    这些脚本自己会在 import 之后调 `_fix_streams()`，但 **import 期就抛出的
+    异常**（最典型的是 `CDPUnavailable`：浏览器没起、端口不通）发生得更早，
+    会走 Python 默认的异常打印路径，绕过那些脚本的兜底 ——
+    在 GBK 控制台上表现为 `CDPUnavailable: ... ���ɴ�: ...` 这种乱码，
+    让「端口不通」这个最常见的故障提示反而看不懂。
+
+    为什么**替换前先 flush**（与其余脚本那 35 份副本的唯一差别）：
+    那 35 份都在**脚本**里、且紧跟在 import 之后调用，之前几乎没输出过；
+    而本模块是**库**，可能在**调用方已经打印了内容之后**才被 import。
+    实测在 `PYTHONIOENCODING=gbk` 下，替换 stdout 会让旧 wrapper 里
+    尚未冲刷的那一行**直接消失**（不是乱码，是没了）。
+    这类「静默丢输出」比乱码更难发现，故此处补一次 flush。
+
+    为什么不 `from logutil import _fix_stdout`：本流程刻意让每个脚本
+    **自包含**一份（见 refs_build.py / refs_prepare.py / reviews_prepare.py
+    的注释）—— 跨脚本 import 会叠加多层 TextIOWrapper，中间层被 GC 时
+    会把底层 buffer 一起关掉，表现为后续所有 print 抛
+    "ValueError: I/O operation on closed file"，且只在特定 import 顺序下复现。
+    """
+    for name in ("stdout", "stderr"):
+        s = getattr(sys, name, None)
+        buf = getattr(s, "buffer", None)
+        if buf is None:
+            continue
+        enc = (getattr(s, "encoding", None) or "").lower()
+        if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
+            continue
+        try:
+            s.flush()          # 见上：避免旧 wrapper 缓冲区的输出被静默丢弃
+        except Exception:
+            pass
+        try:
+            setattr(sys, name, io.TextIOWrapper(buf, encoding="utf-8", errors="replace"))
+        except Exception:
+            pass
+
+
+_fix_streams()
 
 try:
     import websocket  # websocket-client
@@ -105,7 +154,7 @@ def new_tab(url: str = "about:blank", port: int = DEFAULT_PORT) -> dict:
 def is_alive(port: int = DEFAULT_PORT) -> bool:
     """CDP 端点是否可用。
 
-    ★ 先 TCP 探活：端口没开直接返回 False，避免 Windows 上
+    先 TCP 探活：端口没开直接返回 False，避免 Windows 上
       对已关闭端口发请求固定耗时 ~2.0s 的问题（见 _port_open）。
       本函数在每个任务前都会被调用，这个开销会直接乘上任务数。
     """
@@ -146,7 +195,7 @@ def first_page_tab(port: int = DEFAULT_PORT) -> dict:
 
 
 # ── 反检测注入（默认关闭）────────────────────────────────────
-# ★ 默认**不做**任何注入：注入本身（改写 navigator.plugins 等）反而
+# 默认**不做**任何注入：注入本身（改写 navigator.plugins 等）反而
 #   是更明显的可检测特征。保持浏览器原生指纹最稳。
 STEALTH_JS = r"""
 (() => {
@@ -155,21 +204,21 @@ STEALTH_JS = r"""
 """
 
 # ── Cookie / 同意书弹窗自动关闭（默认开启）──────────────────
-# ★ 说明：Chromium/Edge **没有**屏蔽 cookie 同意弹窗的启动参数
+# 说明：Chromium/Edge **没有**屏蔽 cookie 同意弹窗的启动参数
 #   （Edge 的「阻止 cookie 横幅」是浏览器设置项，不对应命令行开关），
 #   因此这里用一段**保守**的页内脚本来处理。
 #
-# ★ 与「指纹伪装」的区别：本脚本**不改动任何 navigator/screen 属性**，
+# 与「指纹伪装」的区别：本脚本**不改动任何 navigator/screen 属性**，
 #   只做人类本来就会做的动作 —— 点「同意」按钮、移除遮挡层、
 #   恢复被锁的页面滚动。不产生可检测的自动化指纹。
 #
-# ★ 保守原则（避免误点正文里的按钮）：
+# 保守原则（避免误点正文里的按钮）：
 #   1) 只在**已知的同意管理平台容器**内寻找按钮（OneTrust / Cookiebot /
 #      Quantcast / Osano / Didomi / TrustArc / 自建 .cookie-banner 等）；
 #   2) 找不到已知容器就**什么都不做**，绝不全局搜按钮文字；
 #   3) 只隐藏这些已知容器本身，不动其他元素。
 #
-# ★ v6 修复（三处导致「弹窗关不掉」的实质缺陷）：
+# v6 修复（三处导致「弹窗关不掉」的实质缺陷）：
 #   ① **固定定位弹窗被误判为不可见** —— 旧 `visible()` 用
 #      `el.offsetParent !== null` 判可见，而规范规定 position:fixed 元素的
 #      offsetParent **恒为 null**。于是 Cookiebot(#CybotCookiebotDialog)、
@@ -236,7 +285,7 @@ CONSENT_JS = r"""
     '[role="dialog"][aria-label*="cookie" i]', '[role="dialog"][class*="cookie" i]'
   ];
   const BTN_SEL = 'button, a[role="button"], input[type="button"], input[type="submit"], [role="button"], .button, .btn';
-  // 只认「明确表示接受」的按钮文字。★ 刻意**不含** reject/decline/settings ——
+  // 只认「明确表示接受」的按钮文字。刻意**不含** reject/decline/settings ——
   // 那是拒绝或二次选择，不是本脚本该替用户做的决定；找不到接受按钮时走隐藏兜底。
   const ACCEPT = /^\s*(accept(\s+(all|necessary|selected|recommended|cookies))?(\s+cookies)?|accept\s*(&|and)\s*(continue|close)|allow(\s+(all|necessary|cookies)){1,2}|agree(\s+to\s+all)?(\s+and\s+continue)?|i\s+(agree|accept|understand)|got\s+it|ok(ay)?|sounds\s+good|that'?s\s+(ok|fine)|alright|understood|consent|continue\s+to\s+site|同意(全部|所有)?|接受(全部|所有)?|我(已)?(同意|接受|知道了|明白了)|知道了|明白了|确定|确认|允许(全部|所有)?|同意并(继续|关闭)|接受并(继续|关闭))\s*$/i;
   const MAX_BOXES = 60;
@@ -247,7 +296,7 @@ CONSENT_JS = r"""
   }
 
   // ── 收集可查询的根：document + 各 shadow root ────────────────
-  //   ★ 必要性：Usercentrics v2 / 部分 OneTrust 把横幅渲染在 shadow DOM 内，
+  //   必要性：Usercentrics v2 / 部分 OneTrust 把横幅渲染在 shadow DOM 内，
   //     document.querySelector 查不到，会表现为「弹窗一直不关」。
   //   3 秒缓存，避免每个选择器都全量遍历一次 DOM。
   let _rootsAt = -1, _rootsCache = null;
@@ -274,7 +323,7 @@ CONSENT_JS = r"""
     } catch (e) {}
   }
 
-  // ★ v6 修复「固定定位弹窗永远关不掉」：
+  // v6 修复「固定定位弹窗永远关不掉」：
   //   旧实现用 `el.offsetParent !== null` 判可见，而**规范规定
   //   position:fixed 元素的 offsetParent 恒为 null** —— 于是绝大多数
   //   cookie 横幅（Cookiebot #CybotCookiebotDialog、Osano .osano-cm-window、
@@ -327,7 +376,7 @@ CONSENT_JS = r"""
     return out;
   }
 
-  // ★ v6：同一个容器**只点一次**「接受」。
+  // v6：同一个容器**只点一次**「接受」。
   //   必要性：站点若「接受按钮只写 cookie、不销毁 DOM」（SKILL §5 已记录该形态），
   //   每次巡查都会再点一遍；而且点击本身会派发 click 事件 → 触发下面的
   //   click 补扫 → 又点一遍，形成自放大。实测 2 秒内同一个按钮被点了 3~4 次。
@@ -353,7 +402,7 @@ CONSENT_JS = r"""
     const seen = new Set();
     for (const sel of BOXES) {
       if (processed >= MAX_BOXES) break;
-      // ★ 取**全部**命中（旧实现用 querySelector 只取第一个，同页多个
+      // 取**全部**命中（旧实现用 querySelector 只取第一个，同页多个
       //   同意组件时后面的永远处理不到）
       const found = [];
       for (const r of rs) {
@@ -459,7 +508,7 @@ class CDP:
     def _inject(self, source: str, tag: str) -> None:
         """把脚本注册为「每个新文档创建前执行」。失败不影响主流程。
 
-        ★ 为什么需要去重：`Page.addScriptToEvaluateOnNewDocument` 是**累加**的，
+        为什么需要去重：`Page.addScriptToEvaluateOnNewDocument` 是**累加**的，
           注册会一直留在页面目标上（跨进程也有效）。主流程每篇论文都会
           connect() 一次，若不去重，跑 100 篇就会在同一目标上堆 100 份脚本，
           每开一个新文档全部再执行一遍 —— 白白拖慢每次导航。
@@ -549,7 +598,7 @@ class CDP:
                  load_timeout: float = 30.0) -> "CDP":
         """导航到 url。总耗时上界 = nav_timeout + load_timeout + settle（+ wait_challenge）。
 
-        ★ `Page.navigate` 指令本身超时**不代表**页面没在加载：
+        `Page.navigate` 指令本身超时**不代表**页面没在加载：
           实测多实例并行时（3 个 Edge 同时打开重型出版社页面），
           导航应答偶发超过 15s，但页面随后正常渲染完成。
           旧实现直接抛错 → 上层判为 nav-timeout → 误报失败。
@@ -586,7 +635,7 @@ class CDP:
                 except CDPError:
                     break
                 time.sleep(1.0)
-        # ★ 自适应 settle：正文/引文元数据已就绪就提前返回（效率），
+        # 自适应 settle：正文/引文元数据已就绪就提前返回（效率），
         #   最坏仍等待满 settle 秒（慢站点不降低成功率）。
         if settle > 0:
             end = time.time() + settle
@@ -643,9 +692,9 @@ class CDP:
     def close_tab_self(self) -> bool:
         """关闭本会话所属的标签页（v8，多标签页模式下用完即关）。
 
-        ★ 顺序很重要：**先关标签页、再关 ws**。反过来先关 ws 后，
+        顺序很重要：**先关标签页、再关 ws**。反过来先关 ws 后，
           标签页会变成无人认领的孤儿，长期累积拖慢浏览器。
-        ★ 导航到 PDF 后原页面目标已被 PDF 查看器顶替，此时按 tab_id
+        导航到 PDF 后原页面目标已被 PDF 查看器顶替，此时按 tab_id
           关闭可能失败 —— 属于正常情况，返回 False 即可，不要重试。
         """
         ok = False
@@ -673,7 +722,7 @@ _INJECTED_FILE = ".work_cdp/cdp_injected.json"
 
 def _injected_path() -> "pathlib.Path":
     import pathlib
-    wd = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+    wd = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
     return wd / _INJECTED_FILE
 
 
@@ -702,7 +751,7 @@ def connect(port: int = DEFAULT_PORT, timeout: float = CALL_TIMEOUT,
 
     consent=True 时注册 cookie/同意书弹窗自动关闭脚本（见 CONSENT_JS）。
 
-    ⚠️ **本函数只保证"能拿到一个标签页"，不保证"独占"** ——
+    [WARN] **本函数只保证"能拿到一个标签页"，不保证"独占"** ——
        它优先复用已有的 about:blank 标签，多个调用方可能拿到同一个。
        需要并发隔离时**必须**改用 `open_tab()`（见下）。
     """
@@ -787,7 +836,7 @@ def close_tab(tab_id: str, port: int = DEFAULT_PORT,
 def _port_open(port: int, timeout: float = 0.35) -> bool:
     """快速探测本地端口是否有进程在听（不发 HTTP 请求）。
 
-    ★ 为什么需要：Windows 上对**已关闭**的本地端口发 urllib 请求，
+    为什么需要：Windows 上对**已关闭**的本地端口发 urllib 请求，
       即使传了 timeout，实测仍固定花掉 ~2.0s（连接被拒后的重试/解析开销）。
       收尾清理要对每个端口探一次，浏览器不在时就会白等 2s×N。
       先用 socket 快速判活，能立刻返回，避免这一固定开销。
@@ -809,7 +858,7 @@ def _port_open(port: int, timeout: float = 0.35) -> bool:
 def count_tabs(port: int = DEFAULT_PORT, timeout: float = 3.0) -> int:
     """当前页面标签数（用于诊断标签泄漏）。浏览器不在时快速返回 -1。
 
-    ★ 先做 TCP 探活：端口没开就立刻返回，不走 HTTP（见 _port_open 说明）。
+    先做 TCP 探活：端口没开就立刻返回，不走 HTTP（见 _port_open 说明）。
     """
     if not _port_open(port):
         return -1
@@ -825,8 +874,8 @@ def prune_blank_tabs(port: int = DEFAULT_PORT, keep: int = 1,
     """清理多余的 about:blank 标签，返回清理数量。
 
     长期并发下载会因异常路径残留空白标签，累积后拖慢浏览器。
-    ★ 只关空白标签，**绝不关**正在导航/已加载内容的标签。
-    ★ 浏览器不在时立刻返回 0（不抛、不干等）—— 收尾清理不该拖慢主流程。
+    只关空白标签，**绝不关**正在导航/已加载内容的标签。
+    浏览器不在时立刻返回 0（不抛、不干等）—— 收尾清理不该拖慢主流程。
     """
     if not _port_open(port):
         return 0

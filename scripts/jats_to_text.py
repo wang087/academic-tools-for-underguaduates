@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 def _fix_streams() -> None:
     """UTF-8 兜底（**必须幂等**）。
 
-    ★ 本模块会被别的脚本 `import`（如 refs_backfill.enrich_reviews 复用它的
+    本模块会被别的脚本 `import`（如 refs_backfill.enrich_reviews 复用它的
       JATS 解析）。无条件重包 stdout 会让**上一层 wrapper 在 GC 时关掉底层 buffer**，
       调用方后续所有 print 直接抛 "ValueError: I/O operation on closed file" ——
       而且是"import 一个工具模块把主流程搞挂"这种最难查的形态。
@@ -195,13 +195,13 @@ def to_text(xml: str | bytes) -> str:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print(__doc__)
+        print(__doc__ or "用法: uv run python jats_to_text.py <file.xml> [...]")
         return 1
     rc = 0
     for arg in sys.argv[1:]:
         p = pathlib.Path(arg)
         if not p.exists():
-            print(f"✗ 不存在: {p}")
+            print(f"[X] 不存在: {p}")
             rc = 1
             continue
         d = parse(p)
@@ -217,7 +217,7 @@ def main() -> int:
         out.write_text("\n".join(L), encoding="utf-8")
         nch = sum(len(x["paras"]) for x in d["sections"])
         nchar = sum(len("".join(x["paras"])) for x in d["sections"])
-        print(f"✅ {p.name} → {out.name} | 章节 {len(d['sections'])} | 段落 {nch} | "
+        print(f"[OK] {p.name} → {out.name} | 章节 {len(d['sections'])} | 段落 {nch} | "
               f"正文 {nchar} 字 | 参考文献 {len(d['refs'])}")
     return rc
 

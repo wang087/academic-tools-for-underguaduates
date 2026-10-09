@@ -66,12 +66,12 @@ def main() -> int:
     cfile = next((p for p in (src / "crossref_all.json", src / "master.json")
                   if p.exists()), None)
     if cfile is None:
-        print(f"✗ 找不到题录总表：{src}/crossref_all.json（或 master.json）")
+        print(f"[X] 找不到题录总表：{src}/crossref_all.json（或 master.json）")
         print("  请先运行 fetch_crossref_all.py 产出 crossref_all.json。")
         return 1
     master = _records(json.loads(cfile.read_text(encoding="utf-8")))
     if not master:
-        print(f"✗ {cfile.name} 里没有可用记录")
+        print(f"[X] {cfile.name} 里没有可用记录")
         return 1
     idx = json.loads((src / "pdf_index.json").read_text(encoding="utf-8")) \
         if (src / "pdf_index.json").exists() else {}
@@ -126,7 +126,7 @@ def main() -> int:
          "（见 `.work_cdp/pdf_index.json` 登记表）\n", "---\n"]
 
     # 阶段分组：与 build_list.py **同一数据源**（.work_cdp/periods.json）。
-    # ★ 旧版在此写死「2011–2018 早期 / 2022–2023 博后期 / 2025– 独立期」——
+    # 旧版在此写死「2011–2018 早期 / 2022–2023 博后期 / 2025– 独立期」——
     #   那是上一案例的履历，换作者后分组标题直接是错的（违反 [版本变动.md](版本变动.md) 去硬编码）。
     periods = []
     pj = src / "periods.json"
@@ -163,7 +163,7 @@ def main() -> int:
             L.append(f"| {i} | {r['year']} | {r['journal'][:28]} | {r['title'][:64]} | "
                      f"{postag} | {r['pages'] or '—'} | "
                      f"{str(r['size']) + ' KB' if r['size'] else '—'} | "
-                     f"{'✅' if r['pages'] else '❌'} |")
+                     f"{'[OK]' if r['pages'] else '[X]'} |")
         L.append("")
 
     miss = [r for r in rows if not r["pages"]]
@@ -198,7 +198,7 @@ def main() -> int:
     log.ok(f"已生成 {out}")
     print(f"   共 {len(rows)} 篇 | 已获全文 {len(got)} 篇 | 未获取 {len(rows) - len(got)} 篇")
     for r in miss:
-        print(f"   ❌ {r['year']} {r['journal'][:24]} — {r['title'][:56]}")
+        print(f"   [X] {r['year']} {r['journal'][:24]} — {r['title'][:56]}")
     log.close()
     return 0
 

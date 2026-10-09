@@ -4,7 +4,9 @@
 # 未设置时使用当前工作目录。所有中间数据存于 <WORKDIR>/.work_cdp/
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)

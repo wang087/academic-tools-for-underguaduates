@@ -4,7 +4,9 @@
 # 未设置时使用当前工作目录。所有中间数据存于 <WORKDIR>/.work_cdp/
 # ─────────────────────────────────────────────────────────────
 import os, pathlib, sys
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+
+from logutil import run_root as _run_root  # noqa: E402
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 AUTHOR = os.environ.get("PAPER_AUTHOR", WORKDIR.name)
@@ -15,7 +17,7 @@ if str(_HERE) not in sys.path:
 """Integrate ORCID page data + Crossref authoritative records -> 论文列表 MD."""
 import json, re, sys, io, html
 import scope as _scope          # 同名消歧排除名单（.work_cdp/disambiguated.json）
-# ★ 必须起别名：本脚本主循环里有一个**局部变量就叫 `journal`**
+# 必须起别名：本脚本主循环里有一个**局部变量就叫 `journal`**
 #   （`journal = it.get("journal")`，刊物名），直接 `from logutil import journal`
 #   会被它遮蔽 —— 调用时报 `TypeError: 'str' object is not callable`，
 #   而且是在**写完文件之后**才炸，属于「日志把主流程搞挂」。
@@ -31,7 +33,7 @@ def _load(name, required=False, default=None):
     if not p.exists():
         if required:
             sys.stderr.write(
-                f"\n✗ 缺少必需输入 {p}\n"
+                f"\n[X] 缺少必需输入 {p}\n"
                 f"  请先运行产出该文件的步骤（见 SKILL.md §4 阶段 D / §8 脚本索引）。\n"
                 f"  若本案例未抓 ORCID 网页（例如改用 orcid_probe.py 走 API），\n"
                 f"  请改用 disambiguate.py + enrich_crossref_authors.py 的产物构建列表。\n\n")
@@ -55,7 +57,7 @@ for r in ORCID_RECS:
         "contributors": r.get("contributors", []),
     }
 if not ORCID_RECS:
-    sys.stderr.write("ℹ 未找到 orcid_works_parsed.json（本案例可能走 ORCID API 路径）"
+    sys.stderr.write("[INFO] 未找到 orcid_works_parsed.json（本案例可能走 ORCID API 路径）"
                      "→ 跳过 ORCID 年份/贡献者补充，改用 Crossref 记录。\n")
 
 def clean_title(t, journal=""):
@@ -67,8 +69,8 @@ def clean_title(t, journal=""):
     t = re.sub(r"\b\d+\s+Page\s+\d+\s+of\s+\d+\s*", "", t)
     # 去除 "<i> </i> <sub> </sub>" 标签残余，并把标签间空白合并（如 "[Ti 12 In 6 ...]" -> "[Ti12In6...]"）
     t = html.unescape(re.sub(r"</?(i|sub|sup)>", "", t))
-    # 合并所有空白（含换行/制表/\xa0/  等），并在标点后保留必要空格
-    t = re.sub(r"[\s  -​  　]+", " ", t).strip()
+    # 合并所有空白（含换行/制表/\xa0/  等），并在标点后保留必要空格
+    t = re.sub(r"[\s  -   ]+", " ", t).strip()
     # 尾随期刊名（当期刊被吞进标题行时）—— 用**本记录自身的期刊名**判定，不维护硬编码刊名表
     if journal:
         j = str(journal).strip()
@@ -85,7 +87,7 @@ for doi, rec in CR.items():
     rec["doi"] = doi
     merged[doi] = rec
 
-# 2b) ★ 排除同名他人的论文（原始需求：非本人论文要在输出中注明并自动忽略）
+# 2b) 排除同名他人的论文（原始需求：非本人论文要在输出中注明并自动忽略）
 #     来源是 disambiguate.py 的 dropped 列表 —— **黑名单**语义，只删「已明确
 #     判定为他人」的条目；绝不按 confirmed 做白名单（语料不同源会误删本人成果）。
 #     excluded_dois() 返回 None（没跑过消歧）时不做任何过滤，保持原行为。
@@ -93,16 +95,16 @@ _dropped = _scope.dropped_list(CDPDIR)
 _excluded_recs = []
 _exc = _scope.excluded_dois(CDPDIR, total=len(merged))
 if _exc is None:
-    sys.stderr.write("ℹ 未找到 disambiguated.json → 未做同名消歧，"
+    sys.stderr.write("[INFO] 未找到 disambiguated.json → 未做同名消歧，"
                      "本列表为**全量候选**（建议先跑 disambiguate.py，见 SKILL §4 阶段 D）\n")
 elif _exc:
     for d in list(merged):
         if d in _exc:
             _excluded_recs.append(merged.pop(d))
-    sys.stderr.write(f"ℹ 已按 disambiguated.json 排除同名他人论文 {len(_excluded_recs)} 条"
+    sys.stderr.write(f"[INFO] 已按 disambiguated.json 排除同名他人论文 {len(_excluded_recs)} 条"
                      f"（剩余 {len(merged)} 条，被排除项在文末如实列出）\n")
 else:
-    sys.stderr.write("ℹ disambiguated.json 中无需排除的记录\n")
+    sys.stderr.write("[INFO] disambiguated.json 中无需排除的记录\n")
 
 extra_nodoi = []
 for r in ORCID_RECS:
@@ -131,7 +133,7 @@ for r in ORCID_RECS:
 def author_name(a):
     """兼容两种 authors 形状：字典（{family,given,name}）与纯字符串。
 
-    ★ 历史教训：enrich_crossref_authors.py 曾把 authors 写成**字符串列表**，
+    历史教训：enrich_crossref_authors.py 曾把 authors 写成**字符串列表**，
       而这里直接 a.get("name") → AttributeError: 'str' object has no attribute
       'get'，整条著录链崩掉。上游已修正为字典列表，这里再做一层防御，
       保证任一上游形状都不会让流程中断。
@@ -152,7 +154,7 @@ def gbt_authors(authors):
         return ", ".join(names)
     return ", ".join(names[:3]) + ", et al."
 
-# ★ 本人署名识别：姓名关键词不硬编码，由环境变量给出
+# 本人署名识别：姓名关键词不硬编码，由环境变量给出
 #   PAPER_NAME_TOKENS="zhou, cong-zhao|cong-zhao zhou|zhou cz"（竖线分隔，小写，任一命中即认定本人）
 #   未提供时回退到 PAPER_SURNAME / PAPER_GIVEN 组合。
 _TOKENS = [t.strip().lower() for t in os.environ.get("PAPER_NAME_TOKENS", "").split("|") if t.strip()]
@@ -164,7 +166,7 @@ if not _TOKENS:
     elif _sn:
         _TOKENS = [f"{_sn},"]
 if not _TOKENS:
-    sys.stderr.write("ℹ 未提供 PAPER_NAME_TOKENS / PAPER_SURNAME+PAPER_GIVEN"
+    sys.stderr.write("[INFO] 未提供 PAPER_NAME_TOKENS / PAPER_SURNAME+PAPER_GIVEN"
                      "→ 跳过「本人署名位次」标注。\n")
 
 def my_position(authors):
@@ -192,7 +194,7 @@ def sort_key(rec):
 
 items = sorted([r for r in merged.values()] + extra_nodoi, key=sort_key)
 
-# ★ v4 修复：旧版把作者姓名/单位/ORCID、署名识别词与阶段分组**硬编码**为上一案例，
+# v4 修复：旧版把作者姓名/单位/ORCID、署名识别词与阶段分组**硬编码**为上一案例，
 #   换作者后会输出错误标题与文件名。现全部改为从环境变量/数据推导（脚本内零作者信息）。
 AUTHOR_ZH = AUTHOR
 AUTHOR_EN = os.environ.get("PAPER_AUTHOR_EN", "")
@@ -205,7 +207,7 @@ lines.append(f"# {AUTHOR_ZH}{'（' + AUTHOR_EN + '）' if AUTHOR_EN else ''}论�
 lines.append(f"> 作者：{AUTHOR_ZH}{'（' + AUTHOR_EN + '）' if AUTHOR_EN else ''}"
              + (f"，{AFFIL}" if AFFIL else ""))
 lines.append("> ORCID：" + (f"https://orcid.org/{ORCID_ID}" if ORCID_ID else "（未提供）")
-             + f"　｜　共 **{_n} 条**，均经 Crossref 逐条核实题录")
+             + f" ｜ 共 **{_n} 条**，均经 Crossref 逐条核实题录")
 lines.append("> 著录格式：GB/T 7714—2015（作者多于 3 位取前 3 位加 et al.；期刊名采用刊名标准写法）")
 lines.append("")
 lines.append(f"**说明：** 以下为经核实归属本人的 {_n} 条成果（按发表年升序）。"
@@ -228,13 +230,13 @@ if _pj.exists():
     try:
         PERIODS = [(str(a), str(b), int(c), int(d)) for a, b, c, d in json.load(open(str(_pj), encoding="utf-8"))]
     except Exception as e:
-        sys.stderr.write(f"⚠ periods.json 解析失败，忽略阶段分组：{e}\n")
+        sys.stderr.write(f"[WARN] periods.json 解析失败，忽略阶段分组：{e}\n")
 if not PERIODS and os.environ.get("PAPER_PERIODS"):
     try:
         PERIODS = [(str(a), str(b), int(c), int(d))
                    for a, b, c, d in json.loads(os.environ["PAPER_PERIODS"])]
     except Exception as e:
-        sys.stderr.write(f"⚠ PAPER_PERIODS 解析失败，忽略阶段分组：{e}\n")
+        sys.stderr.write(f"[WARN] PAPER_PERIODS 解析失败，忽略阶段分组：{e}\n")
 
 def period_of(year):
     try:
@@ -278,7 +280,7 @@ for it in items:
         locn = f"{vol}"
     else:
         locn = ""
-    # ★ 句点不再重复：gbt_authors() 在 >3 位作者时返回 "…, et al."（自带句点），
+    # 句点不再重复：gbt_authors() 在 >3 位作者时返回 "…, et al."（自带句点），
     #   旧写法再补一个 ". " 会输出 "et al.. Title" —— 不符合 GB/T 7714 著录。
     auth_prefix = (auth_s.rstrip(".") + ". ") if auth_s else ""
     entry = f"[{idx}] {auth_prefix}{title}{loc}. {journal}, {y}" + (", " + locn if locn else "") + "."
@@ -298,7 +300,7 @@ for it in items:
 
 lines.append("---")
 
-# ★ 如实注明被排除的同名他人论文（原始需求：非本人论文要在输出中注明）。
+# 如实注明被排除的同名他人论文（原始需求：非本人论文要在输出中注明）。
 #   不静默丢弃 —— 读者能一眼看到「排除了哪些、依据是什么」，便于复核。
 if _excluded_recs:
     lines.append(f"## 已排除的同名他人论文（{len(_excluded_recs)} 条，未计入上表）\n")
@@ -325,10 +327,10 @@ if _p:
 else:
     lines.append("")
 
-# ★ 交付物命名（**单一文件**）：
+# 交付物命名（**单一文件**）：
 #   <作者名>_论文列表.md —— 规范交付名（需求原文「文件名形如 XX_论文列表」）
 #
-# ⛔ 不再另写 `<作者名>_论文列表_完整版.md`。该文件曾是**内容逐字节相同**的历史别名，
+# [STOP] 不再另写 `<作者名>_论文列表_完整版.md`。该文件曾是**内容逐字节相同**的历史别名，
 #   写两份只会让交付目录出现两个内容一样的文件，人工核对时还要先确认"哪个是正的"。
 #   本文件本身就是完整版（无删减），不需要第二份来"表示完整"。
 body = "\n".join(lines)

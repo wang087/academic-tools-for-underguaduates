@@ -102,7 +102,7 @@ def load_records(cdpdir: pathlib.Path, inp: str) -> dict:
             s += 5
         return s
 
-    # ★ 只把**题录类**文件当候选语料。`.work_cdp/*.json` 里混着大量
+    # 只把**题录类**文件当候选语料。`.work_cdp/*.json` 里混着大量
     #   **非题录**的辅助文件（去重登记表、下载状态、注入记账、派生留档…），
     #   它们同样含 DOI 字段，旧版一律当候选读进来，凭空多出几条
     #   「无作者名单」的幽灵记录，把候选数从 13 抬到 16，
@@ -137,7 +137,7 @@ def load_records(cdpdir: pathlib.Path, inp: str) -> dict:
             for key in ("kept", "review", "confirmed", "records", "result"):
                 if isinstance(d.get(key), list):
                     batches.append(d[key])
-            # ★ ④ `{doi: 记录}` 形状（crossref_all.json / unpaywall.json 等）。
+            # ④ `{doi: 记录}` 形状（crossref_all.json / unpaywall.json 等）。
             #   旧版**不认这种形状** —— 于是 ORCID→Crossref 这条主路径上
             #   候选语料为空，消歧无从施加（实测 2026-09-18）。
             #   判据：值多为 dict、且至少有 3 条，才当作「按 DOI 索引的记录表」。
@@ -158,11 +158,11 @@ def load_records(cdpdir: pathlib.Path, inp: str) -> dict:
 def load_orcid_dois(cdpdir) -> set:
     """收集「出自本人 ORCID 记录」的 DOI 集合（判据 ⓪ 的输入）。
 
-    ★ 为什么这是一条**肯定性**判据，而且优先级最高：
+    为什么这是一条**肯定性**判据，而且优先级最高：
       ORCID 记录由**作者本人维护**；本流程又已把 ORCID 的任职/教育时间线
       与作者主页履历逐条比对确认过身份。一个 DOI 出现在其 ORCID 成果列表里，
       即等于**作者本人认领了这篇成果** —— 这比单位指纹更直接、更可靠。
-    ★ 为什么必须有它：ORCID→Crossref 是本流程的主路径，而 Crossref
+    为什么必须有它：ORCID→Crossref 是本流程的主路径，而 Crossref
       **只有少数出版社存缴逐作者单位**（实测郭傲案例 13 篇里仅 2 篇有）。
       若只靠单位指纹，主路径上的消歧必然全部落到「数据缺失、无法判定」。
     """
@@ -218,7 +218,7 @@ def _name_ok(fn: str, ini: str, given: str) -> bool:
 def has_author_data(rec) -> bool:
     """记录里**到底有没有作者名单**。
 
-    ★ 为什么必须单独判：`author_blocks()` 返回空有两种截然不同的原因 ——
+    为什么必须单独判：`author_blocks()` 返回空有两种截然不同的原因 ——
       (a) 记录有作者名单，但里面没有「名精确匹配」的目标作者 → **否定证据**；
       (b) 记录**压根没有作者名单**（如 orcid_works_parsed.json 只有题名/DOI）
           → **数据缺失**，无从判断。
@@ -268,7 +268,7 @@ def author_blocks(rec, surname: str, given: str):
     # ── 形态 B/C：`rec["authors"]` ──
     #   B = 字符串列表（"<Surname> A" 缩写式），单位只能来自 rec["my_affils"]
     #   C = **字典列表** [{family, given, name, affiliation[]}]（Crossref 契约）
-    #   ★ 旧版只处理 B，遇到 C（本流程 crossref_all.json 就是 C）会把 dict
+    #   旧版只处理 B，遇到 C（本流程 crossref_all.json 就是 C）会把 dict
     #     整个 str() 化再切词，既切不出姓、也拿不到单位 → 全部落进
     #     「无作者名单」分支。这是消歧在 ORCID→Crossref 路径上失效的第二个原因。
     names = rec.get("authors") or []
@@ -329,7 +329,10 @@ def all_authors(rec):
 def main() -> int:
     o = parse_args(sys.argv[1:])
     if not o["surname"] or not o["given"]:
-        print(__doc__)
+        print(__doc__ or "用法: uv run python disambiguate.py "
+                         "--surname=<姓> --given=<名> "
+                         "--affil=\"<本人署名单位指纹 1>\" --affil=\"<指纹 2>\" "
+                         "--anchor-doi=<确定无疑的代表作 DOI（逗号分隔）>")
         return 1
     wd = _wd()
     cdpdir = wd / ".work_cdp"
@@ -339,7 +342,7 @@ def main() -> int:
     log.info(f"候选记录（去重后）: {len(recs)}")
 
     # ── 判据 ① + ② ────────────────────────────────────────
-    # ★ 每条 miss 都带一个**机器可读**的 code，写进 disambiguated.json 的 dropped。
+    # 每条 miss 都带一个**机器可读**的 code，写进 disambiguated.json 的 dropped。
     #   必要性：dropped 里混着两类性质完全不同的记录 ——
     #     · 肯定性判定（name-mismatch / affil-mismatch）→ 可作排除依据
     #     · 数据缺失（no-affil-data）→ **不是**否定证据，脚本末尾已明确警告
@@ -367,7 +370,7 @@ def main() -> int:
 
         blocks = author_blocks(r, o["surname"], o["given"])
         if not blocks:
-            # ★ 区分「没数据」与「有数据但没这个人」——语义完全不同，见 has_author_data()
+            # 区分「没数据」与「有数据但没这个人」——语义完全不同，见 has_author_data()
             if not has_author_data(r):
                 r["_reason"] = "no-author-data"
                 miss.append((r, "记录无作者名单（数据缺失，非否定证据）"))
@@ -400,13 +403,13 @@ def main() -> int:
     def name_keys(rec):
         """作者「姓氏+首字母」键集合（同一记录内去重）。
 
-        ★ 关键设计：**不要**只用姓氏。姓氏在不同人之间大量重合
+        关键设计：**不要**只用姓氏。姓氏在不同人之间大量重合
           （大姓如 Chen / Li / Wang / Zhang），会使无关论文凭「有个同姓的共同作者」
           被判为本人成果。而锚点论文与其它记录的作者名写法不一致
           （「姓 名首字母」vs「名 姓」全拼），全名又比不相等。
           折中为「姓氏+名首字母」：
-            <Surname> DR / <Given> <Surname> → "<surname>|d"   ✓ 相等
-            <同姓他人> Z vs <同姓合作者> X                      ✗ 不等
+            <Surname> DR / <Given> <Surname> → "<surname>|d"   [OK] 相等
+            <同姓他人> Z vs <同姓合作者> X                      [X] 不等
         """
         out = set()
         for nm in all_authors(rec):
@@ -441,7 +444,7 @@ def main() -> int:
 
     confirmed, review = [], []
     for r, why in hit:
-        # ★ 判据⓪ 命中者**直接确认，不参与判据③**。
+        # 判据⓪ 命中者**直接确认，不参与判据③**。
         #   ORCID 溯源是肯定性证据（作者本人认领），没有理由再让「合作者网络」
         #   投票把它降级。旧版漏了这一步，后果有二：
         #     ① 13 篇 ORCID 成果全被降级为「待复核」；
@@ -462,7 +465,7 @@ def main() -> int:
                     k.split("|")[0].title() for k in coa[:3]))
             confirmed.append(r)
         elif n >= o["large_collab"]:
-            # ★ 超大型合作**不再静默 drop**：改为待复核并写明理由。
+            # 超大型合作**不再静默 drop**：改为待复核并写明理由。
             #   「丢弃」不可逆，而大合作论文很可能是本人的正当成果；
             #   宁可留给人工看一眼，也不能让它凭空消失。
             r["_verdict"] = "review"
@@ -477,17 +480,17 @@ def main() -> int:
             r["_why"] = f"单位命中 {r['_affil_hits']}（未启用合作者判据）"
             confirmed.append(r)
 
-    # ★ miss 里混着两种性质完全不同的记录，必须**分开报**：
+    # miss 里混着两种性质完全不同的记录，必须**分开报**：
     #   「肯定性判定为他人」才是排除；「数据缺失」只是**没判**，不是排除。
-    #   旧版一律打成「❌ 排除 N」，会让人误以为 N 篇被剔除了 ——
+    #   旧版一律打成「排除 N」，会让人误以为 N 篇被剔除了 ——
     #   实测 2026-09-18 该措辞让「13 篇全部无法判定」看起来像「13 篇全被排除」。
     _n_excl = len([1 for r, _w in miss
                    if (r.get("_reason") or "") in ("name-mismatch", "affil-mismatch")])
     _n_data = len(miss) - _n_excl
     _n_orcid = len([1 for r, _w in hit if (r.get("_reason") or "") == "orcid-linked"])
-    log.info(f"✅ 确认 {len(confirmed)}（其中 ORCID 溯源 {_n_orcid}）| "
-             f"⚠️ 待复核 {len(review)} | ❌ 排除 {_n_excl} | "
-             f"❓ 数据缺失/无法判定 {_n_data}")
+    log.info(f"确认 {len(confirmed)}（其中 ORCID 溯源 {_n_orcid}）| "
+             f"[WARN] 待复核 {len(review)} | 排除 {_n_excl} | "
+             f"数据缺失/无法判定 {_n_data}")
     if _n_data:
         log.warn(f"有 {_n_data} 条**因语料缺少作者/单位信息而无法判定**（非否定证据）。"
                  f"若占比很高，说明候选语料不合格（需逐作者信息，如 Europe PMC 原始记录），"
@@ -509,13 +512,13 @@ def main() -> int:
             print(f"        命中锚点: {' ; '.join(r['_affil_hits'])[:100]}")
 
     print("\n" + "=" * 104)
-    print(f"✅ 确认为本人成果: {len(confirmed)} 条")
+    print(f"确认为本人成果: {len(confirmed)} 条")
     print("=" * 104)
     for r in sorted(confirmed, key=lambda x: str(x.get("pubYear") or x.get("year") or "")):
         show(r, r["_why"])
     if review:
         print("\n" + "=" * 104)
-        print(f"⚠️ 待人工复核: {len(review)} 条")
+        print(f"[WARN] 待人工复核: {len(review)} 条")
         print("=" * 104)
         for r in review:
             show(r, r["_why"])

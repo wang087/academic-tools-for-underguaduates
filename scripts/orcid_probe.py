@@ -7,7 +7,7 @@
 # + 全部 works（含 DOI）」的结构化记录，用于**同名消歧前的身份核验**：
 # 把 ORCID 的任职/教育时间线与作者主页履历逐条比对，吻合才认定同一人。
 #
-# ★ 本脚本属「元数据 API」类，不受「CDP 强制抓取禁令」约束
+# 本脚本属「元数据 API」类，不受「CDP 强制抓取禁令」约束
 #   （该禁令针对的是自编脚本从 HTTP 直链抓取目标内容，见 README「CDP 强制抓取禁令」）。
 #
 # 用法：
@@ -76,11 +76,11 @@ def ymd(d) -> str:
 def main() -> int:
     argv = [a for a in sys.argv[1:]]
     if not argv:
-        print(__doc__)
+        print(__doc__ or "用法: uv run python orcid_probe.py <ORCID> [--out 目录]")
         return 1
     orcid = norm_orcid(argv[0])
     if not re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]", orcid):
-        print(f"✗ ORCID 格式不合法: {argv[0]!r}")
+        print(f"[X] ORCID 格式不合法: {argv[0]!r}")
         return 1
 
     wd = _wd()
@@ -162,7 +162,7 @@ def main() -> int:
         print(f"  [{w['year']}] {w['title'][:88]}")
         print(f"        {w['journal']} | DOI={w['doi']} | {w['type']}")
     if result["errors"]:
-        print("\n⚠️ 错误:")
+        print("\n[WARN] 错误:")
         for e in result["errors"]:
             print(f"  - {e}")
     log.ok(f"写入 {p}")

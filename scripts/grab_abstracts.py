@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────
 # CDP 抓取出版社摘要（绕 Cloudflare / 机器人验证）
 #
-# ★ 本次修复：
+# 本次修复：
 #   1) 端口参数化（--port / CDP_PORT），可指定实例；旧版硬编码 9222。
 #   2) 挑战判定改用 detect.judge()，不再用「标题含 captcha」这类宽泛匹配
 #      —— 正文里出现 "captcha" 也会被旧版判成挑战页并空转 40 轮。
@@ -127,7 +127,7 @@ def extract_abstract(c) -> str:
 
 def human_pause(lo, hi, log, label=""):
     t = random.uniform(lo, hi)
-    log.info(f"    ⏳ {label}停顿 {t:.0f}s ...")
+    log.info(f"    [WAIT] {label}停顿 {t:.0f}s ...")
     time.sleep(t)
 
 
@@ -214,7 +214,7 @@ def main():
             cr = json.loads((CDPDIR / "crossref_all.json").read_text(encoding="utf-8"))
         except Exception:
             cr = {}
-        # ★ 修复排序 bug：按 Crossref 年份由新到旧（旧版排序键恒为 0）
+        # 修复排序 bug：按 Crossref 年份由新到旧（旧版排序键恒为 0）
         targets = [d for d, v in DATA.items() if not (v.get("abstract") or "").strip()]
         targets.sort(key=lambda d: -((cr.get(d) or {}).get("year") or 0))
     else:
@@ -247,7 +247,7 @@ def main():
             except Exception:
                 pass
         if r.get("error") == "SITE-BLOCKED":
-            LOG.error(f"🛑 检测到封禁文案 —— 立即停止全部后续请求。（{r.get('markers')}）")
+            LOG.error(f"[STOP] 检测到封禁文案 —— 立即停止全部后续请求。（{r.get('markers')}）")
             DATA[doi] = r
             save()
             break

@@ -5,7 +5,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 
 # 阶段 P · PPT 生成（ppt-master 整合）
 
-> ## 📌 从属关系（先读）
+> ## 从属关系（先读）
 >
 > **本文件是 `流程1/SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 P」。**
 >
@@ -15,7 +15,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 > - ppt-master 自己的执行纪律（`skills/ppt-master/SKILL.md` 的
 >   Global Execution Discipline）在进入后**完全适用**。
 
-> ## 📌 本阶段对 ppt-master 做了什么改动
+> ## 本阶段对 ppt-master 做了什么改动
 >
 > | 项 | ppt-master 原样 | 本流程的处置 |
 > |---|---|---|
@@ -50,7 +50,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
    数据源与《研究方向综述》**同源**，保证 PPT 与报告口径一致
 5. `--no-graphs` 可整体不接入第 3、4 项
 
-> ⚠️ **PPT 里用 PNG 而不是 SVG**：PPTX 的 `<image>` 内嵌对 SVG 的支持随
+> [WARN] **PPT 里用 PNG 而不是 SVG**：PPTX 的 `<image>` 内嵌对 SVG 的支持随
 > PowerPoint 版本而异，栅格图最稳。阶段 K 默认只出 SVG（矢量、可无损缩放），
 > 所以要进 PPT 就得**同时**出 PNG。`ppt_brief.py` 检测不到 PNG 时会**明确提示**
 > 补跑 `--also-png`，而不是悄悄少放一张图。
@@ -58,7 +58,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 `ppt_brief.py` 读的是这两份报告背后的**结构化 JSON**（解读卡），
 而不是 Markdown 正文 —— 结构化数据比正文更可靠、也不会因为报告排版调整而失效。
 
-> ### ★ v13：材料的解读档位会被记录，且**受限时如实说明**
+> ### v13：材料的解读档位会被记录，且**受限时如实说明**
 >
 > 阶段 0 确认的两个档位（`interpret_tier` 默认 **L2**、`review_interpret_tier`
 > 默认 **L3**）会被 `ppt_brief.py` 读出并写进产物，形如：
@@ -67,7 +67,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 > > 素材档位：作者论文解读 L2；研究方向综述 L3（阶段 0 确认，可在阶段 0 改档）
 > ```
 >
-> ⚠️ **L1 素材会让 PPT 少掉一整个维度**：L1 的解读卡 `methods` 留空、
+> [WARN] **L1 素材会让 PPT 少掉一整个维度**：L1 的解读卡 `methods` 留空、
 > `quantified_gains` 只留 2–5 个结论性数字且不带误差项，
 > 因此「方法概览」与「关键数据」两页会明显变薄。
 > `ppt_brief.py` 遇到这种情况**要在产物里如实标注素材受限**，
@@ -121,13 +121,13 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 
 **简化后的等价保证**（一个都不能少）：
 
-- ✅ `design_spec.md` 与 `spec_lock.md` **仍然存在**，且必须过
+- [OK] `design_spec.md` 与 `spec_lock.md` **仍然存在**，且必须过
   `project_manager.py validate`；
-- ✅ 决策**有据可查** —— 两份文件本身就是上游流水线的决策证据；
-- ✅ **不得伪造确认** —— 不启动 Confirm UI、不写 `confirm_ui/` 回执、
+- [OK] 决策**有据可查** —— 两份文件本身就是上游流水线的决策证据；
+- [OK] **不得伪造确认** —— 不启动 Confirm UI、不写 `confirm_ui/` 回执、
   不生成"Stage 1/Stage 2 已确认"的假状态。
 
-> ⚠️ **反例（明确禁止）**：为了"对齐原流程"而生成一个空的
+> [WARN] **反例（明确禁止）**：为了"对齐原流程"而生成一个空的
 > `confirm_ui/template_options.json` 或伪造 `result.json`。
 > 那会让后续任何审计都无法区分"用户确认过"与"没人确认过"。
 
@@ -146,14 +146,14 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 
 ## 5. 常见错误
 
-- ❌ **自己再写一份 `design_spec.md`** —— 已有，且上游是决策主体。发现两份冲突时
+- [X] **自己再写一份 `design_spec.md`** —— 已有，且上游是决策主体。发现两份冲突时
   **停下报告**，不要在本地"择优"。
-- ❌ **用脚本批量生成 SVG 页面** —— 违反 ppt-master 的硬规则，主 agent 必须逐页手写。
-- ❌ **把 `--pages` 当作硬性页数** —— 它是预算区间；`design_spec.md §I` 的
+- [X] **用脚本批量生成 SVG 页面** —— 违反 ppt-master 的硬规则，主 agent 必须逐页手写。
+- [X] **把 `--pages` 当作硬性页数** —— 它是预算区间；`design_spec.md §I` 的
   `Page Count` 必须与 §IX 的实际页数**逐页对齐**，改页数要同时改两处。
-- ❌ **跳过 `svg_quality_checker.py`** —— 导出器会独立校验最终质检报告，
+- [X] **跳过 `svg_quality_checker.py`** —— 导出器会独立校验最终质检报告，
   缺报告或报告非 final 会直接非零退出。
-- ❌ **把 PPT 素材来源写成"另行准备"** —— 用户已明确：素材固定取自
+- [X] **把 PPT 素材来源写成"另行准备"** —— 用户已明确：素材固定取自
   《论文解读》的文献亮点与阶段 H2 的 review 结果。
 
 ---
@@ -166,10 +166,10 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 - [ ] `design_spec.md` 的 §I `Page Count` 与 §IX 实际页数一致
 - [ ] `spec_lock.md` 的 `page_rhythm` 覆盖 P01 到最后一页，无缺号
 - [ ] **未伪造任何 Confirm UI 回执**，未启动确认服务器
-- [ ] 🆕 **图谱已接入**（若 `make_graphs=yes`）：§VIII 里有 `Acquire Via: user` /
+- [ ] [NEW] **图谱已接入**（若 `make_graphs=yes`）：§VIII 里有 `Acquire Via: user` /
       `Status: Existing` 的行，文件确实在 `<project>/images/` 内
-- [ ] 🆕 **图谱页版式未缩到读不清**：整幅铺放 + 角落叠标题，`Crop Policy: no-crop`
-- [ ] 🆕 **方向综述整理页**的口径与《研究方向综述.md》一致（同源数据）
+- [ ] [NEW] **图谱页版式未缩到读不清**：整幅铺放 + 角落叠标题，`Crop Policy: no-crop`
+- [ ] [NEW] **方向综述整理页**的口径与《研究方向综述.md》一致（同源数据）
 - [ ] `svg_output/` 每页由主 agent 手写，未使用生成器
 - [ ] `svg_quality_checker.py` 报 0 error
 - [ ] Step 7 三条命令**串行**执行，逐条确认成功

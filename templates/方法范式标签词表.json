@@ -18,7 +18,7 @@
     "  paradigm_tags_vocabulary   —— 方法范式标签（做法维度，1–3 个）",
     "  aliases                    —— 别名 → 规范 ID 的映射（用于把 subagent 的自由写法拉回规范）",
     "  _exclusive_paradigm        —— 这些范式互斥，同时出现时以篇数多者为准并在报告中告警",
-    "★ 键名以 _ 开头的条目会被忽略。"
+    "键名以 _ 开头的条目会被忽略。"
   ],
 
   "direction_tags_vocabulary": [

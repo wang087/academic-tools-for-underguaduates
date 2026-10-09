@@ -13,7 +13,7 @@
 #         crossref_all.json = {"<doi>": {…}}   ← fetch_crossref_all.py 的产物
 #         master.json       = [{…}, {…}]        ← 早期案例的题录总表
 # 产出：**就地回填**同形状文件，字段符合 build_list.py 的读取契约：
-#         authors        [{family, given, name}]  —— ★ 字典列表，不是字符串列表
+#         authors        [{family, given, name}]  —— 字典列表，不是字符串列表
 #         authors_struct [{family, given}]
 #         vol / issue / page / article_number
 #         author_position（给了 --surname/--given 时）
@@ -83,7 +83,7 @@ def _default_src(cdpdir: pathlib.Path) -> pathlib.Path:
 def _records(container):
     """把两种顶层形状统一成**记录列表**。
 
-    ★ 返回的是**原字典对象的引用**（不是副本），因此对 rec 的改动
+    返回的是**原字典对象的引用**（不是副本），因此对 rec 的改动
       会自动反映到 container 上，写回时直接 dump container 即可，
       无需关心原本是 dict 还是 list。
     """
@@ -130,7 +130,7 @@ def main() -> int:
     src = src or _default_src(cdpdir)
 
     if not src.exists():
-        print(f"✗ 找不到输入文件: {src}")
+        print(f"[X] 找不到输入文件: {src}")
         print("  请先运行 fetch_crossref_all.py 产出 crossref_all.json，"
               "或用 --in= 指定题录文件。")
         return 1
@@ -138,7 +138,7 @@ def main() -> int:
     container = json.loads(src.read_text(encoding="utf-8"))
     master = _records(container)
     if not master:
-        print(f"✗ {src.name} 里没有可用的记录"
+        print(f"[X] {src.name} 里没有可用的记录"
               "（支持 {doi: 记录} 与 [记录, …] 两种形状）")
         return 1
     if not surname or not given:
@@ -158,7 +158,7 @@ def main() -> int:
             log.warn(f"Crossref 查询失败 {doi}: {type(e).__name__}")
             continue
 
-        # ★ authors 必须是**字典列表** [{family, given, name}]，与
+        # authors 必须是**字典列表** [{family, given, name}]，与
         #   fetch_crossref_all.py 写出的契约一致。历史版本这里写成字符串
         #   列表，会让 build_list.py 的 `a.get("name")` 抛
         #   AttributeError: 'str' object has no attribute 'get'，整条著录链崩掉。
@@ -169,7 +169,7 @@ def main() -> int:
             if not (fam or giv):
                 continue
             nm = f"{fam}, {giv}" if fam and giv else (fam or giv)
-            # ★ 一并回填逐作者单位 —— 同名消歧的单位指纹判据依赖它（见 fetch_crossref_all.py）
+            # 一并回填逐作者单位 —— 同名消歧的单位指纹判据依赖它（见 fetch_crossref_all.py）
             affs = []
             for x in (a.get("affiliation") or []):
                 if isinstance(x, dict):

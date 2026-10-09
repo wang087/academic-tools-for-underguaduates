@@ -98,7 +98,7 @@ def _has(pkg: str) -> bool:
 def _py(script: str, *args: str, with_pkgs: tuple[str, ...] = ()) -> tuple[int, str]:
     """调用同目录脚本；返回 (退出码, 输出尾部)。
 
-    ★ 依赖解析顺序（很重要）：
+    依赖解析顺序（很重要）：
       ① **当前解释器已有** → 直接用 `sys.executable`。
          这也是唯一能继承调用方 `uv run --with …` 上下文的方式 ——
          嵌套 `uv run` **不会**继承父进程的 `--with`。
@@ -153,7 +153,7 @@ def main() -> int:
     args = ap.parse_args()
 
     # ── 前置断言：抽取所需依赖必须在**本解释器**里可用 ──────────
-    #   ★ 为什么必须显式检查：store.validate_pdf() 把 `from pypdf import
+    #   为什么必须显式检查：store.validate_pdf() 把 `from pypdf import
     #     PdfReader` 包在 `except Exception` 里，缺包时它对**每一个** PDF
     #     都返回 `unparsed:ModuleNotFoundError`（False）。本脚本据此判「残缺件」
     #     并跳过 —— 于是缺 pypdf 会表现成「所有 PDF 都被跳过」，而日志只说
@@ -166,7 +166,7 @@ def main() -> int:
         LOG.error("请用：uv run --with pypdf python 流程1/scripts/extract_parallel.py …")
         LOG.close()
         print()
-        print("✗ 缺少 pypdf：本脚本需要它来判「残缺件」。")
+        print("[X] 缺少 pypdf：本脚本需要它来判「残缺件」。")
         print("  正确调用：uv run --with pypdf python scripts/extract_parallel.py")
         print()
         return 2
@@ -224,7 +224,7 @@ def main() -> int:
         if not good:
             state[slug] = {"skipped": why}
             skipped += 1
-            # ★ 区分「真残缺」与「校验器不可用」：后者不应被当成文件问题
+            # 区分「真残缺」与「校验器不可用」：后者不应被当成文件问题
             if why.startswith("unparsed:"):
                 LOG.error(f"  跳过 {slug}：{why} —— 这是**校验器不可用**，"
                           f"不是文件残缺；请检查 pypdf 是否装好")
@@ -240,17 +240,17 @@ def main() -> int:
             rec["text_rc"] = rc
             if rc == 0:
                 ok_text += 1
-                LOG.ok(f"  文本 ✓ {slug}")
+                LOG.ok(f"  文本 [OK] {slug}")
             else:
                 failed += 1
                 rec["text_err"] = tail
-                LOG.warn(f"  文本 ✗ {slug}（rc={rc}）{tail[-120:]}")
+                LOG.warn(f"  文本 [X] {slug}（rc={rc}）{tail[-120:]}")
 
         if not args.no_figures and _needs_figures(slug):
             # 参数：<pdf> <out.json> <min_px>
-            #   ★ min_px 用 args.min_px_fig（默认 60）。extract_figures.py 自身
+            #   min_px 用 args.min_px_fig（默认 60）。extract_figures.py 自身
             #     默认 120，实测把**有 7 张位图**的 PDF 抽成空数组 `[]`。
-            #   ★ pypdf 的 page.images 还需要 **Pillow**；缺 Pillow 时它抛
+            #   pypdf 的 page.images 还需要 **Pillow**；缺 Pillow 时它抛
             #     ImportError 而被脚本内部吞掉，结果同样是「0 张」。
             #     所以 pypdf 与 pillow 必须一起注入。
             fig_out = FIGDIR / f"{slug}.json"
@@ -268,15 +268,15 @@ def main() -> int:
             rec["fig_count"] = n_fig
             if rc == 0 and n_fig > 0:
                 ok_fig += 1
-                LOG.ok(f"  图片 ✓ {slug}（{n_fig} 张）")
+                LOG.ok(f"  图片 [OK] {slug}（{n_fig} 张）")
             elif rc == 0 and n_fig == 0:
                 # 抽到 0 张要**明确告警**：可能是 PDF 真没有位图，也可能是
                 # min_px 门槛把图全滤掉了 —— 两者不能用同一句话带过。
-                LOG.warn(f"  图片 ⚠ {slug}：抽到 0 张。若该 PDF 确有插图，"
+                LOG.warn(f"  图片 [WARN] {slug}：抽到 0 张。若该 PDF 确有插图，"
                          f"用更小的 --min-px-fig 重试（当前 {args.min_px_fig}）")
             else:
                 rec["fig_err"] = tail
-                LOG.warn(f"  图片 ✗ {slug}（rc={rc}）{tail[-160:]}")
+                LOG.warn(f"  图片 [X] {slug}（rc={rc}）{tail[-160:]}")
 
         state[slug] = rec
         _save_state(state)

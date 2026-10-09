@@ -24,7 +24,7 @@
 #   # ③ 只看状态（有几张卡、缺哪几篇）
 #   uv run python 流程1/scripts/reviews_build.py --status
 #
-# ★ 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
+# 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
 #   **不改任何既有渲染行为**（默认 L3，等于现状）。读取优先级：
 #   task packet → manifest.json → .work_cdp/prepare_plan.json → 默认 "L3"。
 #   档位是参数不是闸门，读不到只回退、不报错。语义见 skill：`paper-interpretation-writing`。
@@ -41,6 +41,8 @@ import pathlib
 import re
 import sys
 from collections import Counter, defaultdict
+
+from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底（幂等）──
 
@@ -82,7 +84,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 # 推荐阅读顺序用的角色排序（越靠前越适合入门先读）
 ROLE_ORDER = ["入门综述", "奠基性综述", "争议梳理", "方法综述", "最新进展"]
@@ -91,10 +93,10 @@ ROLE_ORDER = ["入门综述", "奠基性综述", "争议梳理", "方法综述",
 # ══════════════════════════════════════════════════════════════
 # 综述解读档位（阶段 R2 用 `review_interpret_tier`，与阶段 H2 共用同一个键）
 #
-# ★ 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
-# ★ 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
+# 档位是**参数不是闸门**：读不到就回退默认 L3，绝不中断汇总。
+# 本脚本**只负责显示档位**（报告开头一行 + 末尾摘要），不改任何既有渲染逻辑 ——
 #   档位改变的是细节量，而 L1/L2 的差异化渲染属于后续批次。
-# ★ 自包含一份助手而不 import 别的脚本（见 _fix_streams 注释里的 import 陷阱）。
+# 自包含一份助手而不 import 别的脚本（见 _fix_streams 注释里的 import 陷阱）。
 # ══════════════════════════════════════════════════════════════
 TIER_KEY = "review_interpret_tier"
 TIER_VALUES = ("L1", "L2", "L3")
@@ -132,7 +134,7 @@ def resolve_tier(task_files: list[pathlib.Path], man: dict | None) -> tuple[str,
     比 manifest 更贴近「这篇综述当时按什么档位解读」；两者都没有才回头看阶段 0 计划。
     """
     for p in task_files or []:
-        # ★ 本脚本没有 load_json 助手（读 JSON 一律就地 json.loads）—— 读不出来就跳过，
+        # 本脚本没有 load_json 助手（读 JSON 一律就地 json.loads）—— 读不出来就跳过，
         #   档位是参数不是闸门，单个任务包损坏不该让汇总失败。
         try:
             packet = json.loads(pathlib.Path(p).read_text(encoding="utf-8")) or {}
@@ -173,7 +175,7 @@ def _bad_text(s) -> bool:
 def validate_card(c: dict) -> list[str]:
     """检查一张解读卡是否可用，返回问题清单（空 = 通过）。
 
-    ★ 为什么需要：高并发下 subagent 可能产出**结构合法但内容是占位符**的卡
+    为什么需要：高并发下 subagent 可能产出**结构合法但内容是占位符**的卡
       （实测出现 `"conclusion": "placeholder"`、`"consensus": ["placeholder"]`）。
       schema 校验只管字段类型，管不了内容是不是真话 —— 所以这里补一层。
     """
@@ -213,7 +215,7 @@ def validate_card(c: dict) -> list[str]:
 def _as_text(x) -> str:
     """把解读卡里的任意值渲染成一行可读文本。
 
-    ★ 为什么需要：subagent 对同一字段可能给出**不同形状** ——
+    为什么需要：subagent 对同一字段可能给出**不同形状** ——
       `controversies` 有时是字符串数组，有时是 `{issue, positions}` 或
       `{point, status}` 这样的对象。早期版本直接 f-string 插值，于是
       《领域概貌》里出现了 `{'issue': '…', 'positions': '…'}` 这种
@@ -333,7 +335,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
                 dirs[d.strip()].append(("", "", c.get("title") or ""))
 
     if dirs:
-        # ★ 只列**每个方向一次**，取最长的 idea/conclusion 作代表（信息量最大），
+        # 只列**每个方向一次**，取最长的 idea/conclusion 作代表（信息量最大），
         #   并汇总所有来源综述。早期版本对每条 (方向,论文) 组合都出一行，
         #   12 篇卡会摊成 30+ 行且"出现篇数"恒为 1（不同论文措辞不同，永不合并）。
         L.append("> 同一方向被多篇综述提到时合并为一行；「出现篇数」≥2 说明该方向被反复讨论。")
@@ -374,10 +376,10 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
                 cons[k] += 1
     if cons:
         for k, v in cons.most_common(14):
-            mark = " ⭐" if v >= 2 else ""
+            mark = " " if v >= 2 else ""
             L.append(f"- {k}{mark}")
         L.append("")
-        L.append("> ⭐ = 两篇以上综述都提到，可信度更高。")
+        L.append("> = 两篇以上综述都提到，可信度更高。")
     else:
         L.append("-（解读卡未提供 consensus）")
     L.append("")
@@ -394,7 +396,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
         for k in contro[:14]:
             L.append(f"- {k}")
         L.append("")
-        L.append("> ⚠️ 争议点**原样并列**，没有替你判定谁对。"
+        L.append("> [WARN] 争议点**原样并列**，没有替你判定谁对。"
                  "想找课题，这里往往是最好的切入口。")
     else:
         L.append("-（解读卡未提供 controversies）")
@@ -405,7 +407,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     L.append("")
     concepts: dict[str, dict] = {}
     freq = Counter()
-    # ★ 合并键的选取顺序很关键：**先用中文名**。
+    # 合并键的选取顺序很关键：**先用中文名**。
     #   早期版本用英文名做键，于是同一个概念因英文写法不同而分裂成多行 ——
     #   实测「肿瘤免疫微环境」出现了 3 行（TIME / Tumor immune microenvironment /
     #   TME），"出现篇数"被拆成 2+3+3 而不是应有的合并计数。
@@ -437,7 +439,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     if concepts:
         L.append("| 术语 | 英文 | 解释 | 出现篇数 |")
         L.append("|---|---|---|---|")
-        # ★ 按出现篇数降序：反复出现的才是必懂的
+        # 按出现篇数降序：反复出现的才是必懂的
         for key, n in freq.most_common():
             k = concepts[key]
             L.append(f"| {_as_text(k.get('cn'))} | {_as_text(k.get('en'))} | "
@@ -497,7 +499,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     L.append("| # | 题录 | 类型 | 年份 | 开放获取 | 证据层级 |")
     L.append("|---|---|---|---|---|---|")
     for i, c in enumerate(cards, 1):
-        oa = "✅" if c.get("is_oa") else "—"
+        oa = "[OK]" if c.get("is_oa") else "—"
         ev = c.get("evidence")
         ev = ev.get("source", "—") if isinstance(ev, dict) else _as_text(ev)
         title = _as_text(c.get("title"))[:60].replace("|", "／")
@@ -505,7 +507,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
                  f"{_as_text(c.get('field_role'))[:12] or '—'} | "
                  f"{_as_text(c.get('year'))} | {oa} | {ev or '—'} |")
     L.append("")
-    L.append("> ⚠️ **证据层级说明**：`abstract` = 仅依据摘要解读；"
+    L.append("> [WARN] **证据层级说明**：`abstract` = 仅依据摘要解读；"
              "`metadata-only` = 连摘要都没有，仅据题名与期刊；`fulltext` = 读到全文。"
              "本概貌如有多数为摘要级，请在引用前核对原文。")
     return "\n".join(L)
@@ -530,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     if not d.is_absolute():
         d = WD / d
     if not d.is_dir():
-        print(f"✗ 目录不存在：{d}；先跑 reviews_prepare.py", file=sys.stderr)
+        print(f"[X] 目录不存在：{d}；先跑 reviews_prepare.py", file=sys.stderr)
         return 2
 
     tasks = sorted((d / "tasks").glob("*.json")) if (d / "tasks").is_dir() else []
@@ -545,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
             for m in missing[:20]:
                 print(f"  · {m}")
         if rejected:
-            print(f"\n⚠️ 内容为占位/截断而**拒收**的卡（{len(rejected)}）：")
+            print(f"\n[WARN] 内容为占位/截断而**拒收**的卡（{len(rejected)}）：")
             for name, probs in rejected[:10]:
                 print(f"  · {name}")
                 print(f"      {', '.join(probs)}")
@@ -553,13 +555,13 @@ def main(argv: list[str] | None = None) -> int:
             print("     多半是并行 subagent 触发了生成长度上限。")
             print("     建议**降低并发度**（每批 3–4 个）重跑这些篇目。")
         if bad:
-            print(f"\n⚠️ 读不出来的文件（{len(bad)}）：")
+            print(f"\n[WARN] 读不出来的文件（{len(bad)}）：")
             for b in bad[:10]:
                 print(f"  · {b}")
         return 0
 
     if not cards:
-        print("✗ 还没有**可用**的解读卡；先并行分派 subagent 生成 results/*.json",
+        print("[X] 还没有**可用**的解读卡；先并行分派 subagent 生成 results/*.json",
               file=sys.stderr)
         if rejected:
             print(f"  （有 {len(rejected)} 张卡因占位/截断被拒收，见 --status）",
@@ -585,16 +587,16 @@ def main(argv: list[str] | None = None) -> int:
     outp.write_text(text, encoding="utf-8")
 
     n_task = len(tasks)
-    log.info(f"✓ 汇总完成：{len(cards)} 张卡 → {outp}")
+    log.info(f"[OK] 汇总完成：{len(cards)} 张卡 → {outp}")
     if n_task and len(cards) < n_task:
-        log.warn(f"⚠ 任务包 {n_task} 个，但只有 {len(cards)} 张可用卡 —— "
+        log.warn(f"[WARN] 任务包 {n_task} 个，但只有 {len(cards)} 张可用卡 —— "
                  f"报告基于**部分文献**，请在交付时如实说明")
     if rejected:
-        log.warn(f"⚠ {len(rejected)} 张卡因内容占位/截断被拒收（未进入报告）："
+        log.warn(f"[WARN] {len(rejected)} 张卡因内容占位/截断被拒收（未进入报告）："
                  f"{[n for n, _ in rejected][:5]}")
         log.warn("   多半是并行 subagent 触发了生成长度上限 → 降低并发度（每批 3–4 个）重跑")
     if bad:
-        log.warn(f"⚠ {len(bad)} 个结果文件无法解析，已跳过：{bad[:5]}")
+        log.warn(f"[WARN] {len(bad)} 个结果文件无法解析，已跳过：{bad[:5]}")
     journal("R2", "reviews.build", cards=len(cards), tasks=n_task,
             rejected=len(rejected), interpret_tier=tier)
     print(f"解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）")

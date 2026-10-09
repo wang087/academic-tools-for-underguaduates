@@ -9,7 +9,7 @@
 #   · shared/query_plan.schema.json（查询计划的可追溯字段：query_id / construction /
 #     language / date_filter / index_targets / query_sha256）
 #
-# ★ 为什么要把「条件」变成「计划」文件：
+# 为什么要把「条件」变成「计划」文件：
 #   PRISMA 要求检索**可复现**——同样的条件必须能重跑出同样的结果集。
 #   把条件固化成带哈希的 JSON，才能事后核对「这份报告是用什么检索式查出来的」。
 #
@@ -32,6 +32,8 @@ import pathlib
 import re
 import sys
 import time
+
+from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底 ──
 
@@ -73,7 +75,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 SCHEMA_VERSION = "flow1-search-plan/1.0"
 
@@ -156,7 +158,7 @@ def _quote_if_needed(t: str) -> str:
 def build_query(topic_en: str, terms_en: list[str], logic: str = "OR") -> str:
     """把主题词 + 限定词拼成布尔检索式。
 
-    ★ 结构：主题短语 AND (限定词1 OR 限定词2 …)
+    结构：主题短语 AND (限定词1 OR 限定词2 …)
       主题短语是"必须命中"的锚，限定词用于收窄/扩展。
       若没有限定词，则只用主题短语。
     """
@@ -175,7 +177,7 @@ def build_plan(args) -> dict:
     sources = [s.strip() for s in (args.sources or "").split(",") if s.strip()]
     unknown = [s for s in sources if s not in SOURCES]
     if unknown:
-        raise SystemExit(f"✗ 未知数据源 {unknown}；可选 {list(SOURCES)}")
+        raise SystemExit(f"未知数据源 {unknown}；可选 {list(SOURCES)}")
 
     dt = DOCTYPE_MAP.get(args.doc_types, DOCTYPE_MAP["any"])
     core = build_query(topic_en, terms_en, args.logic)
@@ -278,7 +280,8 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"数据源，逗号分隔（可选 {list(SOURCES)}）")
     ap.add_argument("--max-records", type=int, default=50,
                     help="每个源最多取回多少条（默认 50）")
-    ap.add_argument("--out", default="outputs/07_检索", help="输出目录")
+    ap.add_argument("--out", default=str(WD / "outputs" / "07_检索"),
+                    help="输出目录（默认 <流程1>/<年月日>/outputs/07_检索）")
     args = ap.parse_args(argv)
 
     log = get("plan")
@@ -293,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print("═" * 66)
-    print("✓ 检索计划已生成")
+    print("[OK] 检索计划已生成")
     print("═" * 66)
     ui = plan["user_input"]
     print(f"  主题      {ui['topic_cn'] or '—'} / {ui['topic_en']}")

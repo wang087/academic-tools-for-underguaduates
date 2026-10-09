@@ -11,7 +11,7 @@
 #      浏览器跟随重定向 → 在**该页上下文** fetch location.href
 #   ④ 渲染兜底：PDF 端点被拦但有全文权限时，Page.printToPDF 打印正文页
 #
-# ★ 本次修复：
+# 本次修复：
 #   · 适配新版 cdp.py（端口参数化、硬超时、不再直接摸私有 _id/ws）
 #   · 每一步都有超时上限；Network 捕获不再无限 `ws.recv()`
 #   · 落盘统一走 store.py 校验（1 页大文件放行，1 页空壳拒绝）
@@ -75,14 +75,11 @@ PAGE_FETCH_JS = """
 
 
 def _write(out_path, raw: bytes):
-    p = pathlib.Path(out_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(raw)
-    ok, why = store.validate_pdf(p)
-    if not ok:
-        p.unlink(missing_ok=True)
+    """原子写盘 + 校验：校验通过才落到最终路径（见 store.save_bytes 的说明）。"""
+    got, why = store.save_bytes(raw, out_path)
+    if got is None:
         return {"ok": False, "error": f"invalid:{why}"}
-    return {"ok": True, "size": len(raw), "path": str(p), "pages": why}
+    return {"ok": True, "size": len(raw), "path": str(got), "pages": why}
 
 
 def capture_via_network(c, pdf_url, out_path, timeout=120):
@@ -241,7 +238,7 @@ def main():
         j = detect.judge(c, timeout=25)
         LOG.info(f"落地页判定: {j['state']} ({j['reason']}) 文本={j.get('textlen')}")
         if j["state"] == detect.BLOCKED:
-            LOG.error("🛑 封禁页 —— 停止。")
+            LOG.error("[STOP] 封禁页 —— 停止。")
             raise SystemExit(2)
         if j["state"] == detect.CHALLENGE:
             LOG.error("人机验证页 —— 需人工过一次 Cookie 才可继续。")

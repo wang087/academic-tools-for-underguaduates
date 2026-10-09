@@ -8,10 +8,15 @@
 vendor/
 
 # ── 运行副产物（流程跑起来才会生成，不应入库）─────────────────
-.work_cdp/                 # 中间数据 + logs + 缓存
-*_paper_Exports/           # 原文 PDF 目录（规范名）
-*_Exports/                 # 原文 PDF 目录（历史名，store.py 会沿用）
-.edge-cdp-*/               # CDP 用户数据目录
+# [STOP] 注释必须**独占一行**。git 只在行首认 `#`；写成
+#   `.work_cdp/   # 中间数据`
+# 会把整行（含空白与 `#` 之后的文字）当成 pattern，**规则静默失效** ——
+#   实测后果：`git add <作者>/` 会真的把 CDP profile、PDF 与 .work_cdp 加进来
+#   （首批 dry-run 就列出 .edge-cdp-p9223/Default/… 数百个文件）。
+.work_cdp/
+*_paper_Exports/
+*_Exports/
+.edge-cdp-*/
 *.log
 
 # ── Python ────────────────────────────────────────────────

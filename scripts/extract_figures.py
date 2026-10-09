@@ -33,7 +33,7 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
     from pypdf import PdfReader
     rd = PdfReader(str(pdf))
     figs, seen = [], set()
-    # ★ 记录「因缺依赖而跳过的图像」。pypdf 的 page.images 需要 **Pillow**；
+    # 记录「因缺依赖而跳过的图像」。pypdf 的 page.images 需要 **Pillow**；
     #   缺 Pillow 时它抛 ImportError，若不记账就会与「PDF 本来没图」混淆。
     #   必须在循环**之前**初始化（否则空结果分支会 NameError）。
     _import_errors: list[str] = []
@@ -41,7 +41,7 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
         try:
             imgs = list(page.images)
         except ImportError as e:
-            # ★ 这里的 ImportError 就是「缺 Pillow」：pypdf 的 page.images
+            # 这里的 ImportError 就是「缺 Pillow」：pypdf 的 page.images
             #   需要 Pillow 才能解码。**必须记账**，否则外部只会看到
             #   「0 张图」，与「PDF 本来没图」无法区分。
             _import_errors.append(f"page{pno}: {type(e).__name__}: {e}")
@@ -80,7 +80,7 @@ def extract(pdf: pathlib.Path, min_px: int = 120, max_px: int = 1600) -> list[di
                         data, mime, ext = buf.getvalue(), "image/jpeg", "jpg"
                         w, h = im.size
             except ImportError as e:
-                # ★ 不能静默吞掉：pypdf 的 page.images
+                # 不能静默吞掉：pypdf 的 page.images
                 #   缺 Pillow 时抛 ImportError，吞掉后外部只看到
                 #   「0 张图」，无法区分「PDF 真没图」与
                 #   「依赖没装」。这里计数并在结尾报出。
@@ -125,13 +125,13 @@ def main() -> int:
     try:
         records = extract(src, min_px, max_px)
     except ImportError:
-        print("✗ 需要 pypdf：uv run --with pypdf python extract_figures.py ...")
+        print("[X] 需要 pypdf：uv run --with pypdf python extract_figures.py ...")
         return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = [{k: v for k, v in r.items() if k != "data"} |
                {"b64": base64.b64encode(r["data"]).decode("ascii")} for r in records]
     out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    print(f"✅ {src.name} → {out.name}；抽取图像 {len(records)} 个")
+    print(f"[OK] {src.name} → {out.name}；抽取图像 {len(records)} 个")
     return 0
 
 

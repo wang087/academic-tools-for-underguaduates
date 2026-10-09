@@ -56,7 +56,7 @@
       "rate_limit_seconds": 3,
       "content_level": "metadata+abstract",
       "strength": "**计算/物理/数学/AI 的预印本主力**；生物医学仅覆盖生物信息与计算方向",
-      "note": "⛔ **限流：每 3 秒 1 个请求**，必须**串行**。遇到限流 arxiv_atom.py 退出码 5。",
+      "note": "[STOP] **限流：每 3 秒 1 个请求**，必须**串行**。遇到限流 arxiv_atom.py 退出码 5。",
       "warning": "计算机领域 'immune' 大量指『人工免疫系统/入侵检测』，与免疫学同形异义；跨学科检索必须人工筛。"
     },
     "biorxiv": {
@@ -313,11 +313,11 @@
     },
     "生物信息与计算": {
       "domains": ["生物信息学与基因组学", "机器学习与深度学习"],
-      "note": "★ **本方向最需要 arXiv** —— 实测只查 PubMed 会漏掉大量方法学论文。"
+      "note": "**本方向最需要 arXiv** —— 实测只查 PubMed 会漏掉大量方法学论文。"
     },
     "成像与生物物理": {
       "domains": ["医学影像与数字病理"],
-      "note": "★ **临床影像在 PubMed，影像 AI 在 arXiv（eess.IV/cs.CV）** —— 两侧都要。"
+      "note": "**临床影像在 PubMed，影像 AI 在 arXiv（eess.IV/cs.CV）** —— 两侧都要。"
     },
     "生态与进化": {
       "domains": ["系统发育与进化"],

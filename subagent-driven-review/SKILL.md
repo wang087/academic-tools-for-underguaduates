@@ -5,7 +5,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 
 # 论文解读（阶段 H / H2 / R2）· 并行 Subagent 执行手册
 
-> ## 📌 本文件的从属关系（先读）
+> ## 本文件的从属关系（先读）
 >
 > **本文件是 `流程1/SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 H：论文解读」。**
 >
@@ -15,7 +15,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 >   **分层获取策略**（原文走 CDP；摘要/综述题录/白名单开源库允许直连）、
 >   出版社内容站禁直连、鼠标自动化禁令。
 
-> ## 📌 与上一版的差异（改造说明）
+> ## 与上一版的差异（改造说明）
 >
 > 本文件此前是另一来源的通用英文文献综述技能，与本流程存在**直接冲突**，已按主流程重写：
 >
@@ -35,15 +35,15 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 
 | 场景 | 是否适用 |
 |---|---|
-| 已拿到某作者 **≥10 篇**论文的题录（+ 部分全文），要产出解读报告 | ✅ 适用 |
-| 论文数 < 10 篇 | ❌ 直接由主 agent 顺序解读更省事（subagent 开销不值） |
-| 需要**逐篇深读**（方法论 / 结论 / 关键信息 / 量化数据） | ✅ 适用 |
-| 只需按题名做相关性打分筛选 | ❌ 本手册不是筛选工具 |
-| 还没拿到全文 | ❌ 先回主流程 §4 阶段 E 用 CDP 下载；**不要**自行取全文 |
-| **阶段 H2**：已由 `refs_curate.py` 整理出最终文献列表，要做**研究方向综述** | ✅ 适用 —— 用 §7.1 的**综述网络版**提示词；任务包在 `.work_cdp/refs/tasks/` |
-| 阶段 H2 但文献只有题录、无摘要 | ⚠️ 仍可做，但证据层级只能标 `metadata-only`，报告须如实披露 |
-| **阶段 R2（v8）**：已由阶段 R 选出 6–12 篇优质综述，要做**本科生领域概貌** | ✅ 适用 —— 用 §7.2 的**领域概貌版**提示词；任务包在 `.work_cdp/reviews/tasks/`。★ 读者是**没有科研经验的本科生**，要求解释术语、给出阅读顺序 |
-| 想做「去重 / 剔除无关文献」 | ❌ 那是 `refs_curate.py` 的职责，不是本手册 |
+| 已拿到某作者 **≥10 篇**论文的题录（+ 部分全文），要产出解读报告 | [OK] 适用 |
+| 论文数 < 10 篇 | [X] 直接由主 agent 顺序解读更省事（subagent 开销不值） |
+| 需要**逐篇深读**（方法论 / 结论 / 关键信息 / 量化数据） | [OK] 适用 |
+| 只需按题名做相关性打分筛选 | [X] 本手册不是筛选工具 |
+| 还没拿到全文 | [X] 先回主流程 §4 阶段 E 用 CDP 下载；**不要**自行取全文 |
+| **阶段 H2**：已由 `refs_curate.py` 整理出最终文献列表，要做**研究方向综述** | [OK] 适用 —— 用 §7.1 的**综述网络版**提示词；任务包在 `.work_cdp/refs/tasks/` |
+| 阶段 H2 但文献只有题录、无摘要 | [WARN] 仍可做，但证据层级只能标 `metadata-only`，报告须如实披露 |
+| **阶段 R2（v8）**：已由阶段 R 选出 6–12 篇优质综述，要做**本科生领域概貌** | [OK] 适用 —— 用 §7.2 的**领域概貌版**提示词；任务包在 `.work_cdp/reviews/tasks/`。读者是**没有科研经验的本科生**，要求解释术语、给出阅读顺序 |
+| 想做「去重 / 剔除无关文献」 | [X] 那是 `refs_curate.py` 的职责，不是本手册 |
 
 ---
 
@@ -81,8 +81,8 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 
 | 文件 | 来源 | 必需 |
 |---|---|---|
-| `.work_cdp/crossref_all.json` | `fetch_crossref_all.py` | ✅ |
-| `.work_cdp/interpret/tasks/*.json` | `interpret_prepare.py`（本阶段） | ✅ |
+| `.work_cdp/crossref_all.json` | `fetch_crossref_all.py` | [OK] |
+| `.work_cdp/interpret/tasks/*.json` | `interpret_prepare.py`（本阶段） | [OK] |
 | `.work_cdp/prepare_plan.json` | `prepare_stage.py`（阶段 0） | 推荐（缺则用默认档位，并在报告里标注为缺省回退） |
 | `<作者名>_paper_Exports/<年>_<题名>.pdf` | `download_all_fulltexts.py`（主流程阶段 E） | 可选（缺则退化为摘要级） |
 | `.work_cdp/disambiguated.json` | `disambiguate.py` | 可选（排除同名他人） |
@@ -95,14 +95,27 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 
 | 文件 | 产出者 | 说明 |
 |---|---|---|
-| `.work_cdp/interpret/tasks/<序号>_<doi-slug>.json` | `interpret_prepare.py` | 单篇任务包 |
+| `.work_cdp/interpret/tasks/<doi-slug>.json` | `interpret_prepare.py` | 单篇任务包 |
 | `.work_cdp/interpret/manifest.json` | `interpret_prepare.py` | 任务清单 + 统计 |
-| `.work_cdp/interpret/results/<序号>_<doi-slug>.json` | **subagent** | 单篇解读卡（schema 见 § 6） |
-| `<作者名>_论文解读.md` | `interpret_build.py` | ⭐ 最终交付物 |
+| `.work_cdp/interpret/results/<doi-slug>.json` | **subagent** | 单篇解读卡（schema 见 § 6） |
+| `.work_cdp/interpret/paper_cards/<doi-slug>.md` | **subagent** | 16 节 Paper Card（**仅 `interpret_engine=paper-card`**；见 § 7.3） |
+| `.work_cdp/interpret/paper_cards/<doi-slug>.source_bundle.json` | `prepare_paper.py`（经 `nature_bridge.py`） | 页码 / 图表清单 / 校验块（同上，仅该引擎） |
+| `.work_cdp/interpret/paper_cards/<doi-slug>.audit.json` | `nature_bridge.py check`（同上，仅该引擎） | 质量门合并报告：结构审计 + **数字回查原文** |
+| `<作者名>_论文解读.md` | `interpret_build.py` | 最终交付物 |
 | ~~`<作者名>_论文解读_完整版.md`~~ | —— | **v7.2 已取消**：与上一行逐字节相同，不再重复写 |
 
-> ⚠️ **subagent 只写自己那一份 `results/<序号>_<doi-slug>.json`，绝不碰任何共享文件。**
+> 文件名**只由 DOI 决定**（`<doi-slug>`），序号只写在 JSON 内部 ——
+> 这是 v15 的一次实测事故换来的：按「序号_DOI」命名时，题录重采会让序号整体重排，
+> 13 份已产出的卡里 9 份与 manifest 对不上号。详见 [版本变动.md](../版本变动.md)。
+
+> [WARN] **subagent 只写自己那一份 `results/<doi-slug>.json`，绝不碰任何共享文件。**
 > 共享文件的写入一律由主 agent 在回收阶段串行完成 —— 并行写同一文件必然互相覆盖。
+>
+> [STOP] `paper-card` 引擎下 subagent 多写**两个**自己的文件
+> （`paper_cards/<doi-slug>.md` 与它自己的审计报告），但**仍然只碰自己 DOI 的那一份**；
+> `manifest.json` 等共享文件一律由主 agent 写。
+> `paper_cards/` 与 `results/` **不得混放**：前者是人读的 Markdown，后者是机器读的
+> 11 字段 JSON —— 混放会让"按文件名取卡"的下游把 Markdown 当 JSON 读崩。
 
 ---
 
@@ -113,26 +126,31 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
                  ↓  产出 tasks/*.json（每篇一个自包含任务包）
 ② 分派      主 agent 分批并行（单条消息内多个 Agent 调用），每批 30–60 秒轮询一次完成度
                  ↓  每个 subagent 只读自己的 task.json，只写自己的 result.json
+                 ↓  （paper-card 引擎另写自己的 paper_cards/<doi-slug>.md 与审计报告）
 ③ 回收      主 agent 逐份校验 schema 与完整性（坏卡打回重做，不迁就）
+                 ↓  paper-card 引擎另核：两份产物是否都在、审计报告是否 pass
 ④ build     uv run python 流程1/scripts/interpret_build.py
                  ↓  时间线 / 逐篇卡片 / 关键词统计 / 研究方向 / 方法范式
 ⑤ 复核      完整性批评：哪些篇缺卡？哪些是摘要级？哪些方向明显缺席？
+                 ↓  paper-card 引擎另报：哪些篇的深读卡或审计缺失（"未验证 ≠ 已验证"）
 ```
 
 ### ① prepare
 
 ```bash
 uv run --with pypdf python 流程1/scripts/interpret_prepare.py
+# 可选：--engine=legacy|paper-card  解读引擎（缺省走阶段 0；见 § 7.3）
 # 可选：--max-chars=60000   单篇正文截断上限
 # 可选：--only=10.1038/xxx,10.1016/yyy   只准备指定 DOI
 # 可选：--no-text           只出题录与摘要（不读 PDF）
+# 档位与引擎都随任务包下发：subagent 一律以任务包里的取值为准，不必再问阶段 0
 ```
 
 ### ② 分派（**关键：并行 + 动态轮询**）
 
 **必须**在**同一条消息**里发出多个 Agent 调用，否则会退化成串行。
 
-⛔ **不要盲等固定时长**（`sleep 150` / `sleep 200` 之类）再收子代理。
+[STOP] **不要盲等固定时长**（`sleep 150` / `sleep 200` 之类）再收子代理。
 **分派 → 30–60 秒后查完成度 → 按剩余篇数决定下一批大小与下次间隔 → 重复。**
 
 ```bash
@@ -153,6 +171,11 @@ uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
 **单批上限**：阶段 H / H2 每批 **≤ 6**；阶段 R2 每批 **≤ 4**。
 上限来自实测 —— 并发过高会触发生成长度上限，产出**结构合法但内容是
 `placeholder`** 的卡。
+
+> [WARN] **单批上限的权威定义在 `流程1/scripts/agent_poll.py` 的 `STAGES`**，
+> 该值经 `survey()` 的 `suggest_batch = min(remaining, batch_cap)` 真正生效。
+> 本节与 §9 的数值只是它的**说明副本** —— 改上限请改 `STAGES`，并同步这两处文字，
+> 否则「文档写 6、脚本派 4」这类不一致不会有任何报错。
 
 **动态调整三档**：
 
@@ -250,7 +273,7 @@ uv run python 流程1/scripts/interpret_build.py
 | **L2 详细** | 逐篇卡片（阶段 H 默认） | 另加误差项、样本量、有限实验过程、排除性证据、局限 |
 | **L3 完整** | 综述与代表作（H2/R2 默认） | 另加完整论证链、机制细节、逐条局限、作者语气标注 |
 
-> ⛔ **最容易犯的错：以为"档位低就能说得更肯定"。**
+> [STOP] **最容易犯的错：以为"档位低就能说得更肯定"。**
 > 三档只差**细节量**，不差**断言强度**。同一个发现在三档里的动词强度必须一致，
 > 且与原文同级——L1 不因为地方小就把「提示」写成「证实」。
 > 规范定义见 skill `paper-interpretation-writing`（含档位规范、句式库、
@@ -260,21 +283,21 @@ uv run python 流程1/scripts/interpret_build.py
 
 | 字段 | L1 | L2 | L3 |
 |---|---|---|---|
-| `one_line` | ✅ 1 句定位 | ✅ | ✅ + 点出在作者脉络中的位置 |
-| `problem_solved` | ✅ 1–3 句：缺口 → 做了什么 → 最关键发现 | ✅ | ✅ + 补上排除的替代解释 |
-| `methods` | ⚠️ 留 `[]`（L1 不写方法清单） | ✅ 点名到可复现 | ✅ 完整，含关键参数 |
-| `verified_conclusions` | ⚠️ 只留 2–4 条最硬的 | ✅ 逐条挂证据 | ✅ 逐条挂证据 + 出处 |
-| `key_20` | ✅ 3–5 句有序文字 | ✅ 3–8 句 | ✅ 3–8 句，含设问推进 |
-| `quantified_gains` | ⚠️ 只留 2–5 个**结论性**数字，**不带误差项** | ✅ 含误差项、样本量、基线、出处 | ✅ 同 L2，逐条 |
-| `open_questions` | ⚠️ 0–2 条 | ✅ | ✅ 逐条，含未做的实验与并列未区分的机制 |
-| `direction_tags` / `paradigm_tags` | ✅ 受控词表 | ✅ | ✅ |
-| `evidence` | ✅ 如实标注 | ✅ | ✅ |
+| `one_line` | [OK] 1 句定位 | [OK] | [OK] + 点出在作者脉络中的位置 |
+| `problem_solved` | [OK] 1–3 句：缺口 → 做了什么 → 最关键发现 | [OK] | [OK] + 补上排除的替代解释 |
+| `methods` | [WARN] 留 `[]`（L1 不写方法清单） | [OK] 点名到可复现 | [OK] 完整，含关键参数 |
+| `verified_conclusions` | [WARN] 只留 2–4 条最硬的 | [OK] 逐条挂证据 | [OK] 逐条挂证据 + 出处 |
+| `key_20` | [OK] 3–5 句有序文字 | [OK] 3–8 句 | [OK] 3–8 句，含设问推进 |
+| `quantified_gains` | [WARN] 只留 2–5 个**结论性**数字，**不带误差项** | [OK] 含误差项、样本量、基线、出处 | [OK] 同 L2，逐条 |
+| `open_questions` | [WARN] 0–2 条 | [OK] | [OK] 逐条，含未做的实验与并列未区分的机制 |
+| `direction_tags` / `paradigm_tags` | [OK] 受控词表 | [OK] | [OK] |
+| `evidence` | [OK] 如实标注 | [OK] | [OK] |
 
 > **L1 的"留空"是硬约束，不是偷懒**：阶段 H 的 L1 会渲染成表格与速览，
 > 一个带误差项的测量值会让整张表失去逐行可比性。
 > 拿不准某条算不算"结论性数字"时，问自己：**它能不能进一张表格的"关键数字"列？**
 
-> ⚠️ **L1 的下游代价**：阶段 H 的关键词统计、阶段 K 的知识图谱与词云、
+> [WARN] **L1 的下游代价**：阶段 H 的关键词统计、阶段 K 的知识图谱与词云、
 > 以及 `refs_curate.py` 的方向相关性打分，都从解读卡的 `methods` / `key_20` / 标签取语料。
 > **L1 留空 `methods`**，这三处会明显变薄 —— 属预期内的取舍，不是缺陷。
 > 需要知识图谱时建议用 L2 及以上。
@@ -380,15 +403,15 @@ subagent** 分别产出 —— 同一概念会写成
 
 请先读该文件，再完成解读。
 
-★ **解读档位**：以任务包里的 `interpret_tier` 为准（`L1` / `L2` / `L3`）。
+**解读档位**：以任务包里的 `interpret_tier` 为准（`L1` / `L2` / `L3`）。
   按 § 6.0 的「字段 × 档位」表决定每个字段写多深：
   L1 不写方法清单、不写误差项与样本量、结论只留最硬的 2–4 条、关键数字只留 2–5 个；
   L2 补齐误差项、样本量、有限实验过程与排除性证据；L3 再补完整论证链与逐条局限。
-  ⛔ **三档只差细节量，不差断言强度**：同一个发现在三档里的动词强度必须一致，
+  [STOP] **三档只差细节量，不差断言强度**：同一个发现在三档里的动词强度必须一致，
   且与原文同级 —— 不要把原文的「提示」写成「证实」。
   规范定义见 skill `paper-interpretation-writing`。
 
-⛔ 硬性约束：
+[STOP] 硬性约束：
 1. 不要发起任何网络请求 —— 全文已在该任务包里。
    若 source 为 "abstract"，就只根据摘要解读，并把 evidence.source 如实填 "abstract"，
    同时在 open_questions 里注明「未获取全文，结论以摘要为限」。
@@ -409,7 +432,7 @@ subagent** 分别产出 —— 同一概念会写成
 完成后把该 JSON 写入：
   D:/…/.work_cdp/interpret/results/07_10.1038_s41586-024-xxxxx.json
 
-⚠️ 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
+[WARN] 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
    不要写任何汇总文件（汇总由主 agent 统一做）。
 ```
 
@@ -442,14 +465,14 @@ subagent** 分别产出 —— 同一概念会写成
 
 请先读该文件，再完成解读。
 
-★ **解读档位**：以任务包里的 `interpret_tier` 为准，**综述类默认 `L3`（完整）**。
+**解读档位**：以任务包里的 `interpret_tier` 为准，**综述类默认 `L3`（完整）**。
   L3 要求完整论证链、机制细节、**排除性证据**与逐条局限 ——
   综述读者正是据此判断这条文献在网络中的证据强度，
   低档会丢掉排除性证据与作者语气限定，而那恰恰是综述最需要的部分。
-  ⛔ **三档只差细节量，不差断言强度**：与原文同级，不要把「提示」写成「证实」。
+  [STOP] **三档只差细节量，不差断言强度**：与原文同级，不要把「提示」写成「证实」。
   规范定义见 skill `paper-interpretation-writing`。
 
-⛔ 硬性约束：
+[STOP] 硬性约束：
 1. 不要发起任何网络请求 —— 任务包里已有全部可用信息。
 2. **如实标注证据层级**：若 evidence.source 为 "abstract"，就只根据摘要解读；
    若为 "metadata-only"（摘要为空），**只能依据题名与期刊**，并在 open_questions
@@ -471,12 +494,13 @@ subagent** 分别产出 —— 同一概念会写成
 完成后把该 JSON 写入：
   D:/…/.work_cdp/refs/results/10_1038_s41586_024_12345.json
 
-⚠️ 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
+[WARN] 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
    不要写任何汇总文件（汇总由主 agent 统一做）。
 ```
 
-> **提示词里必须写死的三件事**（与 §7 相同）：① 任务包路径；② 结果文件路径；
-> ③ 「只写你自己那份」。少了第 ③ 条，并行 subagent 会互相覆盖产物。
+> **提示词里必须写死的四件事**（与 §7 相同）：① 任务包路径；② 结果文件路径；
+> ③ 「只写你自己那份」；④ **解读档位**。少了第 ③ 条，并行 subagent 会互相覆盖产物；
+> 少了第 ④ 条，同一批 subagent 会各写各的深度，汇总时报告深浅不一。
 
 **三阶段的产物目录对照（记牢，别写错）**
 
@@ -510,14 +534,14 @@ subagent** 分别产出 —— 同一概念会写成
 
 请先读该文件，再完成解读。
 
-★ **解读档位**：以任务包里的 `interpret_tier` 为准，**综述类默认 `L3`（完整）**。
+**解读档位**：以任务包里的 `interpret_tier` 为准，**综述类默认 `L3`（完整）**。
   本篇的读者是**没有科研经验的本科生**，所以 L3 在这里的含义是
   「论证链完整」**加上**「凡专业术语都要解释」——
   两者不冲突：说得完整，但不要默认对方懂行话。
-  ⛔ **三档只差细节量，不差断言强度**：与原文同级，不要把「提示」写成「证实」。
+  [STOP] **三档只差细节量，不差断言强度**：与原文同级，不要把「提示」写成「证实」。
   规范定义见 skill `paper-interpretation-writing`。
 
-⛔ 硬性约束：
+[STOP] 硬性约束：
 1. 不要发起任何网络请求 —— 任务包里已有全部可用信息。
 2. **如实标注证据层级**：evidence.source 为 "abstract" 就只据摘要解读；
    为 "metadata-only" 时只能依据题名与期刊，并在 open_questions 写明。
@@ -548,15 +572,112 @@ subagent** 分别产出 —— 同一概念会写成
 完成后把该 JSON 写入：
   D:/…/.work_cdp/reviews/results/10_1038_s41586_024_12345.json
 
-⚠️ 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
+[WARN] 只写这一个文件。**不要**修改 tasks/、不要动 results/ 下不属于你的文件、
    不要写任何汇总文件（汇总由主 agent 统一做）。
 ```
+
+> **提示词里必须写死的四件事**（与 §7 相同）：① 任务包路径；② 结果文件路径；
+> ③ 「只写你自己那份」；④ **解读档位**。少了第 ③ 条，并行 subagent 会互相覆盖产物；
+> 少了第 ④ 条，同一批 subagent 会各写各的深度，汇总时报告深浅不一。
 
 > **汇总**（主 agent 做，不交给 subagent）：把 6–12 张卡合并成《领域概貌.md》，
 > 结构见主流程 §4 阶段 R2。合并时的重点：
 > ① 多篇综述**共同**提到的概念 = 领域核心，优先解释；
 > ② 多篇综述**说法不一致**的地方 = 争议点，如实并列而不是挑一个当定论；
 > ③ 按"由浅入深"排**推荐阅读顺序**，并给每本一句"为什么先读它"。
+
+---
+
+## 7.3 提示词模板（**paper-card 引擎版**，阶段 H 用）
+
+阶段 H 的两条路径共用同一套并行机制、同一份任务包命名、同一份 **11 字段结果 schema**
+（§6）；差别只在**要不要额外产出 16 节深读卡**。引擎由阶段 0 决定，
+写进任务包的 `interpret_engine`，**subagent 一律以任务包里的取值为准**。
+
+**触发条件**：任务包 `interpret_engine == "paper-card"`。
+此时任务包里多一个 `paper_card` 块，**所有路径都已经算好**（不要自己拼）：
+
+```json
+"paper_card": {
+  "skill_dir": "…/vendor/nature-paper-card",
+  "skill_md": "…/SKILL.md",
+  "prepare_script": "…/scripts/prepare_paper.py",
+  "audit_script": "…/scripts/audit_paper_card.py",
+  "bridge_script": "…/scripts/nature_bridge.py",
+  "content_check_script": "…/skills/paper-interpretation-writing/scripts/check_interpretation.py",
+  "card_path": "…/interpret/paper_cards/<slug>.md",
+  "source_bundle_path": "…/paper_cards/<slug>.source_bundle.json",
+  "audit_report_path": "…/paper_cards/<slug>.audit.json",
+  "quality_gate": "python \"…/nature_bridge.py\" check --card … --bundle … --locator-mode <实际模式> --report …",
+  "dual_output": "① 16 节卡 + ② 11 字段 JSON 卡，两者口径必须一致"
+}
+```
+
+```
+你是学术论文解读助手。请**只**解读指定的这一篇论文。本任务使用 **paper-card 引擎**。
+
+任务包（自包含，含题录、摘要、已抽取的全文文本，以及 paper_card 路径块）：
+  D:/…/.work_cdp/interpret/tasks/<doi_slug>.json
+
+请先读该文件，再完成解读。
+
+**解读档位**：以任务包里的 `interpret_tier` 为准（`L1` / `L2` / `L3`），按 § 6.0 的
+  「字段 × 档位」表决定每个字段写多深。规范定义见 skill `paper-interpretation-writing`。
+
+**产出两样，缺一不可**：
+  ① `paper_card.card_path` 指向的 **16 节 Paper Card**（人读的深读本体）
+  ② `result_path` 指向的 **11 字段 JSON 解读卡**（机器读；下游汇总/PPT/图谱只认它）
+  两者**口径必须一致** —— JSON 卡里的数字与结论不得与 Paper Card 冲突。
+
+[STOP] 硬性约束：
+1. **不要发起任何网络请求** —— 全文已在任务包里。
+2. 生成 16 节卡的规范**以已并入的技能为准**：先读 `paper_card.skill_md`，
+   按其 Routing protocol 装载 core 层与**一个** paper_type 片段
+   （`methods` / `discovery` / `resource` / `clinical` / `materials` / `review`），
+   再写卡。**不要把 16 节卡写成翻译或综述**。
+3. **禁止自造脚本**：PDF/源图转文本一律用 `paper_card.prepare_script`；
+   不得写 `extract_pdf.py` 之类替代品，也不得改动 skill 内的脚本。
+4. **不要臆造数字**：论文里没有的数字、结论、机制一律不得出现。拿不准就留空。
+5. 区分「已验证结论」与「作者主张」：纯推测、展望归入 `open_questions`；
+   16 节卡的第 12 节（作者自述局限）与第 13 节（你的批判性分析）**必须分列**，
+   不得把 Agent 的批评写进作者局限。
+6. **来源定位降级要如实**：`source_bundle.json` 的
+   `validation.recommended_locator_mode` 给出本轮可用的定位模式
+   （`page-grounded` / `structure-grounded` / `source-limited`）。非 `page-grounded`
+   时**不得**出现任何页码引用（审计器会判 error）。**不得伪造页码**。
+7. 量化数据必须原样引用（含单位、基线、条件），并注明出处（图/表/公式/页）。
+8. **第 16 节的研究想法**必须是**可检验假设**：每条给出 name / 起因（具体局限或
+   反常观察）/ 核心假设 / 相对本文的 delta / 初步方法 / 验证方式 / 可能失败模式 /
+   `innovation status`（`unverified` / `partially checked` / `prior-art checked`）。
+   **未做专门的先行研究检索，不得使用 novel / first / 首创 等措辞。**
+
+[STOP] 交付前**必须**自己跑一遍质量门（命令见 `paper_card.quality_gate`），
+  退出码非 0 即为 error，修好再重跑：
+  它 = **结构审计**（节序/头部/定位模式/指针/节正文非空/图表清单覆盖）
+       + **内容级校验**（逐个数字回查原文，`NUMBER_NOT_IN_SOURCE`）。
+  两者的报告都会写进 `paper_card.audit_report_path`。
+  注意：结构审计通过**不等于**内容可信（空壳卡也能过结构审计），
+  但数字回查不过关就一定是错的 —— 以退出码为准。
+
+请把 11 字段 JSON 卡写入：
+  D:/…/.work_cdp/interpret/results/<doi_slug>.json
+并把 16 节卡写入：
+  D:/…/.work_cdp/interpret/paper_cards/<doi_slug>.md
+
+[WARN] 只写这两个文件（外加质量门自己写的报告）。**不要**修改 tasks/、
+   不要动 results/ 与 paper_cards/ 下不属于你的文件、不要写任何汇总文件。
+```
+
+> **提示词里必须写死的五件事**：① 任务包路径；② 两个产物路径；
+> ③ 「只写你自己那份」；④ 解读档位；⑤ **引擎与质量门命令**。
+> 少了第 ④ 条，同批 subagent 深浅不一；少了第 ⑤ 条，
+> 16 节卡会变成"没人验过的一段文字"，而**未经数字回查的卡不许当成交付物**。
+
+> **主 agent 的复核**（§5 ⑤ 的扩展）：除了核对 ① `doi` 与任务包一致、
+> ② 抽查数字回原文，还要核对 ③ `paper_cards/<slug>.md` 与
+> `results/<slug>.json` **都存在**，且 `audit_report_path` 的
+> `summary.status == "pass"`。任一缺失即视为**该篇未完成**，
+> `interpret_build.py` 会在第六节如实申报（"未跑"）—— 不要手工补一份假报告。
 
 ---
 
@@ -578,25 +699,25 @@ subagent** 分别产出 —— 同一概念会写成
 
 ## 9. 常见错误
 
-- ❌ **串行分派**：一个一个发 Agent 调用 → 退化成串行，白付了并行的复杂度。必须同一条消息内多发。
-- ❌ **把全文粘进提示词**：几十万字符直接塞爆主上下文。让 subagent 自己读 `tasks/*.json`。
-- ❌ **让 subagent 自己去找全文**：会诱发「顺手 curl 一篇」→ **违反最高优先级禁令**。
-- ❌ **让 subagent 更新共享汇总文件**：并发写必然互相覆盖。汇总只由主 agent 做。
-- ❌ **为了凑满字段而编数据**：宁可 `[]` + 说明，也不要假数字。
-- ❌ **跳过分批**：20 篇一次性全派出去，出了错难以定位。每批 ≤ 6（R2 ≤ 4）。
+- [X] **串行分派**：一个一个发 Agent 调用 → 退化成串行，白付了并行的复杂度。必须同一条消息内多发。
+- [X] **把全文粘进提示词**：几十万字符直接塞爆主上下文。让 subagent 自己读 `tasks/*.json`。
+- [X] **让 subagent 自己去找全文**：会诱发「顺手 curl 一篇」→ **违反最高优先级禁令**。
+- [X] **让 subagent 更新共享汇总文件**：并发写必然互相覆盖。汇总只由主 agent 做。
+- [X] **为了凑满字段而编数据**：宁可 `[]` + 说明，也不要假数字。
+- [X] **跳过分批**：20 篇一次性全派出去，出了错难以定位。每批 ≤ 6（R2 ≤ 4）。
 
 ---
 
 ## 10. 检查清单
 
 - [ ] `tasks/` 已由 `interpret_prepare.py` 生成，且每篇的 `evidence` 来源已知
-- [ ] 🆕 **档位已确认并嵌入任务包**：`.work_cdp/prepare_plan.json` 里
+- [ ] [NEW] **档位已确认并嵌入任务包**：`.work_cdp/prepare_plan.json` 里
       `interpret_tier`（阶段 H）与 `review_interpret_tier`（H2/R2）存在且取值合法；
       每个 task packet 含 `interpret_tier`，取值与阶段 0 一致
-- [ ] 🆕 **分派提示词里写了档位**（§ 7 的「四件事」之一）
-- [ ] 🆕 **卡片深度与档位相符**：按 § 6.0 的「字段 × 档位」表抽查——
+- [ ] [NEW] **分派提示词里写了档位**（§ 7 的「四件事」之一）
+- [ ] [NEW] **卡片深度与档位相符**：按 § 6.0 的「字段 × 档位」表抽查——
       L1 不得出现误差项 / 样本量 / 图表引用 / 实验步骤
-- [ ] 🆕 **语气未跨档升级**：抽查 2–3 条发现，确认三档（或同批各档）动词强度同级
+- [ ] [NEW] **语气未跨档升级**：抽查 2–3 条发现，确认三档（或同批各档）动词强度同级
 - [ ] 分派是**同一条消息内多个并行 Agent 调用**（每批 ≤ 6；R2 ≤ 4）
 - [ ] 收卡用 `agent_poll.py` **轮询**（30–60 秒一次），**未使用固定 sleep**
 - [ ] 上一批有坏卡时，下一批已**减半**并单独重派该篇
@@ -612,19 +733,38 @@ subagent** 分别产出 —— 同一概念会写成
 
 **v7 新增（两个阶段都适用）**
 
-- [ ] 🆕 **标签取自受控词表**（§6.5）；自造标签带 `自定义:` 前缀；
+- [ ] [NEW] **标签取自受控词表**（§6.5）；自造标签带 `自定义:` 前缀；
       **未归一的标签已在报告中保留并列出**
-- [ ] 🆕 `.work_cdp/tag_vocabulary.json` 已存在（模板：`流程1/templates/方法范式标签词表.json`）
+- [ ] [NEW] `.work_cdp/tag_vocabulary.json` 已存在（模板：`流程1/templates/方法范式标签词表.json`）
+
+**v17 新增（仅阶段 H 的 paper-card 引擎；`interpret_engine=paper-card` 时逐条核）**
+
+- [ ] [NEW] 用的是 §7.3 的**paper-card 引擎版**提示词（而不是 §7 的通用版）
+- [ ] [NEW] 每篇**两样都在**：`paper_cards/<doi-slug>.md`（16 节）**且**
+      `results/<doi-slug>.json`（11 字段）—— 只交一样即视为该篇未完成
+- [ ] [NEW] 深读卡全部落在 `paper_cards/`，**未**混进 `results/`
+- [ ] [NEW] 每篇都跑过 `nature_bridge.py check`，且 `audit_report_path` 的
+      `summary.status == "pass"`；缺报告或非 pass 的篇目**不得**当成交付物
+- [ ] [NEW] 数字回查确实开着（合并报告 `source_checked: true`），
+      而不是"忘了给 `--source`/`--bundle` 所以没查"
+- [ ] [NEW] 定位模式与该篇 `source_bundle.json` 的
+      `validation.recommended_locator_mode` 一致；非 `page-grounded` 时**无**页码引用
+- [ ] [NEW] 第 12 节（作者自述局限）与第 13 节（Agent 批判）**分列**，未混写
+- [ ] [NEW] 第 16 节每条想法都有 `innovation status`，且**未**出现
+      novel / first / 首创 等未经先行检索的措辞
+- [ ] [NEW] `interpret_build.py` 的第六节已如实列出逐篇深读卡与审计状态
+      （含标为「未跑」的篇目）
+- [ ] [NEW] 未为凑齐 16 节而臆造内容（空节写 `Not applicable`/`Not assessable` 是**正确**做法）
 
 **v7 新增（仅阶段 H2 综述网络）**
 
-- [ ] 🆕 用的是 §7.1 的**综述网络版**提示词
-- [ ] 🆕 任务包与结果都落在 `.work_cdp/refs/` 下，
+- [ ] [NEW] 用的是 §7.1 的**综述网络版**提示词
+- [ ] [NEW] 任务包与结果都落在 `.work_cdp/refs/` 下，
       **未与阶段 H 的 `.work_cdp/interpret/` 混放**
-- [ ] 🆕 每条卡的 `evidence.source` 如实填写；摘要为空的条目
+- [ ] [NEW] 每条卡的 `evidence.source` 如实填写；摘要为空的条目
       已在报告中作为「仅有题录」**单列**
-- [ ] 🆕 解读卡含 **13 个**必需字段（11 基础 + `network_role` + `relation_to_author`）
-- [ ] 🆕 `network_role` 取自 5 个受控取值之一，未自造
-- [ ] 🆕 已跑 `refs_build.py` 产出 `<作者名>_研究方向综述.md`（单一文件）
-- [ ] 🆕 报告的「缺卡与限制申报」一节已如实列出缺卡 / schema 不合规 /
+- [ ] [NEW] 解读卡含 **13 个**必需字段（11 基础 + `network_role` + `relation_to_author`）
+- [ ] [NEW] `network_role` 取自 5 个受控取值之一，未自造
+- [ ] [NEW] 已跑 `refs_build.py` 产出 `<作者名>_研究方向综述.md`（单一文件）
+- [ ] [NEW] 报告的「缺卡与限制申报」一节已如实列出缺卡 / schema 不合规 /
       仅有题录的条目，**未静默略过**

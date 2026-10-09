@@ -2,7 +2,7 @@
 # ══════════════════════════════════════════════════════════════════
 # 启动带 CDP 的 Edge（支持**并行多实例**，参数尽量少）
 #
-# ★ 参数档位（并列，不叠加；默认 L0 日常档，共 8 个参数）
+# 参数档位（并列，不叠加；默认 L0 日常档，共 8 个参数）
 #
 #   L0 日常档（默认）——「像正常打开的浏览器」：
 #     必需 3 个：
@@ -24,12 +24,12 @@
 #
 #   ※ cookie/同意书弹窗**没有**对应命令行开关（Edge 的「阻止 cookie 横幅」
 #     是设置项而非启动参数），由 cdp.py 的 CONSENT_JS 在页内保守关闭。
-#   ✗ 不使用 --headless：无头模式最易被 Cloudflare 识别
-#   ✗ 不使用 --disable-blink-features=AutomationControlled / --excludeSwitches：
+#   [X] 不使用 --headless：无头模式最易被 Cloudflare 识别
+#   [X] 不使用 --disable-blink-features=AutomationControlled / --excludeSwitches：
 #     这些非默认参数本身就是可被检测的指纹
-#   ✗ 不做任何 JS 指纹注入（新版 cdp.py 默认 stealth=False）
+#   [X] 不做任何 JS 指纹注入（新版 cdp.py 默认 stealth=False）
 #
-# ★ 为什么多实例：旧版单实例一旦浏览器退出，后续全部请求
+# 为什么多实例：旧版单实例一旦浏览器退出，后续全部请求
 #   WinError 10061 失败（见 batch2.log），整批任务报废。
 #   一实例一 profile 天然形成 Cookie 池：一个被挑战，其余照常工作。
 #
@@ -53,7 +53,7 @@ for p in "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
          "/c/Program Files/Microsoft/Edge/Application/msedge.exe"; do
   [ -f "$p" ] && MSEDGE="$p" && break
 done
-[ -z "$MSEDGE" ] && { echo "❌ 未找到 msedge.exe"; exit 1; }
+[ -z "$MSEDGE" ] && { echo "未找到 msedge.exe"; exit 1; }
 
 LOGDIR="${WORKDIR}/.work_cdp/logs"
 mkdir -p "$LOGDIR"
@@ -63,7 +63,7 @@ mkdir -p "$LOGDIR"
 #   L3 极速档：在 L0 基础上关闭「后台网络 / 组件更新 / 同步 / 默认应用」等
 #   与页面渲染无关的启动期后台任务 —— 冷启动更快、CPU 占用更低。
 #   已实测不影响 Cloudflare 放行（这些是后台服务开关，不改页面指纹）。
-#   ★ 弹窗抑制（v6 新增，L0/L2/L3 共有）—— 只关**浏览器自己的对话框**，
+#   弹窗抑制（v6 新增，L0/L2/L3 共有）—— 只关**浏览器自己的对话框**，
 #     不碰页面 DOM，也不改 navigator/screen 指纹。与 cdp_pool.py 的
 #     _DIALOG_ARGS 必须保持一致（两处任一改动都要同步）。
 #
@@ -76,9 +76,9 @@ mkdir -p "$LOGDIR"
 #     --disable-search-engine-choice-screen  抑制全新 profile 首启的搜索引擎选择页
 #     --disable-features=Translate,TranslateUI  抑制「是否翻译此页面？」气泡
 #
-#   ★ 为什么「恢复页面」气泡必须关：本流程会 taskkill /F 强制结束实例，
+#   为什么「恢复页面」气泡必须关：本流程会 taskkill /F 强制结束实例，
 #     同一 profile 下次启动**必然**弹出该气泡，遮挡内容并抢焦点。
-#   ★ 未知开关会被 Chromium 静默忽略，故「两代开关名都带」是安全的。
+#   未知开关会被 Chromium 静默忽略，故「两代开关名都带」是安全的。
 BASE_ARGS=(
   --window-size=1280,900
   --no-first-run --no-default-browser-check
@@ -128,7 +128,7 @@ for i in $(seq 0 $((COUNT - 1))); do
   mkdir -p "$PROFILE"
 
   if cdp_ready "$PORT"; then
-    echo "✅ 端口 ${PORT} 已有存活实例，复用"
+    echo "[OK] 端口 ${PORT} 已有存活实例，复用"
     ok=$((ok + 1)); continue
   fi
 
@@ -160,10 +160,10 @@ if [ "${#LAUNCHED[@]}" -gt 0 ]; then
   done
   for PORT in "${LAUNCHED[@]}"; do
     if cdp_ready "$PORT"; then
-      echo "   ✅ CDP 就绪: http://127.0.0.1:${PORT}"
+      echo "   [OK] CDP 就绪: http://127.0.0.1:${PORT}"
       ok=$((ok + 1))
     else
-      echo "   ❌ 端口 ${PORT} 启动失败，日志尾部："
+      echo "   [X] 端口 ${PORT} 启动失败，日志尾部："
       tail -8 "${LOGDIR}/edge_${PORT}.log" 2>/dev/null | sed 's/^/      /'
     fi
   done

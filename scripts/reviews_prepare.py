@@ -51,6 +51,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # ── UTF-8 兜底（与 logutil._fix_stdout 同判据，幂等）──
 
 
@@ -91,7 +93,7 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 UA = "reviews-prepare/1.0 (academic use; mailto:noreply@example.org)"
 
 # 综述类文献的类型标记（用于判定 field_role 与筛选）
@@ -102,12 +104,12 @@ REVIEW_TYPES = ("review", "systematic review", "systematic-review", "meta-analys
 # ══════════════════════════════════════════════════════════════
 # 综述解读档位（阶段 R2 用 `review_interpret_tier`，与阶段 H2 共用同一个键）
 #
-# ★ 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
+# 档位是**参数不是闸门**（prepare_stage.OPTIONS 里 gates 为空）：
 #   计划文件缺失/损坏/取值非法只能提示 + 回退默认 L3，绝不报错退出 ——
 #   少一个档位不该让整条链路停摆。
-# ★ 本脚本只负责把档位**如实带进每个任务包与 manifest**（供 reviews_build 与
+# 本脚本只负责把档位**如实带进每个任务包与 manifest**（供 reviews_build 与
 #   subagent 读取），不改变任何既有渲染行为。语义见 skill：`paper-interpretation-writing`。
-# ★ 自包含一份助手而不 import 别的脚本：流程内脚本互相 import 会带来 module 级
+# 自包含一份助手而不 import 别的脚本：流程内脚本互相 import 会带来 module 级
 #   副作用与 stdout 重包的坑（见 _fix_streams 注释），几十行自包含更稳。
 # ══════════════════════════════════════════════════════════════
 TIER_KEY = "review_interpret_tier"
@@ -130,17 +132,17 @@ def plan_tier(plan_path: pathlib.Path | None = None) -> tuple[str, str]:
     """
     p = plan_path or PLAN_PATH
     if not p.exists():
-        return DEFAULT_TIER, (f"⚠ 找不到 {p}（阶段 0 未跑？）→ "
+        return DEFAULT_TIER, (f"[WARN] 找不到 {p}（阶段 0 未跑？）→ "
                               f"综述解读档位回退默认 {DEFAULT_TIER}")
     try:
         plan = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        return DEFAULT_TIER, (f"⚠ {p.name} 解析失败（{e}）→ "
+        return DEFAULT_TIER, (f"[WARN] {p.name} 解析失败（{e}）→ "
                               f"综述解读档位回退默认 {DEFAULT_TIER}")
     raw = plan.get(TIER_KEY) if isinstance(plan, dict) else None
     got = normalize_tier(raw)
     if not got:
-        return DEFAULT_TIER, (f"⚠ {p.name} 的 {TIER_KEY}={raw!r} 非法"
+        return DEFAULT_TIER, (f"[WARN] {p.name} 的 {TIER_KEY}={raw!r} 非法"
                               f"（应为 L1/L2/L3）→ 回退默认 {DEFAULT_TIER}")
     return got, ""
 
@@ -155,7 +157,7 @@ def slugify(s: str, maxlen: int = 80) -> str:
 def _unescape(s: str) -> str:
     """还原 HTML 实体，并去掉残留的标签。
 
-    ★ 为什么需要：Europe PMC 等接口在 title/abstract 里返回**XML 转义**文本，
+    为什么需要：Europe PMC 等接口在 title/abstract 里返回**XML 转义**文本，
       例如 `<i>Enterococcus</i>` 会被转义成 `&lt;i&gt;Enterococcus&lt;/i&gt;`。
       实测这类字符串会一路带进任务包、解读卡，最后出现在
       《领域概貌》的表格里（用户直接看到 `&lt;i&gt;` 这种噪声）。
@@ -288,7 +290,7 @@ def build(input_records: list[dict], outdir: pathlib.Path,
 
         packet = {
             "seq": i,
-            "interpret_tier": tier,          # ★ 综述解读档位（供 subagent 与 build 读取）
+            "interpret_tier": tier,          # 综述解读档位（供 subagent 与 build 读取）
             "doi": rec["doi"],
             "title": rec["title"],
             "journal": rec["journal"],
@@ -324,7 +326,7 @@ def build(input_records: list[dict], outdir: pathlib.Path,
     payload = {
         "workdir": str(WD),
         "stage": "R2",
-        "interpret_tier": tier,              # ★ 档位随清单落盘，下游无需再猜
+        "interpret_tier": tier,              # 档位随清单落盘，下游无需再猜
         "count": len(manifest),
         "review_count": sum(1 for m in manifest if m["is_review"]),
         "oa_count": sum(1 for m in manifest if m["is_oa"]),
@@ -376,19 +378,19 @@ def main(argv: list[str] | None = None) -> int:
 
     src = args.input or args.from_europepmc or args.from_json
     if not src:
-        print("✗ 需要 --input / --from-europepmc / --from-json 之一", file=sys.stderr)
+        print("[X] 需要 --input / --from-europepmc / --from-json 之一", file=sys.stderr)
         return 2
     p = pathlib.Path(src)
     if not p.is_absolute():
         p = WD / p
     if not p.exists():
-        print(f"✗ 输入文件不存在：{p}", file=sys.stderr)
+        print(f"[X] 输入文件不存在：{p}", file=sys.stderr)
         return 2
 
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"✗ 输入解析失败：{e}", file=sys.stderr)
+        print(f"[X] 输入解析失败：{e}", file=sys.stderr)
         return 2
 
     # 四种输入形态：
@@ -396,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     #   ② {items:[…]}            —— 通用数组包装
     #   ③ {resultList:{result:[]}} —— Europe PMC 原生
     #   ④ {included:[…]}         —— **v13 PRISMA 链的 search_screened.json**
-    #      ⛔ 早期版本不认这个键，导致 `search_screen.py → reviews_prepare.py`
+    #      [STOP] 早期版本不认这个键，导致 `search_screen.py → reviews_prepare.py`
     #         这一步实际接不上（实测报「输入里没有记录」），
     #         而文档里却写着"之后接既有的 reviews_prepare.py"。
     if isinstance(data, dict):
@@ -412,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         records = data
     if not records:
-        print("✗ 输入里没有记录", file=sys.stderr)
+        print("[X] 输入里没有记录", file=sys.stderr)
         return 2
 
     outdir = pathlib.Path(args.out)
@@ -425,12 +427,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print("═" * 66)
-    print(f"✓ 任务包就绪：{payload['count']} 篇")
+    print(f"[OK] 任务包就绪：{payload['count']} 篇")
     print(f"  其中综述类：{payload['review_count']}；开放获取：{payload['oa_count']}")
     print(f"  证据层级：摘要级 {payload['evidence_abstract']} / "
           f"仅题录 {payload['evidence_metadata_only']}")
     print(f"  解读档位：{tier}（{TIER_LABELS.get(tier, '')}；来源：{tier_src}）"
-          f"　综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
+          f" 综述类默认 L3，阶段 0 可用 --set {TIER_KEY}=L1|L2|L3 改")
     print(f"  任务包：{payload['tasks_dir']}")
     print(f"  结果目录：{payload['results_dir']}")
     print()

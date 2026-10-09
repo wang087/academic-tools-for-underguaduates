@@ -14,10 +14,10 @@
     python route_databases.py --self-test
 
 设计要点（实测教训，见 SKILL §阶段 R）：
-  ⛔ paginate.py **没有 --sort 开关** —— 按被引排序的语法必须写进 query 里
+  [STOP] paginate.py **没有 --sort 开关** —— 按被引排序的语法必须写进 query 里
     （Europe PMC 用 `AND (SORT_CITED:y)`），本脚本会把它拼好给你。
-  ⛔ arXiv **每 3 秒 1 个请求**，必须串行；state 字段会标出 rate_limit。
-  ⛔ 全文一律走 CDP（SKILL §5.1）；本脚本只产出**元数据/摘要**层的检索计划。
+  [STOP] arXiv **每 3 秒 1 个请求**，必须串行；state 字段会标出 rate_limit。
+  [STOP] 全文一律走 CDP（SKILL §5.1）；本脚本只产出**元数据/摘要**层的检索计划。
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def domains_from_totals(path: pathlib.Path = TOTALS) -> list[str]:
 
 
 # ── 每个库的检索式模板 ────────────────────────────────────────────
-# ⛔ 各库的**语法互不通用**：PUB_TYPE:"Review" 是 Europe PMC 语法，
+# [STOP] 各库的**语法互不通用**：PUB_TYPE:"Review" 是 Europe PMC 语法，
 #    喂给 arXiv 会被当成普通词、喂给 OpenAlex 会被忽略。
 #    故 review_filter 按**库类型**分别取，而不是把路由表里的串原样透传。
 DEFAULT_REVIEW_FILTER = {
@@ -136,7 +136,7 @@ def build_plan(db_key: str, db: dict, terms: list[str], review_filter: str) -> d
                .replace("(", "%28").replace(")", "%29").replace(":", "%3A"))
         url = (f"https://export.arxiv.org/api/query?"
                f"search_query={enc}&max_results=12")
-        # ★ v12.1（2026-10-02）：取数由 curl 改为 Python（stdlib urllib）。见 SKILL [版本变动.md](版本变动.md)。
+        # v12.1（2026-10-02）：取数由 curl 改为 Python（stdlib urllib）。见 SKILL [版本变动.md](版本变动.md)。
         #   ① curl 走系统 TLS 栈（Schannel/SSPI）：在低完整性令牌的受限环境里
         #      `AcquireCredentialsHandle` 失败（SEC_E_NO_CREDENTIALS），整条命令直接不可用；
         #      Python 自带 OpenSSL、不经 SSPI，实测同一环境返回 200。
@@ -160,7 +160,7 @@ def build_plan(db_key: str, db: dict, terms: list[str], review_filter: str) -> d
             "citation_sorted": False,
             "rate_limit_seconds": 3,
             "content_level": db.get("content_level"),
-            "note": ("⛔ 限流每 3 秒 1 请求，**串行**；退出码 5 表示被限流。"
+            "note": ("[STOP] 限流每 3 秒 1 请求，**串行**；退出码 5 表示被限流。"
                      "取数用 Python（**不是 curl**），Atom XML 落 `.work_cdp/arxiv_query.xml`。"),
         }
 
@@ -289,7 +289,7 @@ def print_plan(plan: dict) -> None:
     if plan.get("resolved_via") == "faculty_direction":
         print(f"  → 学部方向，映射到方法领域：{'、'.join(plan['mapped_to_domains'])}")
     elif plan["used_fallback"]:
-        print("  ⚠ 未登记路由（既非方法领域也非学部方向）—— 使用兜底库")
+        print("  [WARN] 未登记路由（既非方法领域也非学部方向）—— 使用兜底库")
     if plan["reason"]:
         print(f"  理由：{plan['reason']}")
     print()
@@ -297,9 +297,9 @@ def print_plan(plan: dict) -> None:
     for p in plan["primary"]:
         print(f"    · {p['db']}  ({p.get('api')})")
         if p.get("citation_sorted"):
-            print("        可按被引排序 ✓")
+            print("        可按被引排序 [OK]")
         if p.get("rate_limit_seconds"):
-            print(f"        ⛔ 限流：每 {p['rate_limit_seconds']} 秒 1 请求，串行")
+            print(f"        [STOP] 限流：每 {p['rate_limit_seconds']} 秒 1 请求，串行")
         print(f"        $ {p.get('cmd','')}")
     if plan["secondary"]:
         print()
@@ -323,7 +323,7 @@ def self_test() -> int:
     problems: list[str] = []
 
     if not TABLE.exists():
-        print(f"✗ 路由表不存在：{TABLE}")
+        print(f"[X] 路由表不存在：{TABLE}")
         return EXIT_SELFTEST
     table = load_table()
 
@@ -360,7 +360,7 @@ def self_test() -> int:
         if extra:
             problems.append(f"路由表有、总表无（疑为笔误）: {extra}")
         if not missing and not extra:
-            print("  ✓ 与总表 24 个领域**逐项一致**")
+            print("  [OK] 与总表 24 个领域**逐项一致**")
     else:
         print(f"  ! 未找到总表（{TOTALS}），跳过领域一致性对账")
 
@@ -401,17 +401,17 @@ def self_test() -> int:
         if extra:
             problems.append(f"映射表有、导师方向规则无（疑为笔误）: {extra}")
         if not miss and not extra:
-            print(f"  ✓ 学部方向 {len(real_rules)} 个与 导师方向规则.json **逐项一致**")
+            print(f"  [OK] 学部方向 {len(real_rules)} 个与 导师方向规则.json **逐项一致**")
     else:
         print(f"  ! 未找到导师方向规则.json，跳过学部方向对账")
 
     print()
     if problems:
-        print(f"✗ 自检失败，{len(problems)} 项问题：")
+        print(f"[X] 自检失败，{len(problems)} 项问题：")
         for p in problems:
             print(f"    - {p}")
         return EXIT_SELFTEST
-    print("✓ 自检全部通过")
+    print("[OK] 自检全部通过")
     return EXIT_OK
 
 

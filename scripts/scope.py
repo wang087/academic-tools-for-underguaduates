@@ -9,7 +9,7 @@
 #       交付列表。「非本人论文要在输出中注明并在流程中自动忽略」这条要求，
 #       在流程上其实是落空的。
 #
-# ★ 为什么用**黑名单**（dropped）而不是**白名单**（confirmed）：————
+# 为什么用**黑名单**（dropped）而不是**白名单**（confirmed）：————
 #   disambiguate.py 的候选语料来自 .work_cdp/*.json（含 Europe PMC 原始结果），
 #   与 crossref_all.json 未必同源。若按「只保留 confirmed」做白名单，
 #   一旦两者语料不一致，**本人成果会被整批误删** —— 这是不可接受的失败模式。
@@ -17,7 +17,7 @@
 #   最坏情况是漏排几条，绝不会把本人的论文删掉。
 #   失败方向宁可偏保守：多留几篇可人工剔除，少留则无从恢复。
 #
-# ★ 三条硬性约定（改动前务必先读）：
+# 三条硬性约定（改动前务必先读）：
 #   ① **未做消歧时返回 None，而不是空集合**。None 能明确区分「没跑过消歧」
 #      与「跑过且无需排除」，便于日志与交付物如实表述。
 #   ② **review（待复核）绝不排除** —— 它对应「署名块无单位字段」这类
@@ -30,7 +30,7 @@
 #      所以这里只排除肯定性判定码；旧版 disambiguated.json 没有 code 字段时，
 #      按 why 文本里的「数据缺失 / 无单位字段」措辞兜底识别，宁可少排除。
 #
-# ★ 逃生阀：设 PAPER_SCOPE_INCLUDE_ALL=1 可**完全关闭排除**（不删任何条目），
+# 逃生阀：设 PAPER_SCOPE_INCLUDE_ALL=1 可**完全关闭排除**（不删任何条目），
 #   用于怀疑误排时快速对照全量结果。
 #
 # 可移植配置：PAPER_WORKDIR
@@ -41,6 +41,8 @@ import json
 import os
 import pathlib
 
+from logutil import run_root as _run_root  # noqa: E402
+
 _FILE = "disambiguated.json"
 
 # 可作排除依据的判定码（**肯定性**判定：有证据表明不是本人）
@@ -48,7 +50,7 @@ _EXCLUDABLE_CODES = {"name-mismatch", "affil-mismatch"}
 # 旧版 disambiguated.json 无 code 字段，只能按 why 措辞兜底识别「数据缺失」
 _NON_EXCLUDABLE_MARKERS = ("无单位字段", "无作者名单", "数据缺失", "非否定证据")
 
-# ★ 安全阀：排除比例上限。超过即判定为**语料有问题**而非作者真没成果，拒绝排除。
+# 安全阀：排除比例上限。超过即判定为**语料有问题**而非作者真没成果，拒绝排除。
 #   由来（2026-09-18 实测）：郭傲案例的候选语料是 orcid_works_parsed.json，
 #   里面**没有作者名单**，disambiguate 据此把 13 篇**全部**判成「他人」。
 #   若照单全收，交付列表会被清空 —— 这是不可逆的交付事故。
@@ -79,7 +81,7 @@ def load(cdpdir) -> dict | None:
 def dropped_list(cdpdir) -> list[dict]:
     """disambiguated.json 的 dropped 全量条目（含判定理由与 code）。
 
-    ★ 注意：这是**未过滤**的原始列表，其中包含「数据缺失」类条目，
+    注意：这是**未过滤**的原始列表，其中包含「数据缺失」类条目，
       不能直接拿来当排除名单 —— 排除请用 excluded_dois()。
     """
     d = load(cdpdir) or {}
@@ -126,7 +128,7 @@ def excluded_dois(cdpdir, total: int | None = None) -> set[str] | None:
     if total and len(exc) >= MIN_EXCLUDE_ABS and len(exc) >= total * MAX_EXCLUDE_RATIO:
         import sys as _sys
         _sys.stderr.write(
-            f"\n⚠️ 安全阀触发：消歧判定「他人论文」{len(exc)}/{total} 条"
+            f"\n[WARN] 安全阀触发：消歧判定「他人论文」{len(exc)}/{total} 条"
             f"（≥{MAX_EXCLUDE_RATIO:.0%}），已**拒绝套用排除名单**。\n"
             f"   这几乎一定是**候选语料有问题**（例如记录里根本没有作者名单），\n"
             f"   而不是这位作者真的只有这么点成果。\n"
@@ -161,4 +163,4 @@ def summary(cdpdir) -> str:
 
 
 def find_workdir() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+    return pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()

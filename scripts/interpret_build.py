@@ -10,7 +10,7 @@
 #   ⑤ 研究方法范式（paradigm）分析
 #   ⑥ 缺卡与限制（如实申报）
 #
-# ★ 解读档位（interpret_tier）：只决定**逐篇卡片的细节量**，不改动报告结构。
+# 解读档位（interpret_tier）：只决定**逐篇卡片的细节量**，不改动报告结构。
 #   优先级：任务包 tasks/*.json → manifest.json → prepare_plan.json → 默认 L2。
 #     L1 精简：定位 + 问题 + 关键信息 + 关键数字表（≤5 行，且**不列图表出处**）；
 #     L2 详细：完整四步卡片（默认档；渲染与引入档位前**逐字节一致**）；
@@ -19,10 +19,10 @@
 #   三档只差细节量，不差语气强度；规范见 skill：paper-interpretation-writing
 #   （references/tier-specs.md）。
 #
-# ★ 诚实性优先：缺卡的篇目、仅摘要级的篇目、被截断的正文，全部**显式列出**，
+# 诚实性优先：缺卡的篇目、仅摘要级的篇目、被截断的正文，全部**显式列出**，
 #   不静默略过。宁可报告看起来「不完整」，也不能让读者以为覆盖了全部。
 #
-# ★ 本脚本**只读本地文件**，不发起任何网络请求。
+# 本脚本**只读本地文件**，不发起任何网络请求。
 #
 # 输入（均在 <WORKDIR>/.work_cdp/interpret/）：
 #   manifest.json      —— interpret_prepare.py 产出（顶层含 interpret_tier）
@@ -32,7 +32,7 @@
 # 与 <WORKDIR>/.work_cdp/prepare_plan.json（档位回退链的第三级）
 #
 # 产出：
-#   <WORKDIR>/<作者名>_论文解读.md          ⭐ 交付物（单一文件，不再写 _完整版 别名）
+#   <WORKDIR>/<作者名>_论文解读.md          交付物（单一文件，不再写 _完整版 别名）
 #
 # 用法：
 #   uv run python interpret_build.py
@@ -51,6 +51,8 @@ import re
 import sys
 from collections import Counter
 
+from logutil import run_root as _run_root  # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
@@ -58,7 +60,7 @@ _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
 INDIR = CDPDIR / "interpret"
 TASKDIR = INDIR / "tasks"
@@ -71,12 +73,19 @@ AFFIL = os.environ.get("PAPER_AFFIL", "").strip()
 PLAN_PATH = CDPDIR / "prepare_plan.json"     # 档位回退链的第三级
 
 # ── 解读档位（interpret_tier）────────────────────────────────
-#   ★ 三档只差**细节量**（L1 ⊂ L2 ⊂ L3），不差语气强度；规范见
+#   三档只差**细节量**（L1 ⊂ L2 ⊂ L3），不差语气强度；规范见
 #     skill：paper-interpretation-writing/references/tier-specs.md。
-#   ★ 档位是**参数**不是闸门：三级都读不到就回退默认 L2，绝不因此中断汇总。
+#   档位是**参数**不是闸门：三级都读不到就回退默认 L2，绝不因此中断汇总。
 TIER_VALUES = ("L1", "L2", "L3")
 DEFAULT_TIER = "L2"
 TIER_LABEL = {"L1": "精简", "L2": "详细", "L3": "完整"}
+
+# 解读引擎（v17）：与 interpret_prepare.py / prepare_stage.py 三处同名同值。
+#   legacy     = 只有 11 字段解读卡（默认；历史报告逐字节不变）
+#   paper-card = 另有 16 节 Paper Card + 结构审计 + 数字回查原文
+ENGINE_VALUES = ("legacy", "paper-card")
+DEFAULT_ENGINE = "legacy"
+ENGINE_LABEL = {"legacy": "原有解读卡", "paper-card": "16 节 Paper Card"}
 
 USAGE = """阶段 H ④：回收解读卡 → 生成《<作者名>_论文解读.md》（只读本地文件，不联网）
 
@@ -100,7 +109,7 @@ USAGE = """阶段 H ④：回收解读卡 → 生成《<作者名>_论文解读.
 
 REQUIRED = ("doi", "one_line", "problem_solved", "methods",
             "verified_conclusions", "key_20", "quantified_gains",
-            "open_questions", "direction_tags", "paradigm_tags")
+            "open_questions", "direction_tags", "paradigm_tags", "evidence")
 
 # 英文停用词（仅用于关键词统计，不参与任何判定）
 STOP = set("""
@@ -150,7 +159,7 @@ def one_line(v) -> str:
 def tokenize(text: str) -> list[str]:
     """英文单词（≥3 字符、含数字、去停用词）+ 中文 2-gram。
 
-    ★ 为什么门槛是 3 而不是 4，且必须允许数字：
+    为什么门槛是 3 而不是 4，且必须允许数字：
       生物医学语料里 **CD8 / CD4 / MYC / BAF / TNF / IPS / CAR / DNA / RNA /
       Th17 / IL17** 全是核心词。旧实现用 `[a-z][a-z\\-]{3,}`（≥4 字符且不含数字），
       把它们**整类丢掉** —— 词族表里 cd8/myc/baf 恒为 0，看起来像「该概念没出现」，
@@ -189,7 +198,7 @@ def resolve_tier(tasks, man) -> tuple[str, str]:
       → prepare_plan.json 的 interpret_tier
       → 默认 L2
 
-    ★ 每一级都做合法性校验而非「有就用」：某一级写了非法值（例如 "L9"）
+    每一级都做合法性校验而非「有就用」：某一级写了非法值（例如 "L9"）
       就继续往下找，最后仍落到默认 L2 并说明一句 —— 档位是参数不是闸门，
       不能因为某个文件写坏了一个字段就让整份报告出不来。
     """
@@ -204,15 +213,73 @@ def resolve_tier(tasks, man) -> tuple[str, str]:
     v = _norm_tier((plan or {}).get("interpret_tier") if isinstance(plan, dict) else None)
     if v:
         return v, "plan"
-    print(f"ℹ 未读到解读档位（任务包 / manifest / {PLAN_PATH} 均无有效 interpret_tier）"
+    print(f"[INFO] 未读到解读档位（任务包 / manifest / {PLAN_PATH} 均无有效 interpret_tier）"
           f"→ 回退**默认 {DEFAULT_TIER}**（{TIER_LABEL[DEFAULT_TIER]}）。", file=sys.stderr)
     return DEFAULT_TIER, "default"
+
+
+def _norm_engine(v):
+    """规范化为 legacy / paper-card；非法返回 None（同 _norm_tier 的取舍）。"""
+    if not isinstance(v, str):
+        return None
+    s = v.strip().lower().replace("_", "-")
+    return s if s in ENGINE_VALUES else None
+
+
+def resolve_engine(tasks, man) -> tuple[str, str]:
+    """返回 (引擎, 来源)。来源 ∈ packet | manifest | plan | default。
+
+    优先级与 resolve_tier 逐级同构：任务包 → manifest → prepare_plan.json → 默认 legacy。
+    引擎只影响报告里**申报什么**（是否需列出 16 节卡与审计状态），
+      不影响 11 字段卡的渲染 —— 所以读不到就静默回退，绝不中断汇总。
+    """
+    for t in tasks:
+        v = _norm_engine((t.get("packet") or {}).get("interpret_engine"))
+        if v:
+            return v, "packet"
+    v = _norm_engine((man or {}).get("interpret_engine"))
+    if v:
+        return v, "manifest"
+    plan = load_json(PLAN_PATH, None)
+    v = _norm_engine((plan or {}).get("interpret_engine") if isinstance(plan, dict) else None)
+    if v:
+        return v, "plan"
+    return DEFAULT_ENGINE, "default"
+
+
+def paper_card_status(tasks) -> list[dict]:
+    """逐篇核对 paper-card 引擎的两份产物是否齐备、审计是否通过。
+
+    为什么要 build 侧来查：subagent 是并行且**可能失败**的。
+      只报「16 节卡产出了」而不报「它的审计没跑 / 没过」，
+      等于把「未验证」当成「已验证」交付 —— 正是本流程一贯拒绝的做法。
+      这里只做**事实申报**，不阻断（阻断在交付前的 nature_bridge.py check）。
+    """
+    rows = []
+    for t in tasks:
+        m = t["meta"]
+        pc = (t.get("packet") or {}).get("paper_card") or {}
+        card = pathlib.Path(pc["card_path"]) if pc.get("card_path") else None
+        audit = (pathlib.Path(pc["audit_report_path"])
+                 if pc.get("audit_report_path") else None)
+        row = {"seq": m.get("seq"), "title": one_line(m.get("title"))[:60],
+               "slug": m.get("slug"), "card": bool(card and card.exists()),
+               "audit": None, "audit_errors": None, "content_errors": None}
+        if audit and audit.exists():
+            rep = load_json(audit, None)
+            if isinstance(rep, dict):
+                summ = rep.get("summary") or {}
+                row["audit"] = summ.get("status")
+                row["audit_errors"] = summ.get("audit_errors")
+                row["content_errors"] = summ.get("content_errors")
+        rows.append(row)
+    return rows
 
 
 def _card_body(L: list, c: dict, oq_head: str = "待验证的问题 / 局限") -> None:
     """L2 档卡片正文（四步格式）。
 
-    ★ 这个函数是**逐字节基线**：L2 调用时不得改动任何一行输出，
+    这个函数是**逐字节基线**：L2 调用时不得改动任何一行输出，
       否则默认档的报告会因本次改动而变化。L3 只通过 `oq_head` 换标题、
       再在末尾追加证据强度提示（见 _card_l3）。
     """
@@ -261,13 +328,13 @@ def _card_body(L: list, c: dict, oq_head: str = "待验证的问题 / 局限") -
 def _card_l1(L: list, c: dict) -> None:
     """L1 精简档：只留「定位 + 问题 + 关键信息 + 关键数字表」。
 
-    ★ L1 的「不含」是**硬约束**（tier-specs.md）：不写误差项、样本量、
+    L1 的「不含」是**硬约束**（tier-specs.md）：不写误差项、样本量、
       **图表引用**、实验步骤、机制链，也不写作者自述局限。
       所以这里的数字表**不带「出处」列** —— 那一列装的正是「图 1a / 表 2」
       这类图表引用，在 L1 属于禁写项。
-    ★ 跳过四节：1. 明确的方法论、2. 经过验证的结论、4. 优化 / 提升数据
+    跳过四节：1. 明确的方法论、2. 经过验证的结论、4. 优化 / 提升数据
       （由下面的关键数字表替代）、待验证的问题 / 局限。
-    ★ quantified_gains 为空时写一句说明，**不留空表** —— 空表会让读者
+    quantified_gains 为空时写一句说明，**不留空表** —— 空表会让读者
       以为「这篇没有数字」，而这可能只是抓取缺失。
     """
     if c.get("one_line"):
@@ -302,10 +369,10 @@ def _card_l1(L: list, c: dict) -> None:
 def _strength_line(c: dict, m: dict) -> str:
     """L3 档卡片末尾的**证据强度**一行。
 
-    ★ 有 strength_notes / evidence 字段就**引用卡里的事实**（那是 subagent
+    有 strength_notes / evidence 字段就**引用卡里的事实**（那是 subagent
       读原文时留下的），不要用本脚本临时编一句话盖过去；
       两者都没有才退回到按 evidence_source 的说明。
-    ★ 原文的自我限定必须跟到解读里（tier-specs.md「常见错误」）：
+    原文的自我限定必须跟到解读里（tier-specs.md「常见错误」）：
       所以仅摘要级的卡片要明确写清「未通读全文」，不能让人当成全文结论。
     """
     notes = as_list(c.get("strength_notes"))
@@ -344,7 +411,7 @@ def main() -> int:
 
     man = load_json(INDIR / "manifest.json")
     if not man:
-        print("✗ 找不到 .work_cdp/interpret/manifest.json")
+        print("[X] 找不到 .work_cdp/interpret/manifest.json")
         print("  请先运行：uv run --with pypdf python 流程1/scripts/interpret_prepare.py")
         return 2
 
@@ -357,7 +424,7 @@ def main() -> int:
         tasks.append({"meta": t, "packet": pkt, "card": card,
                       "result_path": rp})
 
-    # ★ 档位在渲染之前定下来，并随报告开头一起写出去 ——
+    # 档位在渲染之前定下来，并随报告开头一起写出去 ——
     #   读者要能一眼看到「这份报告按哪一档写的」，否则 L1 的省略会被
     #   误读成「这篇论文没有局限/没有方法」。
     tier, tier_src = resolve_tier(tasks, man)
@@ -366,6 +433,11 @@ def main() -> int:
     else:
         tier_qualifier = (f"未读到阶段 0 档位，按默认 {DEFAULT_TIER} 渲染；"
                           f"可在阶段 0 设置 interpret_tier")
+
+    # 引擎同理：报告开头必须写清本轮按哪种形态产出，
+    #   否则读者分不清「没有 16 节卡」是没做还是做了没通过。
+    engine, engine_src = resolve_engine(tasks, man)
+    pc_rows = paper_card_status(tasks) if engine == "paper-card" else []
 
     cards = [t for t in tasks if isinstance(t["card"], dict)]
     missing = [t for t in tasks if not isinstance(t["card"], dict)]
@@ -395,7 +467,7 @@ def main() -> int:
     fam_path = arg("families") or str(CDPDIR / "keyword_families.json")
     families = load_json(fam_path, None)
     fam_rows = []
-    # ★ 词族成员必须是**单个 token**：英文单词（不含空格/连字符以外的短语）或中文词。
+    # 词族成员必须是**单个 token**：英文单词（不含空格/连字符以外的短语）或中文词。
     #   写成 "t cell" / "cell cycle" 这类**短语**永远匹配不到 ——
     #   分词只产出英文单词与中文 2-gram。这类成员会在表里恒显示 0，
     #   让人误以为「该概念没出现」。这里显式检出并剔除，同时在报告里说明。
@@ -439,17 +511,20 @@ def main() -> int:
     L.append(f"# {AUTHOR} 论文解读\n")
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
     L.append(f"> ORCID：{f'https://orcid.org/{ORCID}' if ORCID else '（未提供）'}"
-             f"　｜　共 **{n_all}** 篇　｜　已解读 **{n_card}** 篇")
+             f" ｜ 共 **{n_all}** 篇 ｜ 已解读 **{n_card}** 篇")
     L.append("> 解读方式：并行 subagent 逐篇精读（流程见 "
              "`流程1/subagent-driven-review/SKILL.md`）；"
-             "全文均取自主流程经 CDP 下载的本地 PDF，**全程无网络抓取**。\n")
+             "全文均取自主流程经 CDP 下载的本地 PDF，**全程无网络抓取**。")
+    L.append(f"> 解读引擎：**{engine}**（{ENGINE_LABEL[engine]}，来源：{engine_src}）"
+             + ("；16 节 Paper Card 的产出与审计状态见文末「缺卡清单与后续处理」"
+                if engine == "paper-card" else "") + "\n")
 
     # ── 数据来源与限制（先说清楚，避免读者高估覆盖度）──────────
     L.append("## 〇、数据来源与限制\n")
     L.append(f"- 有全文可精读：**{n_full}** 篇；仅摘要级解读：**{n_all - n_full}** 篇")
     trunc = [t for t in tasks if t["meta"].get("text_truncated")]
     if trunc:
-        # ★ 措辞要与机制一致：任务包**保留开头 60% + 结尾 40%**（结论/局限在结尾），
+        # 措辞要与机制一致：任务包**保留开头 60% + 结尾 40%**（结论/局限在结尾），
         #   被省略的中间段另有 fulltext 可分段补读 —— 所以不能说「解读以截断部分为限」，
         #   那会低报解读的实际覆盖度。这里据实报出「有几篇确认补读了中段」。
         def _supplemented(t):
@@ -462,10 +537,22 @@ def main() -> int:
                  f"中间省略段另存 `.work_cdp/interpret/fulltext/` 供按需补读，"
                  f"其中 **{n_supp} 篇已补读中段**")
     if missing:
-        L.append(f"- ⚠️ **未产出解读卡：{len(missing)} 篇**（详见文末「缺卡清单」）")
+        L.append(f"- [WARN] **未产出解读卡：{len(missing)} 篇**（详见文末「缺卡清单」）")
     if bad:
-        L.append(f"- ⚠️ 解读卡字段不全：{len(bad)} 篇（已在正文中尽量呈现现有字段）")
-    if not (missing or bad or trunc or (n_all - n_full)):
+        L.append(f"- [WARN] 解读卡字段不全：{len(bad)} 篇（已在正文中尽量呈现现有字段）")
+    if engine == "paper-card":
+        n_pc = len([r for r in pc_rows if r["card"]])
+        n_audited = len([r for r in pc_rows if r["audit"]])
+        n_pc_fail = len([r for r in pc_rows
+                         if r["audit"] and r["audit"] != "pass"])
+        L.append(f"- 深读卡（16 节）：已产出 **{n_pc}/{n_all}** 篇 ｜ "
+                 f"已附审计报告 **{n_audited}** 篇"
+                 + (f" ｜ [WARN] 其中 **{n_pc_fail}** 篇审计非 pass" if n_pc_fail else ""))
+        if n_pc < n_all or n_audited < n_all:
+            L.append("- [WARN] **未验证 ≠ 已验证**：缺深读卡或审计报告的篇目，"
+                     "其结论只由 11 字段卡支撑，未经过数字回查原文。逐篇状态见第六节。")
+    if not (missing or bad or trunc or (n_all - n_full)
+            or (engine == "paper-card" and (n_pc < n_all or n_audited < n_all))):
         L.append("- 全部篇目均基于全文完整解读，无缺项。")
     L.append("")
 
@@ -482,17 +569,17 @@ def main() -> int:
         title = one_line(t["meta"].get("title"))[:110]
         line = one_line(c.get("one_line")) or "（未解读）"
         L.append(f"- **[{t['meta'].get('seq')}] {title}**"
-                 + (f"　*{pos}*" if pos else ""))
+                 + (f" *{pos}*" if pos else ""))
         L.append(f"  - {line}")
         for g in as_list(c.get("quantified_gains"))[:2]:
             if isinstance(g, dict) and g.get("value"):
-                L.append(f"  - 📈 {one_line(g.get('metric'))}：{one_line(g.get('value'))}"
+                L.append(f"  - [CHART] {one_line(g.get('metric'))}：{one_line(g.get('value'))}"
                          + (f"（{one_line(g.get('context'))}）" if g.get("context") else ""))
     L.append("")
 
     # ── ② 逐篇解读（四步格式；卡片细节量由档位决定）──────────
     L.append("---\n\n## 二、逐篇解读\n")
-    # ★ 只插入**一行**：末尾不写 "\n"，否则会多出一个空行；
+    # 只插入**一行**：末尾不写 "\n"，否则会多出一个空行；
     #   卡片自身以 "\n### " 开头，正好把它与正文隔开一个空行。
     L.append(f"> 解读档位：**{tier} {TIER_LABEL[tier]}**（{tier_qualifier}）")
     for t in tasks:
@@ -505,18 +592,18 @@ def main() -> int:
             meta_bits.append(f"{pk['pages']} 页")
         if pk.get("my_position"):
             meta_bits.append(pk["my_position"])
-        L.append(f"`DOI: {m.get('doi')}`　｜　" + "　｜　".join(x for x in meta_bits if x))
+        L.append(f"`DOI: {m.get('doi')}` ｜ " + " ｜ ".join(x for x in meta_bits if x))
         src = m.get("evidence_source")
-        L.append(f"　｜　解读依据：**{'全文' if src == 'fulltext' else '仅摘要'}**"
+        L.append(f" ｜ 解读依据：**{'全文' if src == 'fulltext' else '仅摘要'}**"
                  + ("（正文已截断）" if m.get("text_truncated") else "") + "\n")
         if not c:
-            L.append("> ⚠️ 本篇**未产出解读卡**，以下信息取自题录。"
+            L.append("> [WARN] 本篇**未产出解读卡**，以下信息取自题录。"
                      "请按子流程手册 § 5③ 重派 subagent。\n")
             if pk.get("abstract"):
                 L.append(f"**摘要（原文）**：{one_line(pk['abstract'])[:600]}\n")
             continue
 
-        # ★ 分档渲染。L2 是默认档，走 _card_body（与引入档位前逐字节一致）；
+        # 分档渲染。L2 是默认档，走 _card_body（与引入档位前逐字节一致）；
         #   L1 / L3 是新增形态，各自只改自己那一档的输出。
         if tier == "L1":
             _card_l1(L, c)
@@ -538,11 +625,11 @@ def main() -> int:
             mem = "、".join(f"{m}({c})" for m, c in hit) if hit else "（无命中）"
             miss = [m for m, c in members if not c]
             if miss:
-                mem += f"　*未命中：{'、'.join(miss)}*"
+                mem += f" *未命中：{'、'.join(miss)}*"
             L.append(f"| **{label}** | {n} | {mem} |")
         L.append("")
         if bad_members:
-            L.append(f"> ⚠️ 词族表里有 {len(bad_members)} 个**短语型成员**已忽略"
+            L.append(f"> [WARN] 词族表里有 {len(bad_members)} 个**短语型成员**已忽略"
                      f"（分词只产出单个英文词与中文 2-gram，短语永远匹配不到）："
                      f"{'、'.join(sorted(set(bad_members))[:12])}"
                      f"{' …' if len(set(bad_members)) > 12 else ''}")
@@ -602,21 +689,55 @@ def main() -> int:
         L.append("> 处理：按子流程手册 § 5② 重新分派 subagent，"
                  "或回主流程 §4 阶段 E 用 CDP 补下全文后重跑 `interpret_prepare.py`。\n")
 
+    # ── ⑥b 深读卡与审计状态（仅 paper-card 引擎；如实申报，不粉饰）──
+    if engine == "paper-card":
+        L.append("### 深读卡（16 节 Paper Card）与审计状态\n")
+        L.append("> 审计 = 结构合规（节序 / 头部 / 定位模式 / 指针）**加上**"
+                 "数字回查原文（`NUMBER_NOT_IN_SOURCE`）。"
+                 "`未跑` 表示该篇未经数字核验，其数值应视为**未验证**。\n")
+        L.append("| # | 年份 | 题名 | 16 节卡 | 审计状态 | 结构 error | 内容 error |")
+        L.append("|---|---|---|---|---|---|---|")
+        for r in pc_rows:
+            if r["audit"] is None:
+                status = "未跑"
+            elif r["audit"] == "pass":
+                status = "pass"
+            else:
+                status = f"**{r['audit']}**"
+            L.append(f"| {r['seq']} | — | {r['title']} | "
+                     f"{'已产出' if r['card'] else '**[缺]**'} | {status} | "
+                     f"{r['audit_errors'] if r['audit_errors'] is not None else '—'} | "
+                     f"{r['content_errors'] if r['content_errors'] is not None else '—'} |")
+        L.append("")
+        n_pc = len([r for r in pc_rows if r["card"]])
+        n_pass = len([r for r in pc_rows if r["audit"] == "pass"])
+        L.append(f"合计：深读卡 **{n_pc}/{len(pc_rows)}** 篇；审计 pass **{n_pass}** 篇。"
+                 "未 pass 的篇目须修复后重跑 "
+                 "`uv run python 流程1/scripts/nature_bridge.py check …`。\n")
+
     L.append("---\n")
     L.append("*本报告由并行 subagent 逐篇解读后汇总；全文取自经 CDP 下载的本地 PDF，"
              "解读过程未发起任何网络抓取。数值与结论以原文为准。*\n")
 
     body = "\n".join(L)
-    # ★ 单一交付文件。本报告本身就是完整版（含缺卡清单与限制申报，无删减），
+    # 单一交付文件。本报告本身就是完整版（含缺卡清单与限制申报，无删减），
     #   不再另写 `_完整版.md` 别名 —— 两份内容逐字节相同，只会让交付目录
     #   出现两个一样的文件，人工核对时还要先确认哪个是正的。
     p = WD / f"{AUTHOR}_论文解读.md"
     p.write_text(body, encoding="utf-8")
     print("saved:", p)
     print(f"解读档位：{tier}（{TIER_LABEL[tier]}）｜来源：{tier_src}")
+    print(f"解读引擎：{engine}（{ENGINE_LABEL[engine]}）｜来源：{engine_src}")
     print(f"已解读 {n_card}/{n_all} 篇 ｜ 全文级 {n_full} 篇 ｜ 缺卡 {len(missing)} 篇")
+    if engine == "paper-card":
+        n_pc = len([r for r in pc_rows if r["card"]])
+        n_audited = len([r for r in pc_rows if r["audit"]])
+        n_pass = len([r for r in pc_rows if r["audit"] == "pass"])
+        print(f"深读卡 {n_pc}/{n_all} 篇 ｜ 已审计 {n_audited} 篇 ｜ 审计 pass {n_pass} 篇")
+        if n_audited < n_all:
+            print("[WARN] 有篇目未经数字回查原文 —— 已在报告第六节逐篇申报")
     if missing:
-        print("⚠️ 缺卡清单已写入报告第六节")
+        print("[WARN] 缺卡清单已写入报告第六节")
     return 0
 
 

@@ -1,0 +1,111 @@
+{
+  "_readme": "论文解读单元（interpretation unit）—— paper-interpretation-writing 模块的跨 agent 接口。抽一次，三档共用。抽不到的字段一律留 null，绝不用印象补全；解读正文里也不要补。",
+
+  "_how_to_use": {
+    "1_extract": "一个 agent 读论文，填本文件。这一步只做一次，三档共用，也是批量处理时并行 subagent 的产物。",
+    "2_render": "下游按档位消费：L1 只取 findings[].tier == 1 与 headline_numbers[].tier == 1；L2 取 tier <= 2；L3 取全部。",
+    "3_verify": "python scripts/check_interpretation.py 解读.md --tier L1 --source 原文.txt",
+    "4_invariant": "档间一致：L1 的每条事实都要能在 L3 里找到，且措辞与 strength 一致。递增的是细节量，不是断言强度。"
+  },
+
+  "paper": {
+    "title_en": null,
+    "title_cn": null,
+    "journal": null,
+    "year": null,
+    "volume": null,
+    "article": null,
+    "doi": null,
+    "published_date": null,
+    "_published_date_note": "原文未载明具体发表日期时留 null。解读里也不写日期，不要推断，不要用接收日期替代发表日期。"
+  },
+
+  "authors": {
+    "first": [],
+    "corresponding": [],
+    "affiliations": []
+  },
+
+  "evidence": {
+    "source": "fulltext",
+    "_source_allowed": ["fulltext", "abstract", "metadata-only"],
+    "text_chars": null,
+    "truncated": false,
+    "figures_seen": false,
+    "_note": "source 为 abstract 时，任何档位都只能写摘要能支撑的内容，并在解读末尾如实标注证据层级。"
+  },
+
+  "gap": {
+    "known_base": null,
+    "attempts_and_why_they_failed": null,
+    "name_the_hole": null,
+    "_name_the_hole_note": "收束段第一落点用：缺的是哪一类证据、洞落在哪个机制上。写成「长期缺乏【某类证据】的【某个机制】」这种可具名的形式，不要写「具有重要意义」。"
+  },
+
+  "approach": {
+    "text": null,
+    "core_methods": [],
+    "_core_methods_note": "只列解读里会点名的方法，按中心性排序。L1 只用第 1 个。"
+  },
+
+  "mechanism": null,
+
+  "exclusions": [
+    {
+      "text": null,
+      "rules_out": null,
+      "source": null,
+      "_note": "排除性证据：对照实验、独立性验证、阴性结果。L1 不写，L2/L3 必写。这是解读区别于摘要复述的关键。"
+    }
+  ],
+
+  "findings": [
+    {
+      "id": "F1",
+      "text": null,
+      "numbers": [],
+      "tier": 1,
+      "strength": "L1",
+      "evidence": null,
+      "_tier_meaning": "1 = 够格进 L1（核心成就）；2 = 进 L2；3 = 仅进 L3。归属性标注，不是重要度评分。",
+      "_strength_allowed": ["L1", "L2", "L3"],
+      "_strength_note": "L1 强=证明/证实/确定/鉴定出/揭示；L2 中=表明/显示/说明；L3 弱=提示/可能/潜在。必须与原文动词同级。"
+    }
+  ],
+
+  "headline_numbers": [
+    {
+      "value": null,
+      "what": null,
+      "context": null,
+      "tier": 1,
+      "_note": "逐字照抄原文，含单位与有效数字。不得换算、不得四舍五入、不得概数化。"
+    }
+  ],
+
+  "significance": {
+    "gap_filled": null,
+    "cognitive": null,
+    "application": null,
+    "_note": "三落点：补缺口 / 拓认知（为理解…提供新视角）/ 给出口（为…提供潜在新靶点）。L1 只保留一句弱语气展望。"
+  },
+
+  "open_questions": [
+    {
+      "text": null,
+      "tier": 2,
+      "_note": "含作者自述局限、未做的实验、并列未区分的机制、阴性结果的含义。"
+    }
+  ],
+
+  "strength_notes": {
+    "author_hedging": [],
+    "interpretation_ceiling": null,
+    "_note": "author_hedging 抄下原文的弱语气用词（suggest / may have been / we propose 等）。interpretation_ceiling 写明解读的断言上限，L3 需在结尾明示。"
+  },
+
+  "tags": {
+    "direction": [],
+    "paradigm": []
+  }
+}

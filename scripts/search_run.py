@@ -29,6 +29,8 @@ import subprocess
 import sys
 import time
 
+from logutil import run_root as _run_root  # noqa: E402
+
 # ── UTF-8 兜底 ──
 
 
@@ -69,12 +71,12 @@ except Exception:
         pass
 
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 # paginate.py 的位置：工作文件夹下的既有 skill
 PAGINATE = WD / "skills" / "paper-lookup" / "scripts" / "paginate.py"
 
-# ★ paginate.py 实际支持的源（实测 --list-apis）：
+# paginate.py 实际支持的源（实测 --list-apis）：
 #     biorxiv / crossref / europepmc / medrxiv / openalex
 #   **不含 arxiv** —— arXiv 要用 skills/paper-lookup/scripts/arxiv_atom.py
 #   对**已下载的 Atom XML** 做解析；即取数需另走 HTTP。
@@ -103,7 +105,7 @@ _failures: list[dict] = []
 def _enc(s: str) -> str:
     """把参数值编码进 URL。
 
-    ★ 为什么必须编码：paginate.py 把 --query **原样拼进 URL**，不做转义。
+    为什么必须编码：paginate.py 把 --query **原样拼进 URL**，不做转义。
       实测 `search="tumor immune microenvironment"` 会抛
         http.client.InvalidURL: URL can't contain control characters（空格）
       —— openalex/crossref 因此直接 exit 1、整个源静默失败。
@@ -121,11 +123,11 @@ def _enc(s: str) -> str:
 def build_source_query(src: str, q: dict) -> str:
     """把计划里的抽象检索式，翻译成**该源真正接受的 query 参数**。
 
-    ★ 为什么必须分开翻译：paginate.py 的 --query 对各源含义完全不同
+    为什么必须分开翻译：paginate.py 的 --query 对各源含义完全不同
       （europepmc 收检索语法、openalex/crossref 收原始参数串、
       biorxiv/medrxiv 只收日期区间）。用同一条字符串喂所有源必然失败。
 
-    ★ 另一条硬约束：paginate.py **不做 URL 编码**，含空格的查询会直接
+    另一条硬约束：paginate.py **不做 URL 编码**，含空格的查询会直接
       抛 InvalidURL 让整个源失败（实测 openalex/crossref 都栽在这里）。
       因此 openalex/crossref 的**参数值必须先把空格换成 +**。
     """
@@ -174,7 +176,7 @@ def build_source_query(src: str, q: dict) -> str:
             parts.append("(OPEN_ACCESS:y)")
         return " AND ".join(f"({p})" for p in parts) if parts else "*"
 
-    # ★ openalex/crossref 的 search/query 参数**不接受布尔语法**，
+    # openalex/crossref 的 search/query 参数**不接受布尔语法**，
     #   把 AND/OR/引号原样塞进去会查不到东西。退化成词袋更可靠。
     def _bag(s: str) -> str:
         s = re.sub(r'["()]', " ", s or "")
@@ -183,7 +185,7 @@ def build_source_query(src: str, q: dict) -> str:
 
     if src == "openalex":
         # OpenAlex 参数串：filter=...&search=...
-        # ★ 值里的空格必须换成 +（paginate 不编码，含空格会 InvalidURL）
+        # 值里的空格必须换成 +（paginate 不编码，含空格会 InvalidURL）
         filters = []
         if y_from:
             filters.append(f"from_publication_date:{y_from}-01-01")
@@ -221,7 +223,7 @@ def build_source_query(src: str, q: dict) -> str:
 def _run_source(q: dict, timeout: int = 240) -> list[dict] | None:
     """对单个源跑一次检索。返回记录列表；失败返回 None 并登记原因。
 
-    ★ 关键设计：**一个源失败不影响其他源**（graceful degradation）。
+    关键设计：**一个源失败不影响其他源**（graceful degradation）。
       参考包 bibliography_agent 明确要求"一次瞬时失败只该丢掉该源的结果，
       不该中止整次检索"。
     """
@@ -281,7 +283,7 @@ def _run_source(q: dict, timeout: int = 240) -> list[dict] | None:
 def _as_text(v) -> str:
     """把任意形状的字段值收敛成字符串。
 
-    ★ 为什么需要：三个源的字段类型**完全不同**（实测）——
+    为什么需要：三个源的字段类型**完全不同**（实测）——
         europepmc  title=str   doi=str        pubYear=str
         openalex   title=str   doi=完整URL     publication_year=int
         crossref   title=**list**  DOI=大写键  issued/published=dict
@@ -312,7 +314,7 @@ def _as_text(v) -> str:
 def _unescape(s: str) -> str:
     """还原 HTML/XML 实体并去标签。
 
-    ★ Europe PMC 与 Crossref 会返回转义文本（`&lt;i&gt;`）或内嵌 JATS 标签
+    Europe PMC 与 Crossref 会返回转义文本（`&lt;i&gt;`）或内嵌 JATS 标签
       （`<jats:p>`）。不处理会一路带进报告，用户直接看到噪声（实测出现过）。
     """
     import html as _h
@@ -344,7 +346,7 @@ def _reconstruct_abstract(v) -> str:
 def _norm_title(t: str) -> str:
     """题名归一化，用于去重（在**已归一化**的字符串上调用）。
 
-    ★ 归一化规则（保守，避免把不同论文误判为重复）：
+    归一化规则（保守，避免把不同论文误判为重复）：
       转小写 → 去所有非字母数字字符。
       不按副标题切分，因为同名不同副标题常是不同论文。
     """
@@ -368,7 +370,7 @@ def _is_review(type_str: str) -> bool:
 def normalize_record(rec: dict, src: str) -> dict:
     """把**源原生记录**归一成统一形状。
 
-    ★ 这是本脚本最关键的一层：没有它，去重、筛选、统计都要为每个源
+    这是本脚本最关键的一层：没有它，去重、筛选、统计都要为每个源
       各写一套分支，且极易因字段类型差异崩溃（实测因 crossref 的
       title 是 list 而整套流程 exit 1）。
     """
@@ -512,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
     if not pp.is_absolute():
         pp = WD / pp
     if not pp.exists():
-        raise SystemExit(f"✗ 找不到检索计划 {pp}；先跑 search_plan.py")
+        raise SystemExit(f"[X] 找不到检索计划 {pp}；先跑 search_plan.py")
     plan = json.loads(pp.read_text(encoding="utf-8"))
 
     d = pathlib.Path(args.out) if args.out else pp.parent
@@ -530,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         q["_user_input"] = ui          # 供 build_source_query 翻译用
         queries.append(q)
     if not queries:
-        raise SystemExit("✗ 没有要执行的查询（检查 --sources）")
+        raise SystemExit("[X] 没有要执行的查询（检查 --sources）")
 
     log.info(f"开始检索：{len(queries)} 个源，每源最多 "
              f"{queries[0].get('max_records')} 条")
@@ -583,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
             "status": "ok",
             "expected_total": recon.get("expected_total"),
             "complete": recon.get("complete"),
-            # ★ 记录**真正发给该 API 的查询串**（不是计划里的抽象式）。
+            # 记录**真正发给该 API 的查询串**（不是计划里的抽象式）。
             #   各源 query 格式完全不同，报告里必须显示实际值才有可复现性。
             "actual_query": build_source_query(src, q),
         }
@@ -609,7 +611,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── 控制台摘要 ──
     print()
     print("═" * 68)
-    print("✓ 检索完成")
+    print("[OK] 检索完成")
     print("═" * 68)
     print(f"  {'数据源':<14}{'取回':>6}{'该库命中总数':>14}{'完整性':>10}")
     print("  " + "-" * 46)
@@ -624,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
           f"（合并重复 {dstats['merged']}）")
     if _failures:
         print()
-        print("  ⚠ 失败的源（其余源的结果仍然可用）：")
+        print("  [WARN] 失败的源（其余源的结果仍然可用）：")
         for f in _failures:
             print(f"    · {f['source']}：{f['reason']}")
     print()

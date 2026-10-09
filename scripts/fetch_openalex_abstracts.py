@@ -8,7 +8,9 @@
 import os, pathlib, sys, json, io, urllib.request, urllib.parse, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR", os.getcwd())).resolve()
+from logutil import run_root as _run_root  # noqa: E402
+
+WORKDIR = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WORKDIR / ".work_cdp"
 CDPDIR.mkdir(parents=True, exist_ok=True)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -62,7 +64,7 @@ with ThreadPoolExecutor(max_workers=8) as ex:
         r = f.result()
         results[r["doi"]] = r
 
-# ★ v7.1：先读回本文件里已有的结果，避免**覆盖别的源**。
+# v7.1：先读回本文件里已有的结果，避免**覆盖别的源**。
 #   起因：fetch_direct.py（第一层：S2 / Europe PMC / Crossref / PubMed / OpenAlex）
 #   与本脚本写同一个产物文件。若本脚本无条件重写，用户先跑 fetch_direct 再跑本脚本时，
 #   非 OpenAlex 的命中会被**静默抹掉** —— 表现为"摘要覆盖率莫名下降"。

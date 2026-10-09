@@ -9,7 +9,8 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 > **本文件夹（`流程1/`）中的流程即为权威流程。执行本任务时必须遵守：**
 >
 > 1. **使用本流程** —— 依 `流程1/SKILL.md`（主流程）与各子流程
->    （`subagent-driven-review/SKILL.md` 阶段 H/H2、`ppt-integration/SKILL.md` 阶段 P）逐步执行，
+>    （`subagent-driven-review/SKILL.md` 阶段 H/H2、`ppt-integration/SKILL.md` 阶段 P、
+>    `paper-card-integration/SKILL.md` 阶段 H 的 paper-card 引擎）逐步执行，
 >    按 §4 的阶段推进，不跳步：
 >
 >    ```
@@ -1227,9 +1228,10 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 | 7  | **是否执行本科科研辅助前置链路**（阶段 N / S / R / R2）？   | 是 / 否                           | **是**     |
 | 8  | **论文解读档位**（阶段 H，作者本人的论文）                  | `L1` / `L2` / `L3`          | **`L2`** |
 | 9  | **综述解读档位**（阶段 H2 研究方向综述 / 阶段 R2 领域概貌） | `L1` / `L2` / `L3`          | **`L3`** |
-| 10 | 是否输出「有代表性文献」的参考文献列表（GB/T 7714）？             | 是 / 否                           | 是               |
-| 11 | 是否对反向查得的文献做去重与相关性整理，并据此产出 review？       | 是 / 否                           | 是               |
-| 12 | PPT 目标页数（简化 Strategist 用，无需再交互）                    | `short`/`standard`/`long`   | `standard`     |
+| 10 | **论文解读引擎**（阶段 H）：原有解读卡 / 额外产出 16 节深读卡？     | `legacy` / `paper-card`     | **`legacy`** |
+| 11 | 是否输出「有代表性文献」的参考文献列表（GB/T 7714）？             | 是 / 否                           | 是               |
+| 12 | 是否对反向查得的文献做去重与相关性整理，并据此产出 review？       | 是 / 否                           | 是               |
+| 13 | PPT 目标页数（简化 Strategist 用，无需再交互）                    | `short`/`standard`/`long`   | `standard`     |
 
 > ### 为什么档位也要在阶段 0 问
 >
@@ -1249,13 +1251,32 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 > - 两个档位是**参数不是开关**（不控制任何阶段是否执行），
 >   所以用 `--tier` 查询、用 `--set` 修改。
 
+> ### 为什么「解读引擎」也要在阶段 0 问
+>
+> 引擎与档位同级：它也**只影响阶段 H 写多深、多贵**，不影响任何阶段是否执行。
+>
+> - **默认 `interpret_engine=legacy`**：每篇只产出既有 11 字段解读卡，
+>   下游（《论文解读》汇总 / PPT / 知识图谱）零改动。
+> - `interpret_engine=paper-card`：在原有卡之外**额外**产出 16 节 Paper Card
+>   （已并入的 `nature-paper-card`，**流程内，无外部依赖**），
+>   把图表清单、三态来源定位、五类溯源标签，以及「作者自述局限」与
+>   「Agent 批判」分列带进阶段 H；交付前强制跑**结构审计 + 数字回查原文**。
+> - [STOP] **只增不减**：11 字段卡照旧产出，所以引擎切换**不需要改动任何下游脚本**，
+>   也让两种引擎共用同一批 `tasks/` `results/` 命名（历史卡不会错位）。
+> - [WARN] **代价**：每篇 subagent 的工作量约增一倍（多写 16 节 + 跑质量门）。
+>   适合代表作精读、组会材料、进组前深读；批量速览仍建议 `legacy`。
+> - 引擎也是**参数不是开关**，所以用 `--engine` 查询、用 `--set` 修改。
+> - 接线权威（产出契约、质量门、本地补丁登记）见
+>   `流程1/paper-card-integration/SKILL.md`。
+
 ```bash
 # 收齐答案后一条命令落盘（非交互）
 uv run python 流程1/scripts/prepare_stage.py \
     --set output_format=both --set translate=yes --set reverse_refs=yes \
     --set make_ppt=yes --set refs_bibliography=yes --set curate_review=yes \
     --set ppt_pages=standard \
-    --set interpret_tier=L2 --set review_interpret_tier=L3
+    --set interpret_tier=L2 --set review_interpret_tier=L3 \
+    --set interpret_engine=legacy      # 想要 16 节深读卡就改成 paper-card
 
 # 全默认（保守：只出 Markdown，不翻译、不做 PPT，但做综述网络）
 uv run python 流程1/scripts/prepare_stage.py --defaults
@@ -1271,6 +1292,9 @@ uv run python 流程1/scripts/prepare_stage.py --check translate
 uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
 uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
 uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
+
+# 引擎查询：stdout **只有** legacy|paper-card，便于 E=$(… --engine H) 捕获
+uv run python 流程1/scripts/prepare_stage.py --engine H    # 默认 legacy
 
 # 门控齐全性自检（每个阶段都有标签、每个闸门都指向真实阶段）
 uv run python 流程1/scripts/prepare_stage.py --audit
@@ -1826,6 +1850,47 @@ uv run python 流程1/scripts/refs_bibliography.py
 > 查询：`uv run python 流程1/scripts/prepare_stage.py --tier H`
 > 规范：skill `paper-interpretation-writing`（档位规范 / 句式库 / 数据契约 / 离线校验器）
 
+> ### 解读引擎（本阶段默认 **legacy**）：要不要额外产出 16 节深读卡
+>
+> 引擎同样由**阶段 0 确认**，落盘 `interpret_engine`：
+>
+> | 引擎 | 本阶段产出 | 何时用 |
+> | --- | --- | --- |
+> | **legacy（默认）** | 只有 11 字段 JSON 解读卡 | 批量速览、《论文解读》汇总、PPT、知识图谱 |
+> | paper-card | **额外**产出 16 节 Paper Card + 审计证据 | 代表作精读、组会材料、进组前深读 |
+>
+> [STOP] **只增不减**：`paper-card` 引擎下 11 字段卡**照旧产出** ——
+> `interpret_build.py` / `ppt_brief.py` / `knowledge_graph.py` 只认它。
+> 因此切换引擎**不需要改动任何下游脚本**，两种引擎也共用同一批
+> `tasks/` `results/` 命名（历史卡不会错位）。
+>
+> [WARN] **必须两样都写**：只交 16 节卡而不写 11 字段 JSON 卡，
+> `interpret_build.py` 会把该篇算作**缺卡**，并行 subagent 的劳动成果作废。
+> 16 节卡一律落 `interpret/paper_cards/<slug>.md`，**不得**写进 `results/`
+> （那是 11 字段 JSON 的专用位置，混入 Markdown 会让下游按文件名取卡时读崩）。
+>
+> **交付质量门（两半，缺一不可）**，每篇都必须跑：
+>
+> ```bash
+> uv run python 流程1/scripts/nature_bridge.py check \
+>   --card  "$PAPER_WORKDIR/.work_cdp/interpret/paper_cards/<slug>.md" \
+>   --bundle "$PAPER_WORKDIR/.work_cdp/interpret/paper_cards/<slug>.source_bundle.json" \
+>   --locator-mode <source_bundle 里的 recommended_locator_mode> \
+>   --report "$PAPER_WORKDIR/.work_cdp/interpret/paper_cards/<slug>.audit.json"
+> ```
+>
+> - **结构审计**（节序 / 头部 / 定位模式 / 指针 / 节正文非空 / 图表清单覆盖）；
+> - **内容级校验**：逐个数字**回查原文**（`NUMBER_NOT_IN_SOURCE`）——
+>   这一半是内置审计器**做不到**的。实测：一张 03–15 节正文全空、只有 1 条指针的卡
+>   能拿到 `pass (13 passes, 0 errors)`、退出码 0，所以**结构合规 ≠ 内容可信**。
+> - 退出码非 0 即为 error，必须修复后重跑。
+>
+> 接线权威（产出契约、质量门定义、上游补丁登记、常见错误）见
+> **`流程1/paper-card-integration/SKILL.md`**；
+> 提示词模板见 `subagent-driven-review/SKILL.md` § 7.3。
+> 自检：`uv run python 流程1/scripts/nature_bridge.py --self-test` 与
+> `uv run python 流程1/scripts/selftest_nature_integration.py`。
+
 **两步命令**：
 
 ```bash
@@ -2056,13 +2121,21 @@ uv run python 流程1/scripts/refs_build.py
 > 三张图都要吃「最终」产物 —— 解读卡、综述终表、review 结果；
 > 早画出来的图，等后面补了数据就全过期了。
 
+> **依赖（硬依赖）**：本阶段需要 `matplotlib` / `networkx` / **`python-igraph`** /
+> **`adjustText`** / **`wordcloud`**。缺任何一个都**直接退出码 2**并打印完整命令 ——
+> **不产出降级图、不留半成品**。
+> （`python-igraph` 自带全部布局算法，**不需要系统安装 Graphviz**；实测本机没有 `dot` 二进制。
+> `wordcloud` 只在默认的 `--wc-engine=library` 下需要。）
+
 ```bash
-uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py
+uv run --with matplotlib --with networkx --with python-igraph --with adjustText \
+       --with wordcloud python 流程1/scripts/knowledge_graph.py
 #    --format=auto（默认，SVG 优先、失败退 PNG）｜ --also-png 两种都要
 #    --recent-years=3     方向聚类的「近 N 年」
 #    --max-reviews=3      每个方向下最多挂几篇综述
 #    --max-dirs=12 / --max-review-nodes=24   图上方向/综述节点的上限
 #    --dpi=300            PNG 回退时的分辨率
+#    --wc-engine=library|custom  词云布局引擎（默认 library＝wordcloud 库占位检测）
 #    --wc-lang=both|zh|en 词云语言口径（默认 both；只要中文用 zh）
 #    --wc-min-docs=3      **只来自方法描述**的词至少要出现在几篇论文里
 #    --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
@@ -2073,9 +2146,31 @@ uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.
 
 | #  | 图                 | 内容                                                                                                                                                                                                                                                                                                   |
 | -- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ① | **overview** | 以作者为中心；**阶段 → 研究方向 → 该方向最紧密的综述**（取自 `refs/final_list.json` 的最终 review 列表）；**Louvain 社区检测**按主题聚类上色；两条方法关系紧密时连一条**记忆连接**（有名字 + 一句原因）。**16:10 画幅、标题为「<作者名> 研究工作图谱」**」、无灰色副标题） |
+| ① | **overview** | **径向整齐树**：作者在圆心 → 阶段（扇区）→ 研究方向 → 该方向最紧密的综述（橙点编号，完整题名在右侧清单）；**Louvain 社区**给方向层上色；方法词另置**外环**，两条方法关系紧密时沿环画一条**记忆连接**（有名字 + 一句由数据生成的原因）。**16:10 画幅、标题为「<作者名> 研究工作图谱」** |
 | ② | **词云**     | 以作者为中心；**颜色区分研究方向**；**取词按「文章关键词 > 题名 > 摘要 > 解读卡方法描述」加权**，并剔除单位/试剂缩写、受控范式标签与跨词碎片（见下）                                                                                                                                                  |
-| ③ | **方向聚类** | 每个方向**近 N 年**的论文与热点                                                                                                                                                                                                                                                                  |
+| ③ | **方向聚类** | **时间线**：行 = 方向（行标签带近 N 年条数），x = 年份，点大小 = 被引，颜色 = 热点簇（样本不足的行不着色）。每个方向**近 N 年**的论文与热点                                                                                                                                                                                                                                                                 |
+
+**overview 结构（v16.3 重写）**
+
+| 环节 | 做法 |
+| --- | --- |
+| **层级位置** | 交给 `igraph.layout_reingold_tilford_circular`（径向整齐树）：根在圆心、每层等半径、子树扇区连续且宽度∝叶子数。**不再手搓角度** |
+| **标签避让** | 交给 `adjustText`，且**只移文字、不动节点**，带引线。旧版把两件事混在一起（推节点躲标签），结果径向层级被推没了 —— 渲染出来综述挤成左侧一团、方法漂到外圈 |
+| **节点 vs 标签** | 节点画成**小圆点**，标签是可移动文字。旧版把标签做成药丸状节点本身，标签一动节点就动，避让无从谈起 |
+| **综述题名** | 左图只放**编号**，完整题名进**右侧清单**（两栏）。旧版把题名截到 34 字符上云，实测 24 条里 23 条被截成「…」，整层不可读 |
+| **方法层取词** | 与词云**同一套筛选**（邻接熵 + 单位/标签/泛化词剔除）。旧版直接 `tokenize()`，实测 40 个方法节点里 11 个是垃圾（`经元`/`鼠海`/`养基`/`谷氨`/`马神`/`氨酸`/`div`/`min`/`e18`/`kcl`/`student`） |
+| **记忆连接判据** | ① 禁「子串对」（`神经`↔`经元` 这类**词与自己的子串**配对）；② 共现 ≥3 篇；③ 按 **lift**（相对共现强度）排序，不是按原始共现次数；④ 单节点出度 ≤3、最多 8 条；⑤ 原因**逐条由数据生成**（共现篇数 + 年份跨度 + 方向分布），不再是同一句套话 |
+| **记忆连接弧线** | **沿外环画短弧**，不画弦 —— 弦会穿过圆心压在树上（实测上一版 8 条弧全部横穿画面）。环序用**一维谱排序**（Fiedler 向量）让相连的方法相邻 |
+| **坐标落盘** | 节点坐标写进 `graph_data.json` 的 `overview_layout.pos`，布局**可事后审计**（旧版位置不落盘，"扇区式布局"被破坏了很久都没人发现） |
+
+**方向聚类结构（v16.3 重写）**
+
+旧版是「x=方向、y=年份」的散点 + 右侧冗余条形面板。实测两个硬伤：
+x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠固定 9 pt 错开；
+右侧条形把"方向"编码在 y 轴上（散点却在 x 轴），两 panel 语义不一致且与 x 刻度里
+已有的"(13 条)"重复。新版改为 **CiteSpace 式 timeline view**（行=方向、x=年份），
+标签用 `adjustText` 避让并带引线；**热点簇只在 ≥4 篇时才着色** ——
+实测 1 篇论文也会被算出"热点簇"，那种着色是噪声，样本不足的行一律灰色并明写原因。
 
 **词云取词口径**
 
@@ -2090,6 +2185,11 @@ uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.
 | **受控范式标签** | `paradigm_tags` **不切词上云**（`experimental / mechanistic / imaging …` 是 15 个固定标签，换谁都能打），改为单独统计并写进图注与报告 |
 | **泛化词表** | 中文 `GENERIC_ZH`（`定量 参数 用于 时间 像素 计数 …`）+ 虚词边界规则（不成词的首/尾虚字）+ 泛化词头规则（`比较用` 类碎片） |
 | **孤词门** | **只来自方法描述**的词，至少要出现在 `--wc-min-docs`（默认 3）篇论文里；关键词/题名来源不受此限。一个只在一篇里出现的方法词，不构成这位作者的方法学特征 |
+| **布局引擎** | 默认 `--wc-engine=library`：用 **`wordcloud`（amueller）的积分图占位检测**算每个词的 `(词, 字号px, 位置, 颜色)`，**再用 matplotlib 复刻绘制**。只借它算布局、不借它出图 —— 因为它只画词、没有标题/副标题/方向图例，而这三样是图件契约。这样标题、图例、矢量 SVG、字号自述、碰撞自检**全部保留**，且只有一条出图路径 |
+| **复刻的两个硬条件** | ① **两边绑同一个字体文件**（`FontProperties(fname=…)` + 库的 `font_path`）：`.ttc` 集合里 matplotlib 可能选到与库不同的 face（实测库用 `msyh.ttc` 常规体、matplotlib 拿到 `msyhl.ttc` 细体），字形宽度不同 → 复刻后墨迹框重叠 **41 对/90 词**；绑定后降到个位数。② **axes 物理纵横比必须等于布局画布比例**（1500:1100），否则纵向压缩、词会挤在一起 |
+| **坐标语义** | `layout_` 存的是 **(y, x)**（库的 `to_image` 里写的是 `pos = (position[1], position[0])`）。按 `(x, y)` 用会得到完全错乱的图 —— 实测与库自身渲染的 IoU 只有 0.033 |
+| **放置口径** | 报告与图注分开报三个数：**候选词型数** / **按权重取前 N 个** / **实际放下几个**。未放下的词带名字列出（`graph_data.json` 全量、报告前 10 个）。旧写法把"候选数"当分母会误导 |
+| **复刻自检** | 每次出图都用 PIL 量一遍词的墨迹框，报出重叠对数；> 个位数说明映射出了问题。`random_state=42` 固定，布局可复现（自检 ⑭ 断言） |
 
 > **注意**：词云的分词口径与「图谱节点 / 方向画像」**刻意不同**。
 > 后者沿用 `tokenize()` 的中文 2-gram（与 `interpret_build.py` 同口径，改它会漂移方向画像与冲突检出）。
@@ -2110,8 +2210,13 @@ uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.
   与演示版面同比例，整幅铺放不出现上下黑边、也不用再被裁。
   该图**按画布原尺寸导出**（`save_fig(..., tight=False)`），
   **所有文字都必须画在画布内**，画到画布外会被直接裁掉。
-- **高分辨率**（标准 = 清晰展示所有字符）——词云用**确定性螺旋 + 矩形碰撞检测**逐词试位，
-  不靠固定步长硬摆（实测不避让时 `photocatalytic/labeling`、`porous/mof` 会叠死）。
+- **产出尺寸 = 声明画布**：三张图都按画布原始尺寸导出（`save_fig(..., tight=False)`），
+  不收起 tight bbox —— 否则产物宽度会与 `note_fonts` 的声明不一致，
+  「字号自述」的换算基准就错了（实测词云曾被裁成 3750 px 宽，而声明是 4500 px）。
+  代价是**所有文字必须画在画布之内**，画到画布外会被裁掉。
+- **高分辨率**（标准 = 清晰展示所有字符）——词云布局交给 `wordcloud` 的占位检测，
+  长词/英文词的贴合按**真实字形**计算（自研版是按"CJK≈1.0 / ASCII≈0.55 字号"估的，
+  估偏了就会压字）。
 - **背景透明**（`transparent=True`）。
 - 中文字体自动探测（Microsoft YaHei / SimHei / Noto Sans CJK …）。
 - **字号自述**：三张图都在 `graph_data.json` 的 `figure_notes` 里记录画布尺寸与全部字号，
@@ -2120,17 +2225,21 @@ uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.
   **要放进论文/报告排版才必须放大字号或缩小画布**。
   起因：方向聚类图在 17 in 画布上用 6 pt 标注，缩到 183 mm 只剩 2.54 pt，此前没有任何一步会发现。
 
-**产出**：`<作者名>_知识图谱.md`（含三张图的说明、聚类解读、记忆连接表、
-冲突线索表、**词云取词口径与逐篇关键词采纳情况**、**被剔除的词**、方向热点、**字号自述**）
-+ `.work_cdp/graph/*.svg|png` + `graph_data.json`（含 `wordcloud.stats` 与 `figure_notes`）。
+**产出**：`<作者名>_知识图谱.md`（含三张图的说明、**overview 布局与阶段扇区自述**、
+聚类解读、记忆连接表、冲突线索表、**词云取词口径与逐篇关键词采纳情况**、
+**被剔除的词**、方向热点、**字号自述**）
++ `.work_cdp/graph/*.svg|png` + `graph_data.json`
+（含 `wordcloud.stats`、`figure_notes` 与 **`overview_layout`** —— 节点坐标与布局元信息）。
 
-> **诚实性约束**：挂不上方向的综述、放不下的低频词、不足 N 年的方向样本 ——
-> 全部**显式报出数量**，不静默丢弃；`--max-dirs` / `--max-review-nodes` 截断了多少
-> 也会打印；词云的关键词覆盖率、被剔词型与剔除原因逐条落盘。完整清单始终在
-> 《研究方向综述》里，图上只是节选。
+> **诚实性约束**：挂不上方向的综述、放不下的低频词、不足 N 年的方向样本、
+> 样本不足而不做热点簇着色的方向 —— 全部**显式报出数量或名字**，不静默丢弃；
+> `--max-dirs` / `--max-review-nodes` 截断了多少也会打印；词云的关键词覆盖率、
+> 被剔词型与剔除原因逐条落盘；右侧综述清单放不下时会写"余 N 条见报告"。
+> 完整清单始终在《研究方向综述》里，图上只是节选。
 
 > **确定性**：方向聚类的散点横向抖动用 **CRC32**（原用 `hash()`，而 Python 对 str 的
-> 哈希默认按进程随机化 → 同一份数据每次跑出来的图都不一样）；Louvain 固定 `seed=42`。
+> 哈希默认按进程随机化 → 同一份数据每次跑出来的图都不一样）；Louvain 固定 `seed=42`；
+> 径向整齐树、谱排序与 `adjustText` 都不含随机数。
 > 阶段 K 的产出应当逐字节可复现。
 
 ---
@@ -2649,11 +2758,15 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | 脚本                               | 功能                                                                                                                                                                                                                             | 用法                                                                                             |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | **`scope.py`**             | [**]**同名消歧结果的唯一读取入口** —— 把 `disambiguated.json` 归结为「非本人排除名单」，**下载侧与著录侧共用**。只排除**肯定性判定**（`name-mismatch`/`affil-mismatch`），**数据缺失类一律保留** | `from scope import excluded_dois, summary`                                                     |
-| **`interpret_prepare.py`** | **阶段 H ①**：组装**自包含**单篇任务包（题录 + 摘要 + 带 `[p.N]` 页标记的正文），供 subagent 直接精读；**不联网**（全文取自本地 PDF）                                                                       | `uv run --with pypdf python interpret_prepare.py [--max-chars=60000] [--no-text] [--only=DOI]` |
-| **`interpret_build.py`**   | **阶段 H ④**：回收 `results/*.json` → 《`<作者名>_论文解读.md`》（时间线 / 逐篇四步 / 关键词统计 / 研究方向 / 方法范式 / **缺卡清单**）                                                                        | `uv run python interpret_build.py [--families=<词族表.json>]`                                  |
+| **`interpret_prepare.py`** | **阶段 H ①**：组装**自包含**单篇任务包（题录 + 摘要 + 带 `[p.N]` 页标记的正文），供 subagent 直接精读；**不联网**（全文取自本地 PDF）。`--engine=paper-card` 时额外下发 16 节深读卡的产出契约与全部脚本路径                                                      | `uv run --with pypdf python interpret_prepare.py [--engine=legacy\|paper-card] [--max-chars=60000] [--no-text] [--only=DOI]` |
+| **`interpret_build.py`**   | **阶段 H ④**：回收 `results/*.json` → 《`<作者名>_论文解读.md`》（时间线 / 逐篇四步 / 关键词统计 / 研究方向 / 方法范式 / **缺卡清单**）。`paper-card` 引擎下另申报引擎与逐篇「深读卡 + 审计状态」                                                                        | `uv run python interpret_build.py [--families=<词族表.json>]`                                  |
+| **`nature_bridge.py`**     | [**]**阶段 H 的 paper-card 引擎适配层（唯一入口）**：路径解析（**只认流程内已并入的 `vendor/nature-paper-card`**）+ 结构审计 + **内容级校验（数字回查原文）**，`check` 子命令把后两者合为一个质量门。`--self-test` 为零网络自检 | `uv run python nature_bridge.py check --card C --bundle B --locator-mode M --report R` / `--self-test` |
+| **`selftest_nature_integration.py`** | [**]**并入自检（零网络、无 LLM）**：验并入范围（**只一个技能**）、`always_load` 不越界、两处引擎契约、以及质量门对"空壳卡 / 编造数字"的确切反应 | `uv run python selftest_nature_integration.py [--keep] [--verbose]` |
 
 > 阶段 H 的**执行细节**（subagent 提示词模板、解读卡 schema、质量控制）
-> 见 `流程1/subagent-driven-review/SKILL.md`。
+> 见 `流程1/subagent-driven-review/SKILL.md`；
+> paper-card 引擎的**接线权威**（产出契约、质量门、上游补丁登记、常见错误）
+> 见 `流程1/paper-card-integration/SKILL.md`。
 
 ### 准备阶段与文献综述网络
 
@@ -2666,7 +2779,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | **`refs_prepare.py`**      | **阶段 H2②**：组装**自包含**综述任务包（题录 + 摘要 + 受控标签词表）；**不联网**                                                                                                                                                                                                  | `uv run python refs_prepare.py [--top=40] [--only=DOI] [--self-test]`                                                                      |
 | **`refs_build.py`**        | **阶段 H2③**：回收综述解读卡 → 《`<作者名>_研究方向综述.md`》（含网络角色 / 缺卡清单 / 限制申报）；**不联网**                                                                                                                                                                        | `uv run python refs_build.py [--self-test]`                                                                                                |
 | **`ppt_brief.py`**         | **阶段 P**：汇编 PPT 材料 + **确定性生成** `design_spec.md` / `spec_lock.md`（= 简化的 Strategist Phase）+ 调 ppt-master 初始化与校验                                                                                                                                                | `uv run python ppt_brief.py [--pages=short\|standard\|long] [--dry-run] [--self-test]`                                                       |
-| **`knowledge_graph.py`**   | [**]**阶段 K**：三张图（overview / 词云 / 方向聚类）。Louvain 社区上色、记忆连接（有名字+带原因）、聚类解读与冲突线索检出；**SVG 优先、失败退 PNG、背景透明**；词云**按「文章关键词 > 题名 > 摘要 > 解读卡方法描述」加权取词**，中文用**左右邻接熵**挡跨词碎片、并剔除单位/试剂缩写与受控范式标签，用碰撞避让保证「清晰展示所有字符」；三张图都做**字号自述**（各目标尺寸下的有效最小字号）                                                                                    | `uv run --with matplotlib --with networkx python knowledge_graph.py [--recent-years=3] [--also-png] [--format=svg\|png\|auto] [--wc-lang=both\|zh\|en] [--wc-min-docs=3] [--wc-weight-keywords=3] [--self-test]` |
+| **`knowledge_graph.py`**   | [**]**阶段 K**：三张图（overview / 词云 / 方向聚类）。overview 用 **igraph 径向整齐树**（作者在圆心 → 阶段扇区 → 方向 → 综述编号；方法词另置外环；记忆连接沿环画弧），标签避让交给 **adjustText**（只移文字、不动节点）；词云**按「文章关键词 > 题名 > 摘要 > 解读卡方法描述」加权取词**（中文用**左右邻接熵**挡跨词碎片、剔除单位/试剂缩写与受控范式标签），**布局用 `wordcloud` 库占位检测、绘制仍走 matplotlib**；方向聚类改为 **CiteSpace 式时间线**（行=方向、x=年份）；三张图都做**字号自述**，overview 坐标落盘可审计                                                                                    | `uv run --with matplotlib --with networkx --with python-igraph --with adjustText --with wordcloud python knowledge_graph.py [--recent-years=3] [--also-png] [--format=svg\|png\|auto] [--wc-engine=library\|custom] [--wc-lang=both\|zh\|en] [--wc-min-docs=3] [--wc-weight-keywords=3] [--self-test]` |
 | **`pack_release.py`**      | **打包发行版**：把本流程 + 全部依赖（含 `vendor/ppt-master`）输出为一个可独立运行的目录（默认 `<仓库根>/流程1/`），并把文档里的 `流程1/` 路径**同步重写成新目录名**（幂等，重复打包不会变成 `流程11/`）；产出 `PACKAGE_MANIFEST.json`（逐文件 sha256）与 `README-PACKAGE.md` | `uv run python pack_release.py [--dest=路径] [--slim] [--force] [--no-vendor] [--dry-run] [--self-test]`                                   |
 | **`selftest_pipeline.py`** | [**]**端到端自检**：在临时工作目录里跑一遍 阶段 0 → D2 → G2 → H → H2 → P，验证**脚本之间的契约**（闸门收敛、字段命名、产物格式、外部校验器）。**为必跑项** —— 它挡下过 4 类静态看不出的缺陷（[版本变动.md](版本变动.md)）                                                    | `uv run python selftest_pipeline.py [--offline] [--limit=4] [--keep] [--verbose]`                                                          |
 
