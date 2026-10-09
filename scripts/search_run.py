@@ -73,8 +73,14 @@ except Exception:
 
 WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
-# paginate.py 的位置：工作文件夹下的既有 skill
-PAGINATE = WD / "skills" / "paper-lookup" / "scripts" / "paginate.py"
+# paginate.py 的位置：既有 skill 的取数层。它**不在本次输出目录下** ——
+# `PAPER_WORKDIR` 缺省是 `流程1/<年月日>/`，而 skills/ 在流程根、包根或工作文件夹，
+# 故按候选根目录逐个探测（与 `preflight_fallback.py` 同一判据）。
+SKILL_ROOTS = [WD / "skills", WD.parent / "skills",
+               pathlib.Path(__file__).resolve().parent.parent.parent / "skills"]
+_PAGINATE_REL = pathlib.Path("paper-lookup") / "scripts" / "paginate.py"
+PAGINATE = next((r / _PAGINATE_REL for r in SKILL_ROOTS if (r / _PAGINATE_REL).exists()),
+                SKILL_ROOTS[0] / _PAGINATE_REL)
 
 # paginate.py 实际支持的源（实测 --list-apis）：
 #     biorxiv / crossref / europepmc / medrxiv / openalex
@@ -164,6 +170,12 @@ def build_source_query(src: str, q: dict) -> str:
         dt = {"europepmc": '(PUB_TYPE:"Review" OR PUB_TYPE:"systematic-review")',
               "openalex": "type:review",
               "crossref": "type:journal-article"}.get(src, "")
+    if ui.get("sort_cited") and src == "europepmc":
+        # 实测坑：`(PUB_TYPE:"Review" OR PUB_TYPE:"systematic-review")` 与
+        # `(SORT_CITED:y)` 同用会把结果池砍掉两个数量级（同一主题词池 343 → 4）。
+        # 与 search_plan.py 同一判据：被引排序时用路由表 `europepmc_review_cited`
+        # 的单一 Review。
+        dt = '(PUB_TYPE:"Review")'
 
     # ── 按源拼最终 query ──
     if src == "europepmc":
@@ -174,6 +186,9 @@ def build_source_query(src: str, q: dict) -> str:
             parts.append(f"(FIRST_PDATE:[{a} TO {b}])")
         if ui.get("oa_only"):
             parts.append("(OPEN_ACCESS:y)")
+        if ui.get("sort_cited"):
+            # paginate.py **没有 --sort 开关**，排序语法只能写进 query
+            parts.append("(SORT_CITED:y)")
         return " AND ".join(f"({p})" for p in parts) if parts else "*"
 
     # openalex/crossref 的 search/query 参数**不接受布尔语法**，
@@ -233,7 +248,9 @@ def _run_source(q: dict, timeout: int = 240) -> list[dict] | None:
     max_rec = int(q.get("max_records") or 50)
 
     if not PAGINATE.exists():
-        _failures.append({"source": src, "reason": f"缺少 {PAGINATE}"})
+        _failures.append({"source": src,
+                          "reason": "缺少 paginate.py；已尝试 "
+                                    + " | ".join(str(r / _PAGINATE_REL) for r in SKILL_ROOTS)})
         return None
 
     if src not in PAGINATE_APIS:

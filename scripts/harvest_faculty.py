@@ -780,11 +780,17 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
         time.sleep(0.35)
 
     # 合并：列表页记录 + 详情页补充
+    #   取哪一条的判据：**有方向的优先**；两边都没方向时**取详情页记录** ——
+    #   因为只有它带着 `classify_no_direction()` 逐页判出的真实原因
+    #   （「页面无该栏位」/「暂无内容」/「主页不存在」…）。
+    #   曾经的写法只在「详情页补到了方向」时才用详情页记录，于是抓过但确实没填的人
+    #   会被列表页记录覆盖，`why` 落到 `_NEVER_FETCHED_WHY`（"未补详情"）——
+    #   **把「抓了、网站真的没写」错报成「没抓」**，续跑判据与交付说明都会被骗。
     merged = []
     for p in people:
         k = p["name"] + "|" + p.get("section", "")
         rec = done.get(k)
-        if rec and rec.get("directions") and not p.get("directions"):
+        if rec is not None and (rec.get("directions") or not p.get("directions")):
             merged.append(rec)
         else:
             p.setdefault("status", "ok" if p.get("directions") else "no_direction")

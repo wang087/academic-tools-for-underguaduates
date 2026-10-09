@@ -185,9 +185,17 @@ def build_plan(args) -> dict:
     queries = []
     for i, src in enumerate(sources, 1):
         extra = dt.get(src, "")
+        if getattr(args, "sort_cited", False) and src == "europepmc":
+            # 实测坑：`(PUB_TYPE:"Review" OR PUB_TYPE:"systematic-review")` 与
+            # `(SORT_CITED:y)` 同用会把结果池砍掉两个数量级（同一主题词池 343 → 4）。
+            # 故被引排序时按路由表 `europepmc_review_cited` 模板用单一 Review。
+            extra = '(PUB_TYPE:"Review")'
         q = f"({core})" if extra and core else core
         if extra:
             q = f"{q} AND {extra}" if q else extra
+        if getattr(args, "sort_cited", False) and src == "europepmc":
+            # paginate.py **没有 --sort 开关**，被引排序语法必须写进 query。
+            q = f"{q} AND (SORT_CITED:y)" if q else "(SORT_CITED:y)"
         queries.append({
             "query_id": f"q{i}",
             "index_target": src,
@@ -201,6 +209,7 @@ def build_plan(args) -> dict:
             },
             "doc_types": args.doc_types,
             "oa_only": bool(args.oa_only),
+            "sort_cited": bool(getattr(args, "sort_cited", False)),
             "max_records": args.max_records,
             "query_sha256": _sha(q),
         })
@@ -218,6 +227,7 @@ def build_plan(args) -> dict:
             "through_year": args.through_year,
             "doc_types": args.doc_types,
             "oa_only": bool(args.oa_only),
+            "sort_cited": bool(getattr(args, "sort_cited", False)),
             "language": "en",
             "sources": sources,
             "max_records": args.max_records,
@@ -276,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--doc-types", choices=list(DOCTYPE_MAP), default="any",
                     help="文献类型：review / research / any")
     ap.add_argument("--oa-only", action="store_true", help="只要开放获取")
+    ap.add_argument("--sort-cited", action="store_true",
+                    help="按被引降序（**仅 Europe PMC 生效**：在检索式末尾加 "
+                         "AND (SORT_CITED:y)；其余源仍是库默认顺序）")
     ap.add_argument("--sources", default="europepmc,openalex,crossref",
                     help=f"数据源，逗号分隔（可选 {list(SOURCES)}）")
     ap.add_argument("--max-records", type=int, default=50,
@@ -307,6 +320,9 @@ def main(argv: list[str] | None = None) -> int:
           + ("（只要开放获取）" if ui["oa_only"] else ""))
     print(f"  数据源    {len(ui['sources'])} 个："
           + "、".join(SOURCES[s]["label"] for s in ui["sources"]))
+    print(f"  排序      " + ("被引降序（Europe PMC `SORT_CITED:y`；其余源仍为库默认）"
+                            if ui.get("sort_cited")
+                            else "库默认 —— Europe PMC 默认**按最新返回**"))
     print()
     print("  各源检索式：")
     for q in plan["queries"]:

@@ -22,6 +22,8 @@
 #     · oa_candidates        —— 注入假 fetch
 #     · fulltext_publishers  —— 注入假 fetch（且默认闸门关闭，必然不发请求）
 #     · fetch_pacing         —— 注入假时钟与假 sleep，不真的等待
+#     · fulltext_router      —— 注入假 fetch；守卫用例还额外用「一发请求就断言
+#                               失败」的桩，证明 CDP 未失败时确实一个包都没发
 #
 # 用法：
 #   uv run python scripts/selftest_fulltext_modules.py
@@ -69,6 +71,7 @@ SELFTEST_MODULES = (
     "oa_candidates.py",
     "fetch_pacing.py",
     "fulltext_publishers.py",
+    "fulltext_router.py",
 )
 
 
