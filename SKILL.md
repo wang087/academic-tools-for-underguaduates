@@ -2365,6 +2365,10 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
   （正文一般 ≥6 页；2 页件须排查是否为补充材料/图注页）。
 - 用 `uv run --with pypdf python 流程1/scripts/inventory_build.py` 生成 `全文清单.md`
   （哪些拿到全文、来源途径、页数、哪些只有摘要、原因）。
+  > **「拿到全文」= PDF ∪ 网页正文**：第一层 EPMC fullTextXML、第二层-B 仓库副本
+  > 只产正文不产 PDF，只数 PDF 会把已到手全文的篇目报成「未获取」。
+  > 题录覆盖面 = `crossref_all.json` ∪ `.work_cdp/reviews/reviews.json`
+  > （**入门链路没有 Crossref 总表**，只认前者会漏报）。
   > 题录总表优先读 `crossref_all.json`，回退历史名 `master.json`；
   > 阶段分组来自 `.work_cdp/periods.json`（**未配置就不分组**，不内置任何作者履历）。
   >
@@ -2860,7 +2864,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | `rename_to_title.py`                        | **PDF 重命名为论文标题**（存量批量改名 + 索引登记；同名同大小自动合并） | `uv run python rename_to_title.py [--dry-run] [--keep-dois]`        |
 | `render_html_pdf.py`                        | **中文翻译 HTML → PDF** + CJK 嵌入校验（退出码 0/1/2）                 | `uv run --with pypdf python render_html_pdf.py <in.html> <out.pdf>` |
 | **`verify_pdfs.py`**                  | 全文 PDF 完整性校验 +**页数合理性**（识别补充材料冒充正文）             | `uv run --with pypdf python verify_pdfs.py`                         |
-| **`inventory_build.py`**              | 生成《全文清单.md》：逐篇状态/来源/页数/未获取原因 + 分阶段覆盖率             | `uv run --with pypdf python inventory_build.py`                     |
+| **`inventory_build.py`**              | 生成《全文清单.md》：逐篇状态/来源通道/**页数 ∪ 正文字数**/未获取原因 + 分阶段覆盖率。题录取 `crossref_all.json` ∪ `reviews/reviews.json`，入门链路同样可用             | `uv run --with pypdf python inventory_build.py`                     |
 | `render_one.sh`（工作目录 `.work_cdp/`）  | 单篇渲染包装（最简命令，绕开复杂命令行判定）                                  | `bash .work_cdp/render_one.sh <in.html> <out.pdf>`                  |
 | `render_rest.py`（工作目录 `.work_cdp/`） | 幂等批量渲染未产出的中译 PDF                                                  | `python .work_cdp/render_rest.py`                                   |
 
