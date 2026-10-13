@@ -7,6 +7,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 import os
 _HERE=pathlib.Path(__file__).resolve().parent
 sys.path.insert(0,str(_HERE))
+# 本文件属于**可选模块** `流程1/optional-cdp-fulltext/`；核心脚本在 ../../scripts/
+_CORE_SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
+sys.path.insert(0, str(_CORE_SCRIPTS))
 from cdp import CDP, first_page_tab
 
 # 待测 DOI 不硬编码：必须由命令行或环境变量给出

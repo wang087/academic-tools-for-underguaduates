@@ -65,6 +65,17 @@ case "${CDP_LEVEL}" in
 esac
 
 # 全文阶段结束即回收本流程启动的 Edge CDP 实例；EXIT trap 兜底异常/中断。
+# ── 取全文 CDP 模块（**可选**，可整目录删除）────────────────────
+#   **注意**：启动浏览器与实例回收属**核心**（ORCID/导师阶段共用），不随模块增删；
+#   模块只管"用浏览器/出版商接口取正文"那一层。缺失时 → **静默改走备用链路**
+#   （不报错、不中断）：白名单直连 / 元数据 API / nature-skill 获取模块。
+#   见 optional-cdp-fulltext/README.md 与 scripts/cdp_module.py。
+CDP_MOD="$(uv run python "${SDIR}/cdp_module.py" --path 2>/dev/null | tr -d '\r' || true)"
+if [ -z "${CDP_MOD}" ]; then
+  echo "[INFO] CDP 取全文模块未安装（optional-cdp-fulltext/ 缺失）→ 跳过 CDP 步骤，改走备用链路"
+fi
+cdp_on() { [ -n "${CDP_MOD}" ]; }
+
 cleanup_cdp() {
   uv run python "${SDIR}/cdp_pool.py" down --base=9222 --span="${N_INST}" >/dev/null 2>&1 || true
 }
@@ -215,10 +226,16 @@ uv run python "${SDIR}/unpaywall_check.py" 2>&1 | tail -10
 #    [STOP] §5.1 第二层：不得自编脚本从 HTTP 直链获取**原文全文**（含 OA 文章）；
 #       第一层（摘要/元数据/白名单开源库）已在 4.8 走直连，不得混用
 #    [WARN] --manual-wait 必须 > 0，否则 CAPTCHA 弹窗链完全不触发
-echo "[6/7] 全文抓取（${N_INST} 实例并行，全部经 CDP）..."
-uv run --with websocket-client --with pypdf python "${SDIR}/download_all_fulltexts.py" \
+if cdp_on; then
+  echo "[6/7] 全文抓取（${N_INST} 实例并行，全部经 CDP）..."
+uv run --with websocket-client --with pypdf python "${CDP_MOD}/download_all_fulltexts.py" \
   --n="${N_INST}" --limit=20 --delay=25-55 --site-fail-limit=2 \
   --manual-wait=5 --grace=35 2>&1 | tail -25
+else
+  echo "[6/7] 跳过 CDP 全文抓取（模块未安装）→ 备用链路："
+  echo "      uv run python 流程1/scripts/fulltext_router.py --fallback ..."
+  echo "      uv run python 流程1/scripts/preflight_fallback.py"
+fi
 
 # ── 7. 生成 GB/T 7714 列表 + 全文校验 + 清单 ───────────────────
 echo "[7/7] 生成 GB/T 7714-2015 论文列表 ..."

@@ -75,8 +75,26 @@ SELFTEST_MODULES = (
 )
 
 
+def _module_path(name: str):
+    """→ 该自检目标脚本的路径；属于可选模块且未安装时 → None。"""
+    local = _HERE / name
+    if local.is_file():
+        return local
+    try:
+        import cdp_module as cdpmod                       # noqa: E402
+    except Exception:                                     # noqa: BLE001
+        return None
+    return cdpmod.script(name)
+
+
 def run_one(name: str, verbose: bool = False) -> tuple[int, float, str]:
-    path = _HERE / name
+    # 取全文 CDP 模块是可选的：它被整目录删掉时，这里**跳过而不是报失败**
+    #   （跳过要留痕：返回码 -1 由调用方明确打印 [SKIP]，不算"全绿"之外的噪声）
+    mod = _module_path(name)
+    if mod is None:
+        return -1, 0.0, (f"[SKIP] {name}：属可选模块 optional-cdp-fulltext/，"
+                         "本发行版未安装")
+    path = mod
     if not path.is_file():
         return 2, 0.0, f"[X] 模块不存在：{path}"
     env = dict(os.environ)
@@ -117,18 +135,22 @@ def main() -> int:
             # 只留最后一行结论，保持聚合输出可读
             lines = [l for l in out.splitlines() if l.strip()]
             tail = lines[-1].strip() if lines else ""
-        mark = "[OK]" if code == 0 else "[X]"
-        print(f"{mark} {name:<28} {dt:6.2f}s  {tail}")
+        mark = "[OK]" if code == 0 else ("[SKIP]" if code == -1 else "[X]")
+        print(f"{mark} {name:<26} {dt:6.2f}s  {tail}")
         results.append((name, code, dt))
 
-    failed = [(n, c) for n, c, _ in results if c != 0]
+    skipped = [n for n, c, _ in results if c == -1]
+    failed = [(n, c) for n, c, _ in results if c not in (0, -1)]
     total = sum(dt for _, _, dt in results)
     print("-" * 66)
     if failed:
         print(f"[X] {len(failed)}/{len(results)} 个模块失败：{failed}")
         print("    重跑单个模块看详情：python scripts/<模块>.py --self-test")
     else:
-        print(f"[OK] {len(results)}/{len(results)} 个模块全部通过 | 合计 {total:.2f}s")
+        n_ok = sum(1 for _, c, _ in results if c == 0)
+        extra = (f"（另有 {len(skipped)} 个属可选模块、未安装已跳过："
+                 + "、".join(skipped) + "）") if skipped else ""
+        print(f"[OK] {n_ok}/{len(results)} 个模块全部通过 | 合计 {total:.2f}s {extra}")
 
     # 清理聚合自检的临时工作目录（含各模块的 .work_cdp/selftest 残留）
     try:

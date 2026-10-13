@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import io
+import os
 import pathlib
 import subprocess
 import sys
@@ -60,18 +61,27 @@ except Exception:                      # 单文件运行时也要能用
         pass
 
 CHROME_CANDIDATES = [
+    # 环境变量优先：换机器/换系统时不必改代码（PAPER_BROWSER 是本流程的通用覆盖点，
+    #   CHROME_PATH 兼容既有习惯；两者都空则按下面的候选逐个试）。
+    os.environ.get("PAPER_BROWSER") or "",
+    os.environ.get("CHROME_PATH") or "",
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    # 非 Windows 候选（Linux / macOS 上跑同一份脚本时用）
+    "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 ]
 
 
 def find_browser() -> str:
     for p in CHROME_CANDIDATES:
-        if pathlib.Path(p).exists():
+        if p and pathlib.Path(p).exists():
             return p
-    raise FileNotFoundError("未找到 Chrome / Edge 可执行文件")
+    raise FileNotFoundError(
+        "未找到 Chrome / Chromium / Edge 可执行文件；可用 PAPER_BROWSER=<绝对路径> 指定")
 
 
 def _run(log) -> int:

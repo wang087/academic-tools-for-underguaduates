@@ -110,6 +110,8 @@ STATUS_KIND: dict[str, str] = {
     "pdf_too_short": "FAILURE",
     "not_real_fulltext": "FAILURE",
     "route_disabled": "FAILURE",
+    # 取全文 CDP 模块未安装（可选模块被移除时的诚实状态）
+    "module_absent": "FAILURE",
     "failed_after_retry": "FAILURE",
 }
 

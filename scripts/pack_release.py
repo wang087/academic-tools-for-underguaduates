@@ -115,10 +115,23 @@ TOP_ITEMS = ["SKILL.md", "README.md", "run_all.sh", "scripts", "templates",
              #       是「数字回查原文」的唯一实现（stage H 交付质量门，见
              #       nature_bridge.py check）。虽同为本仓库技能，但流程内自带
              #       一份，分发包才不必依赖外部技能目录。
-             "skills"]
+             "skills",
+             # 「取全文 CDP」**可选模块**（出版商正文自动化的唯一实现）。
+             #   默认**包含**（内部使用方便）；要发行一份不含该能力的版本，
+             #   加 `--exclude-optional-cdp-fulltext`（见模块内 README.md 的合规说明）。
+             "optional-cdp-fulltext"]
 
 # 打包时**排除**的目录/文件（用户数据、缓存、开发资料）
 EXCLUDE_DIRS = {"__pycache__", ".work_cdp", ".git", "projects", "node_modules"}
+
+# `--exclude-optional-cdp-fulltext` 时**额外**排除的顶层目录：
+#   出版商的网站条款禁止自动化抓取其内容，发行版需要时可以把这层整个去掉。
+#   去掉后流程仍可运行（探测入口会报"未安装 → 改走备用链路"）。
+EXCLUDE_TOP_WHEN_NO_CDP = ("optional-cdp-fulltext",)
+
+# **可选**顶层条目：存在就打包，不存在也不报"缺少必需条目"
+#   （发行版可能按合规要求把取全文 CDP 模块整个删掉 —— 那是有意为之，不是残缺）
+OPTIONAL_TOP_ITEMS = {"optional-cdp-fulltext"}
 
 # `--slim` 额外裁剪的 ppt-master 子目录（**非本流程运行时**所需）：
 #   · references/ai-image-comparison/ —— AI 配图风格样张（文档素材，44 MB）
@@ -166,11 +179,14 @@ def rewrite_paths(text: str, name: str) -> tuple[str, int]:
     return new, n
 
 
-def iter_files(root: pathlib.Path):
+def iter_files(root: pathlib.Path, extra_exclude: set | None = None):
+    extra = extra_exclude or set()
     for p in sorted(root.rglob("*")):
         if p.is_dir():
             continue
         if any(part in EXCLUDE_DIRS for part in p.parts):
+            continue
+        if extra and any(part in extra for part in p.parts):
             continue
         if any(re.match(pat, p.name) for pat in EXCLUDE_FILE_PATTERNS):
             continue
@@ -203,7 +219,8 @@ def self_test() -> int:
     if not SRC.is_dir():
         print(f"[X] 源目录不存在：{SRC}")
         return 1
-    missing = [t for t in TOP_ITEMS if not (SRC / t).exists()]
+    missing = [t for t in TOP_ITEMS
+               if t not in OPTIONAL_TOP_ITEMS and not (SRC / t).exists()]
     print(f"源目录必需条目：{'齐全' if not missing else '缺少 ' + str(missing)}")
     bad += 0 if not missing else 1
     print("\n[OK] 自检全部通过" if bad == 0 else "\n[X] 自检有失败项")
@@ -227,6 +244,9 @@ def _run(log) -> int:
     dry = "--dry-run" in sys.argv
     force = "--force" in sys.argv
     slim = "--slim" in sys.argv
+    # 合规开关：默认**包含**取全文 CDP 模块；要发行不含该能力的版本时显式排除。
+    no_cdp_mod = "--exclude-optional-cdp-fulltext" in sys.argv
+    extra_exclude = set(EXCLUDE_TOP_WHEN_NO_CDP) if no_cdp_mod else set()
     slimmer: list[str] = []
 
     print("═" * 68)
@@ -235,6 +255,9 @@ def _run(log) -> int:
     print(f" 目标：{dest}（目录名 {name}）")
     print(f" 依赖：{'不打 vendor' if no_vendor else '含 vendor/ppt-master + vendor/nature-paper-card'}"
           + ("（--slim：裁剪配图样张/图标库/音效）" if slim else "（完整）"))
+    print(" 取全文 CDP 模块：" + ("**已排除**（--exclude-optional-cdp-fulltext："
+          "发行版不含出版商正文自动化；流程改走备用链路）" if no_cdp_mod
+          else "包含（optional-cdp-fulltext/；合规发行请加 --exclude-optional-cdp-fulltext）"))
     print("═" * 68)
 
     if not SRC.is_dir():
@@ -257,7 +280,9 @@ def _run(log) -> int:
 
     manifest = {"source": str(SRC), "dest": str(dest), "name": name,
                 "files": [], "rewritten": [], "skipped": [], "vendor": not no_vendor,
-                "slim": slim, "slimmed": []}
+                "slim": slim, "slimmed": [],
+                "optional_cdp_fulltext": not no_cdp_mod,
+                "excluded_top": sorted(extra_exclude)}
 
     if not dry:
         dest.mkdir(parents=True, exist_ok=True)
@@ -272,7 +297,7 @@ def _run(log) -> int:
         if s.is_file():
             files = [s]
         else:
-            files = list(iter_files(s))
+            files = list(iter_files(s, extra_exclude=extra_exclude))
         for f in files:
             rel = f.relative_to(SRC)
             out = dest / rel

@@ -366,6 +366,27 @@ def _card_l1(L: list, c: dict) -> None:
     L.append("")
 
 
+def eff_evidence(t: dict) -> str:
+    """本篇**实际**的证据等级：以解读卡自述为准，任务包标注只作回退。
+
+    [WARN] 为什么不能只信任务包：任务包的 `evidence_source` 来自下载与抽取记录，
+      落地页残页（`text_extraction_backend = "landing-page-text"`）也会被标成
+      `fulltext` —— 实测有 34,926 字符的「摘要 + 93 条参考文献」被这样标上去。
+      subagent 读了实际文本会如实降级为 `abstract`，若本脚本仍按任务包统计，
+      报告就会高报覆盖面、逐篇也会印成「解读依据：全文」
+      （取证见 `流程1/实测结果汇总.md#h-2`）。
+    """
+    ev = (t.get("card") or {}).get("evidence") if isinstance(t.get("card"), dict) else None
+    src = ""
+    if isinstance(ev, dict):
+        src = str(ev.get("source") or "").strip().lower()
+    elif isinstance(ev, str):
+        src = ev.strip().lower()
+    if src in ("fulltext", "abstract", "metadata-only"):
+        return src
+    return str(t["meta"].get("evidence_source") or "abstract").strip().lower()
+
+
 def _strength_line(c: dict, m: dict) -> str:
     """L3 档卡片末尾的**证据强度**一行。
 
@@ -506,7 +527,11 @@ def main() -> int:
 
     # ══ 组装报告 ═══════════════════════════════════════════════
     n_all, n_card = len(tasks), len(cards)
-    n_full = len([t for t in tasks if t["meta"].get("evidence_source") == "fulltext"])
+    # 证据等级**以卡片自述为准**（见 eff_evidence）：任务包会把落地页残页标成 fulltext。
+    n_full = len([t for t in tasks if eff_evidence(t) == "fulltext"])
+    n_landing = len([t for t in tasks
+                     if eff_evidence(t) != "fulltext"
+                     and t["packet"].get("text_extraction_backend") == "landing-page-text"])
     L = []
     L.append(f"# {AUTHOR} 论文解读\n")
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
@@ -514,14 +539,28 @@ def main() -> int:
              f" ｜ 共 **{n_all}** 篇 ｜ 已解读 **{n_card}** 篇")
     L.append("> 解读方式：并行 subagent 逐篇精读（流程见 "
              "`流程1/subagent-driven-review/SKILL.md`）；"
-             "全文均取自主流程经 CDP 下载的本地 PDF，**全程无网络抓取**。")
+             + ("全文取自主流程经 CDP 下载的本地 PDF，**全程无网络抓取**。"
+                if n_full == n_all else
+                f"其中 {n_full} 篇的全文取自主流程经 CDP 下载的本地 PDF，"
+                f"其余 {n_all - n_full} 篇**无全文**，按摘要级解读；"
+                "**全程无网络抓取**。") + "\n")
     L.append(f"> 解读引擎：**{engine}**（{ENGINE_LABEL[engine]}，来源：{engine_src}）"
              + ("；16 节 Paper Card 的产出与审计状态见文末「缺卡清单与后续处理」"
                 if engine == "paper-card" else "") + "\n")
 
     # ── 数据来源与限制（先说清楚，避免读者高估覆盖度）──────────
     L.append("## 〇、数据来源与限制\n")
-    L.append(f"- 有全文可精读：**{n_full}** 篇；仅摘要级解读：**{n_all - n_full}** 篇")
+    L.append(f"- 有全文可精读：**{n_full}** 篇；仅摘要级解读：**{n_all - n_full}** 篇"
+             f"（以各卡 `evidence.source` 为准，非任务包标注）")
+    if n_landing:
+        # 落地页残页：字符数看着像全文，实际只有摘要 + 参考文献 + 页面导航。
+        #   单独列一行，别让读者以为「有几千字符就是读到了正文」。
+        _ld = "、".join(str(t["meta"].get("seq")) for t in tasks
+                       if eff_evidence(t) != "fulltext"
+                       and t["packet"].get("text_extraction_backend") == "landing-page-text")
+        L.append(f"- [WARN] 其中 **{n_landing}** 篇（编号 {_ld}）取到的是**出版社落地页文本**"
+                 f"（摘要 + 参考文献 + 页面导航，非正文；无 `[p.N]` 页标记与图号），"
+                 f"按**摘要级**计入，不得当作全文结论")
     trunc = [t for t in tasks if t["meta"].get("text_truncated")]
     if trunc:
         # 措辞要与机制一致：任务包**保留开头 60% + 结尾 40%**（结论/局限在结尾），
@@ -593,7 +632,7 @@ def main() -> int:
         if pk.get("my_position"):
             meta_bits.append(pk["my_position"])
         L.append(f"`DOI: {m.get('doi')}` ｜ " + " ｜ ".join(x for x in meta_bits if x))
-        src = m.get("evidence_source")
+        src = eff_evidence(t)
         L.append(f" ｜ 解读依据：**{'全文' if src == 'fulltext' else '仅摘要'}**"
                  + ("（正文已截断）" if m.get("text_truncated") else "") + "\n")
         if not c:

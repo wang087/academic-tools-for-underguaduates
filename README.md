@@ -7,6 +7,7 @@
 > | **"流程" / "本流程"** | 默认指**`流程1/`**（本目录）。未特别说明时，所有改动与执行都以这里为准 |
 > | **"工作文件夹"**      | 仓库根目录**`scientific-agent-skills/`**（本目录的上一级）             |
 > | **"工作根目录文件"**  | 如`研究方法与关键词总表.md`、`skills/` 等，都在**工作文件夹**下      |
+> | **（自包含发行时）**  | 若只拷走 `流程1/`：把上面的"工作文件夹"理解为 `流程1/` —— 流程内已自带 `skills/`、`templates/`、`vendor/`、`研究方法与关键词总表.md` 的同名副本 |
 >
 > [WARN] `流程/`（**无数字后缀**）是更早的一个分支，与 `流程1/` 已分叉。
 > 除非用户明确点名 `流程/`，否则一切以 `流程1/` 为准。
@@ -169,7 +170,7 @@ uv run python 流程1/scripts/selftest_engines.py
 
 | 链路 | 实现 | 何时用 |
 |---|---|---|
-| **主链路** | `download_all_fulltexts.py`（自家 CDP + 反爬 + 站点熔断） | 默认；OA 与付费墙同等对待 |
+| **主链路（可选模块）** | `optional-cdp-fulltext/download_all_fulltexts.py`（自家 CDP + 反爬 + 站点熔断）。**整目录可删**：删掉后本流程不含出版商正文自动化，改走备用链路 | 默认；OA 与付费墙同等对待 |
 | **备选链路** | 外部 skill **`nature-downloader`**（开放获取 / 出版商 API / 机构 Web Access / CNKI） | 主链路连续两轮失败、站点被熔断、需要中文库或机构订阅时 |
 
 ```bash
@@ -256,12 +257,11 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 │   ├── fetch_openalex_abstracts.py       #   OpenAlex 单源重建摘要
 │   ├── build_list.py                     #   生成 GB/T 7714-2015 列表（含署名位次）
 │   ├── ── 全文获取（一律经 CDP）──────────
-│   ├── download_all_fulltexts.py         #   [**] 全文下载唯一入口（多实例+熔断+续传+转人工）
+│   ├── cdp_module.py                     #   CDP 取全文模块的**唯一探测入口**（在/不在）
+│   ├── ...
+│   └── （取正文实现已移到可选模块 optional-cdp-fulltext/，见下）
 │   ├── fetch_direct.py        #   第一层直连取摘要（S2/OpenAlex/EuropePMC/Crossref/PubMed）
 │   ├── ~~fetch_oa_direct.py~~            #   [STOP] **已停用**（曾为 OA 直链 HTTP 取**全文**；分层策略未恢复全文直连）
-│   ├── save_pdf_via_browser.py           #   单篇 PDF 获取（4 种方法）
-│   ├── check_challenge.py                #   站点体检（挑战/封禁/可达性）
-│   ├── check_access.py                   #   检测本机 IP 级机构订阅授权
 │   ├── grab_abstracts.py                 #   CDP 抓出版社摘要（低频拟人化）
 │   ├── ── 命名 / 渲染 ──────────
 │   ├── rename_to_title.py                #   PDF 重命名为论文标题（含索引登记）
@@ -364,7 +364,7 @@ uv run python 流程1/scripts/refs_backfill.py --min-citations=200
 #     → 《<作者名>_高质量文献列表.md》＋ .work_cdp/refs/{source_refs,refs_pool,high_quality}.json
 
 # ③ 全文一律走 CDP（OA 与付费墙同等对待）；--manual-wait 必须 > 0
-uv run --with websocket-client --with pypdf python 流程1/scripts/download_all_fulltexts.py \
+uv run --with websocket-client --with pypdf python 流程1/optional-cdp-fulltext/download_all_fulltexts.py \
     --n=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35
 
 # ④ 题名命名（新下载已自动题名；此步为历史文件补齐 + 索引登记）
@@ -716,7 +716,7 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 | **第一层** | **摘要** | [OK]**允许直连** | `fetch_direct.py`（多源自动降级） |
 | **第一层** | **综述**（题录 / 摘要级） | [OK]**允许直连** | 同上（综述的**正文**属第二层） |
 | **第一层** | 白名单内的**开源数据库** | [OK]**允许直连** | `templates/直连白名单.json` |
-| **第二层** | **原文全文**（PDF / HTML 正文），**含 OA** | [STOP]**禁止直连，一律走 CDP** | `download_all_fulltexts.py` / `save_pdf_via_browser.py` |
+| **第二层** | **原文全文**（PDF / HTML 正文），**含 OA** | [STOP]**禁止直连，一律走 CDP** | **可选模块** `optional-cdp-fulltext/`：`download_all_fulltexts.py` / `save_pdf_via_browser.py`（模块未安装 → 本层不可用，改走备用链路并如实标注） |
 | **回退** | 第一层尝试失败 | ->**转向 CDP** | `direct_failed.json` → `grab_abstracts.py --retry-failed` |
 
 > **判定分界**：这次请求要**不要拿"论文正文"**？

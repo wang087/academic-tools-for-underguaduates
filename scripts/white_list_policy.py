@@ -89,7 +89,8 @@ _COVERS: dict[str, frozenset[str]] = {
 
 # 拒绝时给出「下一步该走哪条路」——与 SKILL §5.1 的回退规则一致
 NEXT_BROWSER = ("browser", "按 §5.1：原文全文属第二层，改走 CDP"
-                           "（download_all_fulltexts.py / save_pdf_via_browser.py）")
+                           "（**可选模块** optional-cdp-fulltext/ 下的 download_all_fulltexts.py / "
+                           "save_pdf_via_browser.py；该模块未安装时改走备用链路）")
 NEXT_DROP = ("drop", "该域名未收录为可直连源。不要去猜它算不算「开源数据库」——"
                      "要收录请按白名单的收录判据改 templates/直连白名单.json "
                      "并让 fetch_direct.py --self-test 通过")

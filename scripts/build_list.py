@@ -202,15 +202,41 @@ ORCID_ID = os.environ.get("PAPER_ORCID", "")
 AFFIL = os.environ.get("PAPER_AFFIL", "")
 _n = len(items)
 
+# G-1：抬头必须与**自家尾部披露**同口径。
+#   旧版无条件写「均经 Crossref 逐条核实题录」「经核实归属本人的 N 条」，
+#   而同一个文件的尾注却写「确认 164 条 + 待复核 13 条（均保留）」，
+#   且 14 条只有 ORCID 记录、连 DOI 都没有，根本没有 Crossref 题录可核
+#   —— 首尾相互否定，读到抬头的人不会去翻尾注（取证见 实测结果汇总.md#g-1）。
+_sd = _scope.load(CDPDIR) or {}
+_n_crossref = len(merged)                    # 有 Crossref 核实题录的条数
+_n_nodoi = _n - _n_crossref                  # 仅 ORCID 记录（无 DOI）
+_n_conf = len(_sd.get("confirmed") or [])
+_n_review = len(_sd.get("review") or [])
+_n_dropped = len([r for r in _dropped if r["doi"] and _scope.is_excludable(r)])
+
 lines = []
 lines.append(f"# {AUTHOR_ZH}{'（' + AUTHOR_EN + '）' if AUTHOR_EN else ''}论文列表\n")
 lines.append(f"> 作者：{AUTHOR_ZH}{'（' + AUTHOR_EN + '）' if AUTHOR_EN else ''}"
              + (f"，{AFFIL}" if AFFIL else ""))
 lines.append("> ORCID：" + (f"https://orcid.org/{ORCID_ID}" if ORCID_ID else "（未提供）")
-             + f" ｜ 共 **{_n} 条**，均经 Crossref 逐条核实题录")
+             + f" ｜ 共 **{_n} 条**"
+             + f" ｜ 题录经 Crossref 逐条核实 **{_n_crossref}** 条"
+             + (f"，仅 ORCID 记录（无 DOI，题录以 ORCID 页面为准）**{_n_nodoi}** 条"
+                if _n_nodoi else ""))
 lines.append("> 著录格式：GB/T 7714—2015（作者多于 3 位取前 3 位加 et al.；期刊名采用刊名标准写法）")
 lines.append("")
-lines.append(f"**说明：** 以下为经核实归属本人的 {_n} 条成果（按发表年升序）。"
+if _sd:
+    _attr = (f"**归属核对**：判据⓪（ORCID 溯源 + 同域校验）与署名单位指纹交叉判得 "
+             f"确认 **{_n_conf}** 条")
+    if _n_review:
+        _attr += (f"、**待人工复核 {_n_review} 条**"
+                  "（溯源命中但题录未命中方向词 —— 按流程**一律保留在表中**，"
+                  "引用前请逐条回原文核对作者身份）")
+    if _n_dropped:
+        _attr += f"、已排除同名他人 **{_n_dropped}** 条（列在文末专节，未计入上表）"
+else:
+    _attr = "**归属核对**：未运行同名消歧（无 `disambiguated.json`），本表归属**未经核对**"
+lines.append(f"**说明：** 以下为{AUTHOR_ZH}的全部成果（按发表年升序）。{_attr}。"
              "本人署名位置每条约注：第一作者 / 末位作者（通常通讯）/ 其他位次合作。")
 lines.append("")
 lines.append("> 提示：可用环境变量覆盖抬头信息 —— "
@@ -318,7 +344,12 @@ if _excluded_recs:
     lines.append("")
 
 _p = _scope.params(CDPDIR)
-lines.append(f"*本表题录均经 Crossref API 核实字段；作者归属经 ORCID 与署名单位指纹交叉验证。*")
+lines.append(f"*题录来源：{_n_crossref} 条经 Crossref API 逐条核实字段"
+             + (f"；另 {_n_nodoi} 条仅有 ORCID 记录（无 DOI），题录以其页面为限。*"
+                if _n_nodoi else "。*")
+             + ("" if not _sd else
+                f"\n*归属判据：判据⓪ ORCID 溯源（附**同域校验**：溯源命中但题录"
+                f"未命中方向词者降为待复核，不据此排除）+ 署名单位指纹 + 合作者网络。*"))
 lines.append(f"*同名消歧：{_scope.summary(CDPDIR)}。*")
 if _p:
     lines.append(f"*消歧判据参数：姓=`{_p.get('surname','')}` 名=`{_p.get('given','')}` "

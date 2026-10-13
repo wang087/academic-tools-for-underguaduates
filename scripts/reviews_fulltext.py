@@ -106,6 +106,10 @@ FLOW1 = _HERE.parent                       # 流程1/
 #   day rollover 或 PAPER_WORKDIR 一改，两边就错位。
 sys.path.insert(0, str(_HERE))
 try:
+    import cdp_module as cdpmod              # noqa: E402 ← CDP 模块唯一探测入口
+except Exception:                            # noqa: BLE001
+    cdpmod = None
+try:
     from logutil import workdir as _workdir      # noqa: E402
     WD = _workdir()
 except Exception:                                # noqa: BLE001
@@ -588,8 +592,23 @@ def build_cdp_input(layers: dict[str, dict], tasks: list[dict],
     cr_path.parent.mkdir(parents=True, exist_ok=True)
     cr_path.write_text(json.dumps(cr, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    dl = cdpmod.script("download_all_fulltexts.py") if cdpmod else None
+    cmdf0 = WORK / "reviews_cdp_command.txt"
+    if dl is None:
+        # CDP 取全文模块未安装（合规发行常见）→ **静默改走备用链路**：
+        #   不报错、不中断，但把「为什么没有 CDP 命令」写进同一个文件，可回查。
+        cmdf0.write_text(
+            "# CDP 取全文模块未安装（<流程1>/optional-cdp-fulltext/ 缺失）\n"
+            "# 本批缺口不再走浏览器路线，改走备用链路：\n"
+            "#   1) 白名单内直连 / 元数据 API：uv run python "
+            "流程1/scripts/fulltext_router.py --fallback ...\n"
+            "#   2) nature-skill 获取模块：uv run python "
+            "流程1/scripts/preflight_fallback.py\n", encoding="utf-8")
+        print(f"\n  题录已并入 {cr_path}（新增 {added} 条）")
+        print(f"  [INFO] CDP 取全文模块未安装 → 本批缺口改走备用链路（见 {cmdf0.name}）")
+        return cmdf0
     cmd = (f'uv run --with websocket-client --with pypdf python '
-           f'{_HERE / "download_all_fulltexts.py"} '
+           f'{dl} '
            f'--doi={",".join(gaps)} --limit={max(1, len(gaps))} '
            f'--delay=25-55 --site-fail-limit=2 --grace=35')
     cmdf = WORK / "reviews_cdp_command.txt"
@@ -611,13 +630,13 @@ def _usable_ports() -> list[int]:
       **一个 renderer 都没有**，于是所有页面级命令永远超时。
       只判端口会让整批任务静默失败，比启动失败更难查。
     """
-    import cdp_pool  # noqa: E402
+    import cdp_pool  # noqa: E402  ← cdp_pool 属**核心**（ORCID/回收也要用），不在可选模块内
     cand = cdp_pool.alive_ports(FLOW1, 9222, span=8)
     if not cand:
         return []
     try:
-        launcher = _HERE / "cdp_up_nosandbox.py"
-        if launcher.exists():
+        launcher = cdpmod.script("cdp_up_nosandbox.py") if cdpmod else None
+        if launcher:
             import importlib.util
             spec = importlib.util.spec_from_file_location("_cdp_up", launcher)
             mod = importlib.util.module_from_spec(spec)
@@ -662,21 +681,30 @@ def run_cdp(num: int, ports: str | None, manual_wait: float,
             # 优先用带 --no-sandbox 的启动器：本机 Edge 的 renderer 沙箱
             # 创建失败，用 cdp_pool 直启会得到「端口就绪但 renderer=0」的
             # 假活实例（页面级命令全部超时）。见 cdp_up_nosandbox.py 头部说明。
-            launcher = _HERE / "cdp_up_nosandbox.py"
-            if launcher.exists():
+            launcher = cdpmod.script("cdp_up_nosandbox.py") if cdpmod else None
+            if launcher:
                 print(f"  启动 {num} 个 CDP 实例（cdp_up_nosandbox）…")
                 subprocess.call([sys.executable, str(launcher), f"--n={num}"])
             else:
                 print(f"  启动 {num} 个 CDP 实例（cdp_pool）…")
-                import cdp_pool  # noqa: E402
-                cdp_pool.ensure(FLOW1, n=num, base_port=9222, log=None)
+                cdp_pool = cdpmod.module_import("cdp_pool") if cdpmod else None
+                if cdp_pool is None:
+                    print("  [INFO] CDP 取全文模块未安装 → 跳过启动，改走备用链路")
+                else:
+                    cdp_pool.ensure(FLOW1, n=num, base_port=9222, log=None)
             pl = _usable_ports()
     if not pl:
+        _dl0 = cdpmod.script("download_all_fulltexts.py") if cdpmod else None
+        if _dl0 is None:
+            print("[INFO] CDP 取全文模块未安装（optional-cdp-fulltext/ 缺失）"
+                  " → 静默改走备用链路：fulltext_router --fallback / "
+                  "preflight_fallback（nature-skill 获取模块）")
+            return 3                            # 3 = 跳过（非失败）
         print("[X] 无可用 CDP 实例")
         return 4
     print(f"  实例端口：{pl}")
 
-    cmd = [sys.executable, "-u", str(_HERE / "download_all_fulltexts.py"),
+    cmd = [sys.executable, "-u", str(cdpmod.script("download_all_fulltexts.py")),
            f"--doi={docis}", f"--limit={n_gap}", f"--delay={delay}",
            f"--site-fail-limit={site_fail_limit}", "--grace=45",
            f"--ports={','.join(str(p) for p in pl)}", f"--n={len(pl)}"]
@@ -1011,8 +1039,8 @@ def main() -> int:
     if a.repo:
         pl = ([int(x) for x in a.ports.split(",") if x.strip()] if a.ports else _usable_ports())
         if not pl:
-            launcher = _HERE / "cdp_up_nosandbox.py"
-            if launcher.exists():
+            launcher = cdpmod.script("cdp_up_nosandbox.py") if cdpmod else None
+            if launcher:
                 subprocess.call([sys.executable, str(launcher), f"--n={a.n}"])
                 pl = _usable_ports()
         if not pl:

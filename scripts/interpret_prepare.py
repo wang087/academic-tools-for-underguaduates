@@ -681,6 +681,14 @@ def main() -> int:
 
         abstract = abstracts.get(doi, "") or rec.get("abstract") or ""
         src = "fulltext" if text.strip() else "abstract"
+        # [WARN] 落地页正文**不是全文**：`landing-page-text` 拿到的是
+        #   「摘要 + 参考文献 + 页面导航」——申勇实测 34,926 字符里
+        #   一个 `[p.N]` 页标记、一个 Fig./Table 编号都没有，看着像全文而已。
+        #   若仍标 fulltext，subagent 会如实降级、而报告会照任务包高报覆盖度
+        #   （取证见 实测结果汇总.md#h-2）。文本照旧下发（它确实含摘要），
+        #   但证据等级按**摘要级**记。
+        if src == "fulltext" and extraction_backend == "landing-page-text":
+            src = "abstract"
         if src == "fulltext":
             n_full += 1
         else:

@@ -132,7 +132,7 @@ python scripts/reviews_fulltext.py --backfill
 ```bash
 # 推荐：本机环境 renderer 沙箱创建失败，用带 --no-sandbox 的启动器
 #       —— 它就绪判定含「renderer > 0」，能挡住假活实例
-python scripts/cdp_up_nosandbox.py --n=3
+python optional-cdp-fulltext/cdp_up_nosandbox.py --n=3
 
 # 正常环境可用原命令（沙箱是有价值的防线，不要默认关闭）
 uv run --with websocket-client --with pypdf python scripts/cdp_pool.py up --n=3

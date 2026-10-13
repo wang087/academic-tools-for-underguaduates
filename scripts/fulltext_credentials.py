@@ -5,9 +5,10 @@
 # 立场声明（[STOP] 必须与 SKILL.md:1690-1697 的硬约束一致）
 #   1) 凭据**由用户提供**，本流程**不代填、不代登录、不代持**。
 #      因此本模块**只读**：它读凭据文件，不创建、不改写、不删除。
-#      需要写入时请在外部 skill（nature-downloader）里用它的
+#      需要写入时请在**外部 skill**（nature-downloader，**未并入本流程**）里用它的
 #      `configure_credentials.py set <provider>` —— 该 skill 已实现
 #      0600 权限与原子写，重复造一份只会多一条泄露面。
+#      （也可直接设环境变量：`PAPER_EMAIL` / `LIT_DL_CONFIG_DIR` 等，本模块同样读得到）
 #   2) 秘钥**绝不**进入日志、journal、manifest、交付物。
 #      对外只暴露 `mask()` 后的末四位。
 #   3) 文件不存在 = 没有凭据 = 该路线不可用。**不报错、不索要、不猜测**。
