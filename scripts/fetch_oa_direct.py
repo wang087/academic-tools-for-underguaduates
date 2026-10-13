@@ -35,7 +35,7 @@ def _refuse() -> None:
     _err.write(
         "\n[STOP] fetch_oa_direct.py 已于 v4 停用（违反 CDP 强制抓取禁令）。\n"
         "   全文获取一律经 CDP，请改用：\n"
-        "     uv run --with websocket-client --with pypdf python download_all_fulltexts.py \\\n"
+        "     uv run --with websocket-client --with pypdf python <流程1>/optional-cdp-fulltext/download_all_fulltexts.py \\\n"
         "         --n=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35\n"
         "   详见 SKILL.md §5.1 与 README「CDP 强制抓取禁令」。\n\n")
     _err.flush()

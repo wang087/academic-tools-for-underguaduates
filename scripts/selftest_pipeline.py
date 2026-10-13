@@ -644,9 +644,14 @@ def main() -> int:
             # v16.3 新增契约：overview 布局必须可审计
             ol = gd.get("overview_layout") or {}
             ometa = ol.get("meta") or {}
+            # 门槛随语料规模缩放：`pos` 装的是**参与布局的**节点（真实例 53/81），
+            #   写死 `>= 10` 会让 `--offline` 的小样例（只有 5 个节点）永远报红，
+            #   而这条契约的本意是"有没有落盘"，不是"语料够不够大"。
+            n_nodes = len(gd.get("nodes") or [])
+            n_pos = len(ol.get("pos") or {})
             check("overview 节点坐标已落盘（布局可事后审计）",
-                  bool(ol.get("pos")) and len(ol["pos"]) >= 10,
-                  f"落盘 {len(ol.get('pos') or {})} 个节点")
+                  bool(n_pos) and n_pos >= min(10, max(1, n_nodes)),
+                  f"落盘 {n_pos} 个坐标（语料节点 {n_nodes}）")
             check("overview 记录了阶段扇区与三层半径",
                   bool(ometa.get("sectors"))
                   and (ometa.get("radii") or {}).__len__() >= 3,

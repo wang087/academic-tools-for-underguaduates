@@ -39,10 +39,12 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,16 +96,63 @@ def log(msg: str) -> None:
     print(msg)
 
 
+def _reclaim(directory: pathlib.Path) -> None:
+    """尽力回收一个 scratch 目录；任何失败都咽掉。
+
+    为什么不是光秃秃的 `rmdir()`：调用方在 `finally` 里清理，此时目录里
+    可能还有**没能删掉的文件**（Windows 上被占用、或上一步 `unlink` 失败）。
+    `rmdir()` 遇非空目录会抛 `OSError`，清不掉还留个空壳。
+    `rmtree(ignore_errors=True)` 对「已删空」「非空」「压根不存在」三种情况
+    都安全，是本仓库其它脚本（selftest_nature_integration.py、
+    fulltext_publishers.py 等）已经统一采用的做法。
+    """
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+# 已建出的 scratch 目录，供进程退出时兜底回收。
+_SCRATCH_DIRS: list[pathlib.Path] = []
+_ATEXIT_REGISTERED = False
+
+
+def _reclaim_all() -> None:
+    """进程退出时回收本进程建过的全部 scratch 目录。
+
+    对已被调用点回收过的路径再 `rmtree` 一次是无害的空操作，
+    因此不需要额外记录「已回收」状态。
+    """
+    while _SCRATCH_DIRS:
+        _reclaim(_SCRATCH_DIRS.pop())
+
+
 def scratch_dir(prefix: str = "nature_bridge_") -> pathlib.Path:
-    """建一个**可写**的临时目录。
+    """建一个**可写**的临时目录，并登记为「退出时必须回收」。
 
     不用 `tempfile.mkdtemp()`：它以 0700 建目录，在受限沙箱下会变成
     「建得出来、写不进去」——实测 `PermissionError: [Errno 13]`。
     用 `pathlib.mkdir()` 走默认权限即可，两者对本工具都够用。
+
+    [STOP] 这个取舍有代价，必须记住：`mkdtemp()` 会由 `tempfile` 在退出时
+    自动删除，而 `mkdir()` **不会** —— 建目录的活我们接了过来，回收的活
+    也就一并接手。早期版本正是漏了这一点：调用方只 `unlink()` 临时**文件**、
+    从不删**目录**，于是每跑一次 `check` 就在仓库里留下 2–3 个空文件夹
+    （实测 `流程1/` 下积了 14 个 `nature_bridge_{audit,src,norm}_*`，
+    跨 4 个 PID）。当 `gettempdir()` 因沙箱被解析到工作区内时，这些空壳
+    就直接倒进了仓库。
+
+    所以这里用**两道防线**，新增调用点时不必记得手工清理：
+      ① `atexit` 兜底 —— 正常退出、`sys.exit()`、未捕获异常都覆盖；
+         调用点已回收的目录会被重复 `rmtree` 一次，对不存在的路径是空操作。
+      ② 调用点仍应显式回收（`finally: _reclaim(d)`），让垃圾尽快消失，
+         而不是攒到进程结束 —— 长驻进程里 `atexit` 可能几小时都不触发。
     """
+    global _ATEXIT_REGISTERED
     base = pathlib.Path(tempfile.gettempdir())
     d = base / f"{prefix}{os.getpid()}_{next(tempfile._get_candidate_names())}"
     d.mkdir(parents=True, exist_ok=True)
+    _SCRATCH_DIRS.append(d)
+    if not _ATEXIT_REGISTERED:
+        atexit.register(_reclaim_all)
+        _ATEXIT_REGISTERED = True
     return d
 
 
@@ -327,14 +376,18 @@ def _content_check(card: pathlib.Path, source_text: str | None,
 
     tmp = None
     norm_path = None
+    tmp_dir = None
+    norm_dir = None
     try:
         args = [str(card), "--tier", "all", "--json"]
         if source_text is not None:
-            tmp = scratch_file(scratch_dir("nature_bridge_src_"), ".txt")
+            tmp_dir = scratch_dir("nature_bridge_src_")
+            tmp = scratch_file(tmp_dir, ".txt")
             tmp.write_text(source_text, encoding="utf-8")
             args += ["--source", str(tmp)]
         # 用**归一化后的文本**做校验：写一份临时副本，卡片本身不动。
-        norm_path = scratch_file(scratch_dir("nature_bridge_norm_"), ".md")
+        norm_dir = scratch_dir("nature_bridge_norm_")
+        norm_path = scratch_file(norm_dir, ".md")
         norm_path.write_text(normalized, encoding="utf-8")
         args[0] = str(norm_path)
         code, out, err = run_py(pathlib.Path(script), args)
@@ -352,6 +405,11 @@ def _content_check(card: pathlib.Path, source_text: str | None,
                     p.unlink()
                 except OSError:
                     pass
+        # 文件删完还要把**目录**删掉：只 unlink 文件会在仓库里留空壳，
+        # 这正是 nature_bridge_{src,norm}_* 累积的成因。见 scratch_dir() 文档。
+        for d in (tmp_dir, norm_dir):
+            if d:
+                _reclaim(d)
 
     findings = report.get("findings") or []
     if not strict:
@@ -427,6 +485,9 @@ def cmd_check(a) -> int:
             tmp_audit_path.unlink()
         except OSError:
             pass
+        # 同 _content_check：删文件之外还要删目录，否则 nature_bridge_audit_*
+        # 会留成空壳。见 scratch_dir() 文档。
+        _reclaim(tmp_audit_path.parent)
 
     # ② 内容级校验（数字回查原文 —— 审计器做不到的那一半）
     #   原文取哪里：显式 --source 优先；否则**自动用 --bundle 里的逐页正文**。
@@ -617,8 +678,7 @@ def self_test() -> int:
             print(f"      {text.strip()[:400]}")
         ok = ok and good
     finally:
-        import shutil
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        _reclaim(tmpdir)
 
     print(f"\n结果：{'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

@@ -18,7 +18,12 @@
 # 用法：
 #   uv run python disambiguate.py --surname=<姓> --given=<名> \
 #       --affil="<本人署名单位指纹 1>" --affil="<指纹 2>" \
-#       --anchor-doi=<确定无疑的代表作 DOI（逗号分隔）>
+#       --anchor-doi=<确定无疑的代表作 DOI（逗号分隔）> \
+#       --domain-terms="<方向词1,方向词2,…>"      # 判据⓪ 的同域校验（可省，见下）
+#
+#   --domain-terms 缺省时回退环境变量 PAPER_DOMAIN_TERMS，再回退本次
+#     <WORKDIR>/.work_cdp/topic_plan.json 的主题/方法词；三者都没有则**跳过同域校验**
+#     并告警 —— 此时「DOI 出自本人 ORCID」单独定案，ORCID 自动导入的同名他人会一并被确认。
 #
 #   输入取自 <WORKDIR>/.work_cdp/ 下的 europepmc_parsed.json 或 *.json（Europe PMC 原始结果）
 #   产出 <WORKDIR>/.work_cdp/disambiguated.json
@@ -30,6 +35,7 @@ from __future__ import annotations
 import collections
 import io
 import json
+import os
 import pathlib
 import re
 import sys
@@ -47,13 +53,15 @@ def parse_args(argv):
     from collections import defaultdict
     o = defaultdict(list)
     o.update({"surname": "", "given": "", "affil": [], "anchor_doi": [],
-              "min_coauthor": 2, "large_collab": 40, "input": ""})
+              "min_coauthor": 2, "large_collab": 40, "input": "", "domain_terms": []})
     for a in argv:
         if a.startswith("--surname="): o["surname"] = a.split("=", 1)[1]
         elif a.startswith("--given="): o["given"] = a.split("=", 1)[1]
         elif a.startswith("--affil="): o["affil"].append(a.split("=", 1)[1])
         elif a.startswith("--anchor-doi="): o["anchor_doi"] += [
             x for x in a.split("=", 1)[1].split(",") if x]
+        elif a.startswith("--domain-terms="): o["domain_terms"] += [
+            x.strip().lower() for x in re.split(r"[,|、；;]", a.split("=", 1)[1]) if x.strip()]
         elif a.startswith("--min-coauthor="): o["min_coauthor"] = int(a.split("=", 1)[1])
         elif a.startswith("--large-collab="): o["large_collab"] = int(a.split("=", 1)[1])
         elif a.startswith("--input="): o["input"] = a.split("=", 1)[1]
@@ -352,6 +360,36 @@ def main() -> int:
     if orcid_dois:
         log.info(f"判据⓪ ORCID 溯源：本人 ORCID 记录含 {len(orcid_dois)} 个 DOI")
 
+    # ── 判据⓪ 的同域校验词表 ────────────────────────────────
+    #   为什么需要：ORCID 的自动导入（Web of Science / Scopus 认领）会把**同名他人**
+    #   的条目拉进本人记录，此时「DOI 出自 ORCID = 本人认领」这个强信号本身就脏了
+    #   （实测：一位神经退行方向学者的 ORCID 成果里混入 11 条材料/腐蚀/增材制造论文）。
+    #   词表只从**运行时**取，不写死任何作者的领域：
+    #     ① --domain-terms=  ② PAPER_DOMAIN_TERMS  ③ 本次 topic_plan.json 的主题/方法词
+    #     都没有 → 跳过同域校验并告警（保持旧行为，绝不假装判得动）。
+    terms = list(o["domain_terms"])
+    if not terms:
+        terms = [t.strip().lower() for t in
+                 re.split(r"[,|、；;]", os.environ.get("PAPER_DOMAIN_TERMS", "")) if t.strip()]
+    if not terms:
+        tp = cdpdir / "topic_plan.json"
+        if tp.exists():
+            try:
+                p = json.loads(tp.read_text(encoding="utf-8"))
+                terms = [str(x).strip().lower() for x in
+                         ((p.get("topic_terms_en") or []) + (p.get("method_terms_en") or [])
+                          + [p.get("direction_chosen") or ""]) if len(str(x).strip()) > 2]
+            except Exception:  # noqa: BLE001
+                terms = []
+    terms = sorted({t for t in terms if len(t) > 2})
+    if terms:
+        log.info(f"判据⓪ 同域校验：{len(terms)} 个方向词（运行时提供）")
+    else:
+        log.warn("[WARN] 未提供 --domain-terms / PAPER_DOMAIN_TERMS，本次运行也无 "
+                 "topic_plan.json → 判据⓪ 的同域校验**跳过**："
+                 "ORCID 溯源即确认（若该 ORCID 记录含自动导入条目，同名他人会一并确认）")
+    orcid_off: list[tuple] = []
+
     hit, miss = [], []
     for key, r in recs.items():
         # ── 判据 ⓪：ORCID 溯源（优先级最高，肯定性确认）──────────
@@ -362,9 +400,32 @@ def main() -> int:
             if _doi.startswith(_pre):
                 _doi = _doi[len(_pre):]
         if _doi and _doi in orcid_dois:
+            # 同域校验：ORCID 溯源仍是强信号，但**不足以在方向完全不符时单独定案**
+            #   —— 自动导入会把同名他人拉进本人记录。命中不了任何方向词的，
+            #   既不是肯定性证据也不是否定性证据 → 转**待复核**（不删、不排除）。
+            # 判定文本 = 题名 + **刊名** + 摘要。
+            #   必须带刊名：Crossref 常不返回摘要，早期成果题名也更朴素
+            #   （如 "Effects of nimodipine on medial septal area cells"，刊名才是
+            #   Brain Research / Behavioural Brain Research 这类领域信号），
+            #   只看题名会把本人 1990s 的正当成果误拦进待复核。
+            _ji = (r.get("journalInfo") or {}).get("journal") or {}
+            _txt = " ".join([(r.get("title") or ""),
+                             (r.get("journal") or ""), (r.get("short_journal") or ""),
+                             (_ji.get("title") or ""),
+                             (r.get("abstractText") or r.get("abstract") or "")]).lower()
+            _kw = [t for t in terms if t in _txt]
+            if terms and _txt.strip() and not _kw:
+                r["_reason"] = "orcid-offdomain"
+                r["_blocks"] = author_blocks(r, o["surname"], o["given"])
+                r["_affil_hits"] = []
+                r["_domain_words"] = []
+                orcid_off.append((r, "ORCID 溯源但题录/摘要不含任何方向词 "
+                                     "（疑 ORCID 自动导入的同名他人），转待复核"))
+                continue
             r["_reason"] = "orcid-linked"
             r["_blocks"] = author_blocks(r, o["surname"], o["given"])
             r["_affil_hits"] = []
+            r["_domain_words"] = _kw[:6]
             hit.append((r, "ORCID 溯源：该 DOI 出自本人 ORCID 成果记录"))
             continue
 
@@ -480,6 +541,13 @@ def main() -> int:
             r["_why"] = f"单位命中 {r['_affil_hits']}（未启用合作者判据）"
             confirmed.append(r)
 
+    # ORCID 溯源但方向不符的 → **待复核**（不是排除：drop 会被 scope.py 套用，
+    #   万一是本人跨领域合作就永久丢失；人工看一眼即可定性）。
+    for r, why in orcid_off:
+        r["_verdict"] = "review"
+        r["_why"] = why
+        review.append(r)
+
     # miss 里混着两种性质完全不同的记录，必须**分开报**：
     #   「肯定性判定为他人」才是排除；「数据缺失」只是**没判**，不是排除。
     #   旧版一律打成「排除 N」，会让人误以为 N 篇被剔除了 ——
@@ -491,6 +559,11 @@ def main() -> int:
     log.info(f"确认 {len(confirmed)}（其中 ORCID 溯源 {_n_orcid}）| "
              f"[WARN] 待复核 {len(review)} | 排除 {_n_excl} | "
              f"数据缺失/无法判定 {_n_data}")
+    if orcid_off:
+        log.warn(f"判据⓪ 同域校验拦下 {len(orcid_off)} 条「DOI 在本人 ORCID 里、"
+                 f"但题录与方向词完全不命中」→ 已转待复核。"
+                 f"这类条目通常来自 ORCID 的自动导入（同名他人），"
+                 f"逐条人工确认后可用 scope.py 的排除名单剔除。")
     if _n_data:
         log.warn(f"有 {_n_data} 条**因语料缺少作者/单位信息而无法判定**（非否定证据）。"
                  f"若占比很高，说明候选语料不合格（需逐作者信息，如 Europe PMC 原始记录），"

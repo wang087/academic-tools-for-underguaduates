@@ -94,7 +94,7 @@ def main() -> int:
     os.environ["CDP_PORT"] = str(port)
 
     import cdp          # noqa: E402
-    import cdp_pool     # noqa: E402
+    import cdp_pool     # noqa: E402  ← 属核心（ORCID/回收共用），不受可选模块增删影响
 
     page = tmp / "fixture.html"
     page.write_text(FIXTURE, encoding="utf-8")

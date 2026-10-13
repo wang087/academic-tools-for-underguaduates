@@ -135,7 +135,8 @@ def main() -> int:
             "needs": "Node.js + %s" % cred,
             "config_dir": str(cfgdir),
             "credentials_present": cred.is_file(),
-            "how": "python scripts/configure_credentials.py（在 skill 目录下跑）",
+            "how": "外部 skill `nature-downloader` 的 scripts/configure_credentials.py"
+                   "（**本流程未并入它**；缺该 skill 时本路线判为不可用，属如实上报）",
             "note": "Elsevier / Springer Nature / IEEE 的官方 API 路线。",
         }
         # ── 备选路线 3：机构 Web Access（需机构资源地址 + 已登录浏览器）

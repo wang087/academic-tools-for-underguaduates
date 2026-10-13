@@ -21,11 +21,11 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 >
 > | 原内容 | 问题 | 现处置 |
 > |---|---|---|
-> | 「Fetch full text (try PMC, then Unpaywall)」 | 教模型用纯 HTTP 直取全文，**违反分层获取策略**（原文属第二层） | 删除。作者论文的全文只能来自 `download_all_fulltexts.py` 已下好的本地 PDF；参考文献若为**开放获取综述**，全文由阶段 D2 经 Europe PMC 结构化接口预先取好并写进任务包 |
+> | 「Fetch full text (try PMC, then Unpaywall)」 | 教模型用纯 HTTP 直取全文，**违反分层获取策略**（原文属第二层） | 删除。作者论文的全文只能来自**可选模块** `optional-cdp-fulltext/download_all_fulltexts.py` 已下好的本地 PDF；参考文献若为**开放获取综述**，全文由阶段 D2 经 Europe PMC 结构化接口预先取好并写进任务包 |
 > | 引用 `evaluating-paper-relevance` / `traversing-citations` / `finding-open-access-papers` / `checking-chembl` | 这四个技能**在本环境并不存在**，模型会去调用不存在的工具 | 删除，改为指向本流程 `scripts/` 下的真实脚本 |
 > | 产物 `papers-reviewed.json` / `SUMMARY.md` | 与本流程的 `.work_cdp/` 产物体系无关，会写出流程外的孤儿文件 | 改为 `.work_cdp/interpret/` 下的既定契约 |
 > | 英文、面向「检索 100 篇做筛选」 | 与本流程「已知作者 → 逐篇深读」的场景不符 | 重写为中文的**深度解读**手册 |
-> | 速率限制建议（500ms / 2.5s） | 针对 PubMed API，与本流程的站点熔断/拟人化间隔是两套体系，混用会误导 | 删除；节流一律由主流程 `download_all_fulltexts.py` 统一管理 |
+> | 速率限制建议（500ms / 2.5s） | 针对 PubMed API，与本流程的站点熔断/拟人化间隔是两套体系，混用会误导 | 删除；节流一律由主流程（可选模块 `optional-cdp-fulltext/download_all_fulltexts.py`）统一管理 |
 >
 > 保留下来的**唯一内核**是「并行 subagent + 批次间合并」这一工程模式 —— 它确实有用，但必须换成上面这套契约。
 
@@ -84,7 +84,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 | `.work_cdp/crossref_all.json` | `fetch_crossref_all.py` | [OK] |
 | `.work_cdp/interpret/tasks/*.json` | `interpret_prepare.py`（本阶段） | [OK] |
 | `.work_cdp/prepare_plan.json` | `prepare_stage.py`（阶段 0） | 推荐（缺则用默认档位，并在报告里标注为缺省回退） |
-| `<作者名>_paper_Exports/<年>_<题名>.pdf` | `download_all_fulltexts.py`（主流程阶段 E） | 可选（缺则退化为摘要级） |
+| `<作者名>_paper_Exports/<年>_<题名>.pdf` | 可选模块 `optional-cdp-fulltext/download_all_fulltexts.py`（主流程阶段 E）；模块未安装 → 备用链路 | 可选（缺则退化为摘要级） |
 | `.work_cdp/disambiguated.json` | `disambiguate.py` | 可选（排除同名他人） |
 
 > **`tasks/*.json` 是 subagent 的唯一输入。**
@@ -122,7 +122,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 ## 5. 执行流程
 
 ```
-① prepare   uv run --with pypdf python 流程1/scripts/interpret_prepare.py
+① prepare   uv run --with pypdf --with pillow python 流程1/scripts/interpret_prepare.py
                  ↓  产出 tasks/*.json（每篇一个自包含任务包）
 ② 分派      主 agent 分批并行（单条消息内多个 Agent 调用），每批 30–60 秒轮询一次完成度
                  ↓  每个 subagent 只读自己的 task.json，只写自己的 result.json
@@ -138,7 +138,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 ### ① prepare
 
 ```bash
-uv run --with pypdf python 流程1/scripts/interpret_prepare.py
+uv run --with pypdf --with pillow python 流程1/scripts/interpret_prepare.py
 # 可选：--engine=legacy|paper-card  解读引擎（缺省走阶段 0；见 § 7.3）
 # 可选：--max-chars=60000   单篇正文截断上限
 # 可选：--only=10.1038/xxx,10.1016/yyy   只准备指定 DOI
@@ -188,15 +188,31 @@ uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
 
 ### ③ 回收与校验
 
-逐份检查（用脚本或人工）：
+逐份检查（**先跑 `agent_poll.py`，它已经把下面前三条自动化了**）：
 
 - [ ] `results/` 里文件数 == `tasks/` 里文件数（缺的**重派**）
 - [ ] 每份都能 `json.loads` 且**含 schema 的全部必需键**（§ 6）
+- [ ] **容器类型合规** —— 数组字段必须是 `list[str]`，
+      `quantified_gains` 必须是 `list[dict]` 且含 `metric/value/context`。
+      这条原先**没有任何闸门**：`agent_poll` 只问「能不能 `json.loads` 且非空」，
+      `interpret_build.as_list()` 又明写「容忍数组写成字符串」，
+      于是 414 字符的整段字符串会被包成 `[str]` 一路通过，
+      报告照样生成，而阶段 K 词云 / `refs_curate.py` 拿到的是 1 条超长条目而非 3–8 条方法句
+      （实测 25 张卡里 3 处中招，见 `流程1/实测结果汇总.md#h-3`）。
+      现 `agent_poll.py` 按阶段分表断言（H/H2 = 解读卡 11/13 字段，R2 = 概貌卡），
+      不合规计入**退出码 4**并打印卡名 + 具体问题；
+      篇数已齐但有坏卡时**不再**印「已齐，可进入汇总」
 - [ ] `doi` 与任务包一致（防止 subagent 张冠李戴）
 - [ ] `quantified_gains` 里的数字**能在原文中找到**（抽查 2–3 篇）
 - [ ] 没有把「展望」写进 `verified_conclusions`
 
 > **坏卡一律重派，不要手工修补。** 手工修补会让解读标准在批次间漂移。
+>
+> **唯一允许的窄例外**：问题**只在容器类型**（内容本身完备），
+> 此时可按句读（`。`/`；`）把字符串切成数组 —— 纯格式、内容零改动。
+> 切完必须在台账里记明切了哪几张、切分依据，以及**为什么没重派**
+> （本轮实测：重派 3 张 L2 全文卡约 150 万 token，而缺陷只是外壳类型；
+> 若内容也有疑点就必须重派，不许用切分掩盖）。
 
 ### ④ build
 

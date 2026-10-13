@@ -39,9 +39,24 @@ if str(_HERE) not in sys.path:
 from cdp import is_alive, list_tabs, resolve_port, version  # noqa: E402
 from logutil import get as get_log, workdir as _wd          # noqa: E402
 
-EDGE_CANDIDATES = (
-    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+EDGE_CANDIDATES = tuple(
+    p for p in (
+        # 环境变量优先（PAPER_BROWSER 通用覆盖点；EDGE_PATH 兼容旧习惯），
+        #   换机器/换系统不必改代码。
+        os.environ.get("PAPER_BROWSER"),
+        os.environ.get("EDGE_PATH"),
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+        # 非 Windows 候选（CDP 只需 Chromium 内核，不认 Edge 品牌）
+        "/usr/bin/microsoft-edge", "/usr/bin/google-chrome",
+        "/usr/bin/chromium", "/usr/bin/chromium-browser",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    )
+    # 空值必须剔除：未设 PAPER_BROWSER/EDGE_PATH 时它们是 None/""，而
+    #   Path("").exists() 指向当前目录、恒为真 —— 留着会让 find_edge()
+    #   返回空串，Popen([""]) 直接抛 WinError 87（整站浏览器起不来）。
+    if p
 )
 
 # ── 启动参数档位 ────────────────────────────────────────────

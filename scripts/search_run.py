@@ -265,8 +265,12 @@ def _run_source(q: dict, timeout: int = 240) -> list[dict] | None:
     cmd = [sys.executable, str(PAGINATE), "--api", src,
            "--query", query, "--max-records", str(max_rec)]
 
+    # paginate.py 把结果以 UTF-8 JSON 写 stdout，但它**不**自己 reconfigure
+    #   编码；在 GBK 控制台下若结果含非 GBK 字符（ä/ö/ą 等），子进程会抛
+    #   UnicodeEncodeError 并 exit 1，整源失败。显式给子进程 UTF-8。
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         _failures.append({"source": src, "reason": f"超时（{timeout}s）"})
         return None

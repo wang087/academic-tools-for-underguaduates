@@ -43,6 +43,7 @@
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -1795,42 +1796,61 @@ def _draw_wordcloud_custom(plt, weights, colors, outdir, stem, fmt, dpi,
 
 
 # ══════════════════════════════════════════════════════════════
-# 词云布局引擎（v17.2）
+# 词云引擎（v17.11 重构：**布局与出图都用 `wordcloud` 自绘**）
 #
-# 为什么接 `wordcloud`（amueller）：它用**积分图占位检测**在像素级找空位，
-#   是这一领域的成熟实现；我们自研的"阿基米德螺旋 + 矩形碰撞"是同一个思路的
-#   手搓版本，只是在还没有库的时候够用。接进来之后：
-#     多字词/长英文词的贴合更紧、画布利用率更高、词的长宽按**真实字形**算
-#     （自研版是按"CJK≈1.0 / ASCII≈0.55 字号"估的，估偏了就会压字）。
+# 为什么接 `wordcloud`（amueller）：它用**积分图 + 字形像素**做占位检测，
+#   是这一领域的成熟实现；自研的"阿基米德螺旋 + 矩形碰撞"只是同一思路的手搓版。
 #
-# **但只借它算布局，不借它出图**（这是关键取舍）：
-#   库的 to_file()/to_svg() 只画词，没有标题、副标题、方向图例，
-#   而这三样是本流程图件的固定契约；把整张图交给它就会丢掉它们。
-#   所以：用它算出每个词的 `(词, 字号px, 位置, 颜色)`，再用 matplotlib 复刻绘制。
-#   收益是标题/图例/矢量 SVG/字号自述/碰撞质检**全部保留**，且只有一条出图路径。
+# **v17.2–v17.10 走的是「库算布局、matplotlib 复刻」—— 这条路 v17.11 实测证伪**：
+#   把库的栅格与自己复刻的栅格逐像素对齐，实测**墨迹召回只有 64.2%、
+#   16.3% 的复刻墨迹落在库没有墨迹的地方**（300 dpi 成品同参数下库自绘 17.73%、
+#   复刻 12.79%）。根因是两条**坐标语义不一致**：
+#     ① 库里 `draw.text(pos, word)` 用的是**默认锚点**，`layout_` 的 `position`
+#        实测就是**墨迹上缘所在行**（单字对照：`国`/`alzheimer`/`tau` 三例，
+#        上偏差 0–1 px），我们按「墨迹左上角」再叠 matplotlib 的 `va="top"`
+#        （实测又在锚点下方 2–10 px，随字号线性增长）→ **字号越大越往下掉**；
+#     ② 复刻只能拿「紧墨迹矩形」做碰撞验收，而库的占位检测是**字形像素级**的，
+#        于是验收的几何与画出的几何不是同一套（K-9 的「19 对自相交」「碰撞剔除 16」
+#        全是在错误的几何上量出来的）。
+#   → 结论：**借它算布局就必须连出图一起借**，否则复刻层永远是一个
+#      "自己量自己"的假验收。现在：库自绘栅格 → `imshow` 嵌进 matplotlib 画布，
+#      标题/图注/方向图例仍由 matplotlib **矢量**叠加。
+#   代价（如实申报）：词云的 **SVG 内嵌位图**，不再是矢量字形；
+#      PPT 用的是 PNG，不受影响。
 #
-# 复刻必须满足两个条件，否则词会互相压住（都实测过）：
-#   ① **两边绑同一个字体文件**。库按文件画，matplotlib 按族名查；
-#      `.ttc` 集合里 matplotlib 可能选到另一款 —— 实测库用 msyh.ttc（常规体）、
-#      matplotlib 解析 "Microsoft YaHei" 拿到的是 msyhl.ttc（细体），
-#      字形宽度不同 → 复刻后墨迹框重叠 **41 对/90 词**。改用 .ttf（SimHei）
-#      并用 FontProperties(fname=…) 绑定后降到 **2 对**（视觉无碰撞）。
-#   ② **坐标系纵横比必须与布局画布一致**。库的布局是 1500×1100 的像素空间；
-#      若 matplotlib 的 axes 物理比例不是 1500:1100（比如 14.1×9.5 in），
-#      纵向会被压缩 → 词挤在一起。这里按画布比例**反算** rect 宽度。
+# 复刻时代的两条约束现在只剩一条有意义：**坐标系纵横比必须与布局画布一致**
+#   （axes 物理比例 != 1500:1100 会把图纵向压扁）。字体绑定问题随复刻层一起消失。
 #
-# 坐标语义（有坑，已核对库源码 `to_image`）：
-#   `layout_` 里存的是 **(y, x)**，库自己画的时候写的是
-#   `pos = (int(position[1] * scale), int(position[0] * scale))`。
-#   按 (x, y) 用会得到一张完全错乱的图（实测与库自身渲染的 IoU 只有 0.033）。
+# 坐标语义（已核对库源码 `to_image`）：`layout_` 存的是 **(y, x)**，
+#   库自己画的时候写 `pos = (position[1] * scale, position[0] * scale)`。
+#   本文件只在 info/报告里读它，出图不再自己摆字。
 # ══════════════════════════════════════════════════════════════
 WC_LIB_CANVAS = (1500, 1100)     # 布局画布（px）；与图件 16:11.6 的画幅一致
-WC_LIB_PX_PER_IN = 100.0         # 1500 px ↔ 15 in（1 px = 0.72 pt）
-WC_LIB_RELATIVE_SCALING = 0.8    # 频次对字号的影响；0.45 太扁（实测字号只有 38–70px）
-WC_LIB_MAX_FONT = 70             # px
-WC_LIB_MIN_FONT = 10             # px
-WC_LIB_MARGIN = 3                # px，词间最小净距
+WC_LIB_RELATIVE_SCALING = 0.25   # 频次对字号的影响。0.6 时 top 词吃掉画布、长尾退到最小档，
+                                 #   **填充率只有 17.7%**；0.25 实测 37.7%（v17.11）
+WC_LIB_MAX_FONT = None           # px。None = 由 WC_LIB_FONT_RATIO 推出（见下）
+WC_LIB_MIN_FONT = 16             # px。**基准字号**：最大字号 = 该值 × WC_LIB_FONT_RATIO
+                                 #   （v17.12 用**真实放置数**扫描 8/12/16/20/24/32/40/48/64：
+                                 #   8→348 词但比只有 2.0、墨迹 14.6%；16→**339/348 词、比 6.0、
+                                 #   墨迹 26.2%**（≈v17.11 的 28.8%）；20→238 词；32→95 词；
+                                 #   40→65 词 —— 字号一压平，大词让不出位置，词数掉得很快）
+WC_LIB_FONT_RATIO = 6            # **硬约束**：最大字号 ≤ 6 × 最小字号（v17.12 用户指定）。
+                                 #   库把字号钳在 [min_font_size, max_font_size]，所以只要
+                                 #   max = 6×min，成品实际字号比必然 ≤ 6（自检 ⑭ 断言）
+WC_MAX_WORDS = None              # None = 候选词型全部上云（本案例 348 个）
+WC_LIB_MARGIN = 2                # px，词间最小净距（库按字形像素保证金边；2 px 实测不粘读）
 WC_LIB_RANDOM_STATE = 42         # 固定 → 可复现
+
+# ── 等宽英文字体 / 字距（v17.12，用户指定）──────────────────────
+#   为什么必须**按词**切字体：CJK 字体的 ASCII 是"半角定宽"（实测 SimHei 的
+#   i/M/W 步进都 = 0.5 em），字母被塞进全宽格子、字形偏小 → 看起来**字距很大**；
+#   换 NSimSun / MS Gothic 同样如此（它们也是半角格）。要"等宽 + 紧凑"，
+#   纯 ASCII 词就得用真正的拉丁等宽字体。库只有一个 `font_path`，
+#   所以在 PIL 的 `text` / `textbbox` 入口按词替换字体（见 `_mono_word_fonts`）。
+WC_MONO_FONT_CANDIDATES = ("Consolas", "Cascadia Mono", "Courier New",
+                          "DejaVu Sans Mono")   # 末位随 matplotlib 必装，保底可用
+WC_MONO_TRACKING = 0.08          # 字距收紧量 = 该比例 × 字号（**只对纯 ASCII 词**）。
+                                 #   收紧后预留框同步变窄，故不会因此压字
 WC_ENGINE_DEFAULT = "library"
 
 
@@ -1856,20 +1876,165 @@ def resolve_cjk_font_file():
     return path, name
 
 
-def wordcloud_library_layout(weights, font_file, canvas=None, max_words=90,
-                             relative_scaling=None, max_font=None, min_font=None,
-                             margin=None, random_state=WC_LIB_RANDOM_STATE):
-    """只用 `wordcloud` **算布局** → (layout, info)。
+def resolve_mono_font_file():
+    """→ (字体文件路径 or None, 字体名)：纯 ASCII 词用的**拉丁等宽**字体。
 
-    `layout` —— [(词, 字号px, (y, x) 左上角, 方向, 颜色)]，顺序即放置顺序
-    `info`   —— 放置/未放置计数、字号区间、随机种子等，供报告如实申报
+    依次试 `WC_MONO_FONT_CANDIDATES`；末位 DejaVu Sans Mono 随 matplotlib 必装，
+    所以只要装了 matplotlib 就不会返回 None（保底可用）。
+    """
+    from matplotlib import font_manager
+    by_name = {}
+    for f in font_manager.fontManager.ttflist:
+        if f.name not in WC_MONO_FONT_CANDIDATES:
+            continue
+        # **优先常规体**：同名族里还挂着 Bold/Italic，`setdefault` 会随机拿到
+        #   一个字重（实测 Consolas 取到了 consolab.ttf 粗体），字形与期望不符。
+        regular = (str(f.style) == "normal" and int(f.weight) == 400)
+        prev = by_name.get(f.name)
+        if prev is None or (regular and not prev[0]):
+            by_name[f.name] = (regular, f.fname)
+    for name in WC_MONO_FONT_CANDIDATES:
+        p = (by_name.get(name) or (False, None))[1]
+        if p and pathlib.Path(p).exists():
+            return p, name
+    return None, ""
 
-    纯计算、不绘图：可单测，也能被自检直接断言（见 self_test ⑭）。
+
+def is_ascii_word(w: str) -> bool:
+    """纯 ASCII 词（字母/数字/连字符）—— 只有这类才切到拉丁等宽字体。"""
+    return bool(w) and all(ord(c) < 128 for c in w)
+
+
+@contextlib.contextmanager
+def _mono_word_fonts(mono_file, tracking=WC_MONO_TRACKING):
+    """**按词切字体 + 收紧字距**（包住库的生成与出图两段）。
+
+    为什么只能在这一层做：`WordCloud` 只有一个 `font_path`，而我们要的是
+    「中文用 SimHei、英文用拉丁等宽」—— 库没有按词选字体的入口，
+    但它的度量（`draw.textbbox`）与绘制（`draw.text`）都经过 PIL 的这两个方法，
+    且都拿得到**词本身**，所以在这里替换字体最省事、也不用改库。
+
+    **度量与绘制必须同时改**：预留框（textbbox）与画出的字（text）用同一个字体、
+    同一套字距，否则就是 v17.10 那个"验收几何 ≠ 绘制几何"的翻版。
+
+    字距收紧只作用于纯 ASCII 词：每字前进量 = 字宽 − tracking×字号；
+    预留框宽度同步减去 `tracking×(字数−1)`（收紧后整串墨迹正好窄这么多），
+    所以**收紧不会造成压字，也不会虚占空间**。
+    """
+    from PIL import ImageDraw, ImageFont
+    if not mono_file:
+        yield None
+        return
+    orig_text = ImageDraw.ImageDraw.text
+    orig_bbox = ImageDraw.ImageDraw.textbbox
+    cache = {}
+
+    def _pick(font, word):
+        """→ 该词该用的字体（None = 保持库给的中文字体）。
+
+        **字号要往 `font.font` 里再找一层**：库给的是 `TransposedFont`，它只代理
+        `.font` 而不代理 `.size`（实测 `TransposedFont.size is None`）——
+        直接读 `font.size` 会静默拿不到字号、整条按词切字体的路径失效
+        （自检 ⑭ 就是被这条抓出来的）。
+        """
+        if font is None or not is_ascii_word(word):
+            return None
+        size = getattr(font, "size", None)
+        if not size:
+            inner = getattr(font, "font", None)
+            size = getattr(inner, "size", None)
+        if not size:
+            return None
+        key = int(size)
+        if key not in cache:
+            f = ImageFont.truetype(mono_file, key)
+            if isinstance(font, ImageFont.TransposedFont):   # 保持库给的朝向
+                f = ImageFont.TransposedFont(f, orientation=font.orientation)
+            cache[key] = f
+        return cache[key]
+
+    def _size_of(f):
+        """字体字号 px（TransposedFont 只代理 `.font`，见 `_pick` 的说明）。"""
+        s = getattr(f, "size", None) or getattr(getattr(f, "font", None), "size", None)
+        return int(s or 0)
+
+    def _text(self, xy, word, fill=None, font=None, anchor=None, **kw):
+        f = _pick(font, word)
+        if f is None:
+            return orig_text(self, xy, word, fill, font, anchor, **kw)
+        tr = tracking * _size_of(f)
+        x, y = xy[0], xy[1]
+        for ch in word:
+            orig_text(self, (x, y), ch, fill, f, anchor, **kw)
+            x += f.getlength(ch) - tr
+        return None
+
+    def _textbbox(self, xy, word, font=None, anchor=None, **kw):
+        f = _pick(font, word)
+        if f is None:
+            return orig_bbox(self, xy, word, font, anchor, **kw)
+        x0, y0, x1, y1 = orig_bbox(self, xy, word, f, anchor, **kw)
+        tr = tracking * _size_of(f)
+        return (x0, y0, x0 + max(1.0, (x1 - x0) - tr * (len(word) - 1)), y1)
+
+    ImageDraw.ImageDraw.text = _text
+    ImageDraw.ImageDraw.textbbox = _textbbox
+    try:
+        yield {"mono_file": mono_file, "tracking": tracking,
+               "sizes_seen": sorted(cache)}
+    finally:
+        ImageDraw.ImageDraw.text = orig_text
+        ImageDraw.ImageDraw.textbbox = orig_bbox
+
+
+def resolve_font_bounds(min_font=None, max_font=None):
+    """→ (最小字号 px, 最大字号 px, 说明)。
+
+    **硬约束（v17.12）**：最大字号 ≤ `WC_LIB_FONT_RATIO`（6）× 最小字号。
+    库把字号钳在 `[min_font_size, max_font_size]` 内，所以只要这条成立，
+    成品里任何两个词的字号比必然 ≤ 6。显式传入的 `max_font` 若突破该约束，
+    **以约束为准**并返回说明（不静默放大）。
+    """
+    mn = WC_LIB_MIN_FONT if min_font is None else int(min_font)
+    cap = WC_LIB_FONT_RATIO * mn
+    want = WC_LIB_MAX_FONT if max_font is None else int(max_font)
+    if want is None or want > cap:
+        why = ("未指定上限 → 取 6×最小字号" if want is None
+               else f"传入上限 {want} 超过 6×{mn} → 钳到 {cap}")
+        return mn, cap, why
+    return mn, want, ""
+
+
+def wordcloud_library_build(weights, font_file, colors=None, canvas=None,
+                            max_words=WC_MAX_WORDS, relative_scaling=None,
+                            max_font=None, min_font=None, margin=None,
+                            random_state=WC_LIB_RANDOM_STATE, mono_file=None,
+                            mono_tracking=WC_MONO_TRACKING):
+    """构造并**生成**一个 `wordcloud` 对象 → (wc, info)。
+
+    `wc`   —— 已 `generate_from_frequencies` 的对象；调用方再用 `wc.to_image()`
+              （或 `to_array()`）**交给库自己出图** —— 位置即所见，没有复刻层。
+    `info` —— 放置/未放置计数、字号区间、随机种子等，供报告如实申报
+
+    `colors` —— 词 → 颜色。库在生成时就调 `color_func` 定色，所以方向配色
+      （`compute_wordcloud_weights` 给的 `color_of`）必须在**这一步**传进来，
+      不再是复刻时按词查表。缺省词用兜底色。
+
+    `mono_file` —— 拉丁等宽字体（纯 ASCII 词用）。度量与绘制同时替换，
+      见 `_mono_word_fonts`；生成与出图**两段都要包**在同一个上下文里。
+
+    v17.11 起布局与出图同源：`max_words=None` = 候选全上云。
+    v17.12 起字号上限由 `WC_LIB_FONT_RATIO`（6）推出（见 `resolve_font_bounds`）。
     """
     from wordcloud import WordCloud
     w_px, h_px = canvas or WC_LIB_CANVAS
-    if not weights:
-        return [], {"requested": 0, "placed": 0, "dropped": []}
+    # K-10：权重 dict 的插入顺序受 PYTHONHASHSEED 影响（取词路径里有 set 迭代），
+    #   而 wordcloud 对**同频词**按插入序排、本文件的 sorted() 又是稳定排序 ——
+    #   同一份数据跨进程会画出不同的云（实测 PNG md5 不同）。生成前按 (-权重, 词) 全序化。
+    weights = {k: weights[k]
+               for k in sorted(weights, key=lambda w: (-float(weights[w]), w))}
+    cmap = colors or {}
+    min_f, max_f, clamp_note = resolve_font_bounds(min_font, max_font)
     wc = WordCloud(
         font_path=font_file,
         width=int(w_px), height=int(h_px),
@@ -1878,37 +2043,102 @@ def wordcloud_library_layout(weights, font_file, canvas=None, max_words=90,
         prefer_horizontal=1.0,                     # 中文一律横排（竖排中文极难读）
         relative_scaling=(WC_LIB_RELATIVE_SCALING if relative_scaling is None
                           else relative_scaling),
-        max_words=int(max_words),
-        max_font_size=(WC_LIB_MAX_FONT if max_font is None else max_font),
-        min_font_size=(WC_LIB_MIN_FONT if min_font is None else min_font),
+        max_words=(len(weights) if max_words is None else int(max_words)),
+        max_font_size=max_f,
+        min_font_size=min_f,
         margin=(WC_LIB_MARGIN if margin is None else margin),
         random_state=random_state,
         collocations=False,                        # 我们直接给词频，不做搭配统计
+        color_func=lambda word, **kw: cmap.get(word, "#2E86AB"),
     )
-    wc.generate_from_frequencies(dict(weights))
-    placed = dict(wc.words_ or {})
-    sizes = [int(e[1]) for e in wc.layout_]
-    # 「请求数」= min(max_words, 可用词型数)：直接把 580 个候选当分母会误导
-    #   （图上只可能画 weight 最高的前 90 个），所以两个口径分开报。
+    with _mono_word_fonts(mono_file, mono_tracking) as mono_state:
+        wc.generate_from_frequencies(dict(weights))
+    # 出图（`to_image`）也要在同一个字体/字距上下文里 —— 库是**在出图那一刻**
+    #   才真正落笔的。把 tracking 挂在对象上，交给 `wordcloud_library_image()`
+    #   统一处理，避免调用方忘了包上下文（自检 ⑭ 就是被这条抓出来的）。
+    wc._fl1_mono_tracking = mono_tracking
+    # ── 「放下」必须数 `layout_`，不能数 `words_`（K-12）──────────────
+    #   库在第 476 行写的是 `self.words_ = dict(frequencies)` —— 那是**请求数**，
+    #   不管有没有放得下。旧代码 `placed = len(wc.words_)` 因此等于"按权重取前 N 个"，
+    #   一旦有词放不下就会**高报**（本轮加 6× 字号上限后立刻暴露：
+    #   报 348，实际 layout_ 只有 65）。v17.11 只是恰好全部放下才没出错。
+    placed_words = layout_words(wc)
+    placed = len(placed_words)
+    sizes = [int(e[1]) for e in wc.layout_] if not isinstance(wc.layout_, dict) else \
+        [int(v[1]) for v in wc.layout_.values()]
     n_avail = len(weights)
-    n_req = min(int(max_words), n_avail)
+    n_req = min(wc.max_words, n_avail)
     topn = sorted(weights, key=lambda w: -float(weights[w]))[:n_req]
     info = {
         "engine": "wordcloud(amueller)",
         "canvas_px": [int(w_px), int(h_px)],
-        "pixel_per_inch": WC_LIB_PX_PER_IN,
         "random_state": random_state,
         "relative_scaling": wc.relative_scaling,
-        "max_words": int(max_words),
+        "max_words": wc.max_words,
         "n_available": n_avail,
         "n_requested": n_req,
         "requested": n_req,
-        "placed": len(placed),
-        "dropped": [w for w in topn if w not in placed],
+        "placed": placed,
+        "dropped": [w for w in topn if w not in set(placed_words)],
         "font_size_px": [min(sizes), max(sizes)] if sizes else None,
         "max_font_size_px": wc.max_font_size,
         "min_font_size_px": wc.min_font_size,
+        "font_ratio_cap": WC_LIB_FONT_RATIO,
+        "font_ratio_actual": (round(max(sizes) / max(1, min(sizes)), 2)
+                              if sizes else None),
+        "font_clamp_note": clamp_note,
+        "mono_font_file": mono_state["mono_file"] if mono_state else None,
+        "mono_tracking": mono_tracking,
+        "mono_n_ascii": sum(1 for w in placed_words if is_ascii_word(w)),
+        "margin_px": wc.margin,
+        "colors_missing": [w for w in placed_words if w not in cmap],
     }
+    return wc, info
+
+
+def layout_words(wc):
+    """→ 真正放上去的词表（按放置顺序）。**不是** `wc.words_`。
+
+    库新版 `layout_` 是 `[((词, 频次), 字号, 位置, 朝向, 颜色), …]`，旧版是 dict；
+    这里两种形状都认。`wc.words_` 是**输入词频**（见 K-12），不能拿来当"放下"。
+    """
+    lay = getattr(wc, "layout_", None) or []
+    if isinstance(lay, dict):
+        return [str(k) for k in lay]
+    out = []
+    for it in lay:
+        w = it[0]
+        out.append(str(w[0] if isinstance(w, (tuple, list)) else w))
+    return out
+
+
+def wordcloud_library_image(wc, mono_file=None, scale=1.0):
+    """库**出图** → PIL Image（自带字体/字距上下文）。
+
+    **必须走这个入口**：`to_image()` 才是库真正落笔的地方，字体/字距补丁
+    要在这一刻生效。调用方自己写 `wc.scale=...; wc.to_image()` 会静默丢掉
+    按词切字体与字距收紧（自检 ⑭ 专门拦这条）。
+    """
+    wc.scale = scale
+    tracking = getattr(wc, "_fl1_mono_tracking", WC_MONO_TRACKING)
+    with _mono_word_fonts(mono_file, tracking):
+        return wc.to_image()
+
+
+def wordcloud_library_layout(weights, font_file, canvas=None, max_words=WC_MAX_WORDS,
+                             relative_scaling=None, max_font=None, min_font=None,
+                             margin=None, random_state=WC_LIB_RANDOM_STATE):
+    """`wordcloud_library_build` 的布局视图 → (layout, info)（自检 ⑭ 与报告用）。
+
+    `layout` —— [(词, 字号px, (y, x), 方向, 颜色)]，顺序即放置顺序。
+    **出图不再读它**（v17.11 起由库自绘）；这里保留是为自检断言坐标口径与可复现性。
+    """
+    if not weights:
+        return [], {"requested": 0, "placed": 0, "dropped": []}
+    wc, info = wordcloud_library_build(
+        weights, font_file, canvas=canvas, max_words=max_words,
+        relative_scaling=relative_scaling, max_font=max_font, min_font=min_font,
+        margin=margin, random_state=random_state)
     return list(wc.layout_), info
 
 
@@ -1926,10 +2156,9 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
     if not weights:
         return []
 
-    import math
+    import numpy as np
     from matplotlib.font_manager import FontProperties
     from matplotlib.patches import Patch
-    from PIL import ImageFont
 
     font_file, font_name = resolve_cjk_font_file()
     font_missing = None
@@ -1938,71 +2167,63 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
                         "）→ 中文会显示为方框")
         print(f"[WARN] {font_missing}\n"
               f"  → 图的可用性受影响；字号自述与报告会如实标注。", file=sys.stderr)
+    # 纯 ASCII 词用的拉丁等宽字体（v17.12）：CJK 字体的 ASCII 是半角定宽，
+    #   字母偏小、看起来字距大；换成真等宽拉丁字体 + 收紧字距（见 _mono_word_fonts）。
+    mono_file, mono_name = resolve_mono_font_file()
+    if not mono_file:
+        print("[WARN] 未找到任何拉丁等宽字体（试过：" +
+              "、".join(WC_MONO_FONT_CANDIDATES) + "）→ 英文词仍用中文字体渲染",
+              file=sys.stderr)
 
-    layout, linfo = wordcloud_library_layout(weights, font_file,
-                                             max_words=90)
-    if not layout:
+    # 库**自绘**：布局与出图同一个引擎 → 位置即所见，没有复刻层（v17.11）。
+    #   方向配色必须在生成时就交给库（color_func），不再是复刻时按词查表。
+    wc, linfo = wordcloud_library_build(weights, font_file, colors,
+                                        max_words=WC_MAX_WORDS, mono_file=mono_file)
+    if not wc.layout_:
         print("[WARN] 词云布局为空（wordcloud 未放置任何词）")
         return []
+    if linfo.get("font_clamp_note"):
+        print(f"[INFO] 词云字号上限：{linfo['font_clamp_note']}"
+              f"（成品实际字号比 {linfo['font_ratio_actual']}×，上限 {WC_LIB_FONT_RATIO}×）")
 
     w_px, h_px = linfo["canvas_px"]
     FIG_W, FIG_H = 15.0, 11.0
-    # 先按画布纵横比反算 rect 宽度，保证 axes 的物理比例 == 画布比例（见文件头说明②）
+    # axes 的物理比例必须 == 画布比例（1500:1100），否则栅格会被纵向压扁
     rect_h = 0.820
     rect_w = rect_h * FIG_H * (w_px / h_px) / FIG_W
     rect_x = (1.0 - rect_w) / 2.0
     fig = plt.figure(figsize=(FIG_W, FIG_H))
     ax = fig.add_axes([rect_x, 0.072, rect_w, rect_h])
+    # 栅格分辨率跟**本次输出 dpi** 走：让位图 1:1 落在 axes 的像素上，
+    #   避免"库出 1500 px、matplotlib 再放大 3 倍"那种糊图。
+    scale = (FIG_W * rect_w * dpi) / w_px
+    img = np.asarray(wordcloud_library_image(wc, mono_file, scale))
+    n_ink = int((img[..., 3] > 40).sum())
+    ink_pct = 100.0 * n_ink / float(img.shape[0] * img.shape[1])
+    ax.imshow(img, extent=(0, w_px, h_px, 0), origin="upper", aspect="auto",
+              interpolation="lanczos", zorder=1)
     ax.set_xlim(0, w_px)
     ax.set_ylim(h_px, 0)                     # y 向下，与库的像素空间一致
     ax.set_axis_off()
 
-    ax_w_in = FIG_W * rect_w
-    pt_per_px = ax_w_in * 72.0 / w_px        # 字号 px → pt
     fp = FontProperties(fname=font_file) if font_file else None
-    pil_cache, ink_boxes, over_pairs = {}, [], 0
-    for ((word, _freq), size, position, _orientation, _color) in layout:
-        size = int(size)
-        if font_file:
-            if size not in pil_cache:
-                pil_cache[size] = ImageFont.truetype(font_file, size)
-            pil_font = pil_cache[size]
-            ascent, _descent = pil_font.getmetrics()
-            bb = pil_font.getbbox(word)
-            y, x = int(position[0]), int(position[1])   # 库内部是 (y, x)
-            ink_boxes.append((x + bb[0], y + bb[1], x + bb[2], y + bb[3]))
-            y_baseline = y + ascent
-            x_left = x
-        else:
-            y_baseline, x_left = int(position[0]), int(position[1])
-        ax.text(x_left, y_baseline, word, fontsize=size * pt_per_px,
-                fontproperties=fp, color=colors.get(word, "#2E86AB"),
-                ha="left", va="baseline", zorder=4)
-    # 复刻自检：墨迹框重叠对数（用 PIL 量，与库的占位检测同源）
-    for i in range(len(ink_boxes)):
-        for j in range(i + 1, len(ink_boxes)):
-            a, b = ink_boxes[i], ink_boxes[j]
-            if not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1]):
-                over_pairs += 1
+    # 字号自述：布局 px → 成品 pt（渲染后 px = size×scale，1 pt = dpi/72 px）
+    pt_per_px = 72.0 * scale / dpi
 
-    # ── 标题 / 副标题 / 方向图例（库不管这三样，由我们补）────────
+    # ── 标题 / 图注 / 方向图例（库不管这三样，由我们矢量补）────────
     n_kw = len((wc_stats or {}).get("keywords_used") or {})
     par = (wc_stats or {}).get("paradigms") or {}
     par_txt = ("｜范式：" + " · ".join(f"{k} {v}" for k, v in list(par.items())[:4])
                if par else "")
     drop_n = len(linfo["dropped"])
-    # 副标题拆两行：单行放不下 —— 实测一行 140 个显示单位会**溢出画布右侧**
-    #   （画布 15 in = 1080 pt，9.5 pt 下约 114 个 CJK 单位的容量）。
-    sub1 = (f"布局 = wordcloud 库占位检测 ｜ 候选 {linfo['n_available']} 个词型按权重"
-            f"取前 {linfo['n_requested']} 个，放下 {linfo['placed']}"
-            + (f"，未放下 {drop_n} 个（见 graph_data.json）" if drop_n else "，全部放下"))
-    sub2 = (f"词源：文章关键词（{n_kw} 篇）＞ 题名 ＞ 解读卡方法描述"
-            f"｜词大小 = 加权频次{par_txt}")
+    # 图上只留**读者需要**的一行：词源与字号口径。
+    #   旧版还有一行「布局 = 库占位检测 ｜ 候选 N 取前 M 放下 X」（v17.11 按用户要求删除）——
+    #   那是**实现口径**，不是读者信息；放置/未放下的数字留在报告 §五 与 graph_data.json。
+    sub = (f"词源：文章关键词（{n_kw} 篇）＞ 题名 ＞ 解读卡方法描述"
+           f"｜词大小 = 加权频次{par_txt}")
     fig.text(0.5, 0.958, f"{AUTHOR} 研究方法与实验范式词云", ha="center",
              va="center", fontsize=20, color="#16324F", fontproperties=fp)
-    fig.text(0.5, 0.925, sub1, ha="center", va="center", fontsize=9,
-             color="#555555", fontproperties=fp)
-    fig.text(0.5, 0.904, sub2, ha="center", va="center", fontsize=9,
+    fig.text(0.5, 0.925, sub, ha="center", va="center", fontsize=9,
              color="#555555", fontproperties=fp)
     if direction_label:
         names = list(direction_label)
@@ -2010,33 +2231,50 @@ def draw_wordcloud(plt, weights, colors, outdir, stem, fmt, dpi, direction_label
                                   label=str(d)) for d in names[:8]],
                    loc="lower center", bbox_to_anchor=(0.5, 0.004), ncol=4,
                    frameon=False, fontsize=9, handlelength=1.1, handleheight=0.9,
-                   columnspacing=1.4, labelspacing=0.4,
+                   columnspacing=1.4, labelspacing=0.5,
                    prop=fp if fp else None)
-    FIG_NOTES.setdefault(stem, {})["wordcloud_engine"] = "library"
+    FIG_NOTES.setdefault(stem, {})["wordcloud_engine"] = "library-raster"
     FIG_NOTES[stem]["wordcloud_info"] = {
+        "engine": "library-raster",
         "placed": linfo["placed"], "requested": linfo["requested"],
+        # 报告 §五 读的是 n_terms_*（与 note_fonts 的 extra 同名）
+        "n_terms_available": linfo["n_available"],
+        "n_terms_requested": linfo["n_requested"],
         "dropped_n": drop_n, "dropped_head": linfo["dropped"][:20],
         "font_size_px": linfo["font_size_px"],
-        "canvas_px": linfo["canvas_px"], "pixel_per_inch": WC_LIB_PX_PER_IN,
+        "canvas_px": linfo["canvas_px"],
+        "raster_scale": round(scale, 3),
+        "raster_px": [int(img.shape[1]), int(img.shape[0])],
+        "ink_coverage_pct": round(ink_pct, 2),
         "random_state": linfo["random_state"],
         "relative_scaling": linfo["relative_scaling"],
-        "replay_ink_overlaps": over_pairs,
+        "margin_px": linfo["margin_px"],
+        "max_font_size_px": linfo["max_font_size_px"],
+        "min_font_size_px": linfo["min_font_size_px"],
+        "font_ratio_cap": linfo["font_ratio_cap"],
+        "font_ratio_actual": linfo["font_ratio_actual"],
+        "font_clamp_note": linfo["font_clamp_note"],
+        "mono_font_file": mono_file, "mono_font_name": mono_name,
+        "mono_tracking": linfo["mono_tracking"],
+        "mono_n_ascii": linfo["mono_n_ascii"],
+        "colors_missing_n": len(linfo["colors_missing"]),
+        "svg_embeds_raster": True,       # 如实申报：词云 SVG 内嵌位图（v17.11 取舍）
         "font_file": font_file, "font_name": font_name,
         "font_missing": font_missing,
     }
-    if over_pairs:
-        print(f"[WARN] 词云复刻后有 {over_pairs} 对词墨迹框重叠 —— "
-              f"matplotlib 与 PIL 的字形度量存在差异，请目视核对最终图",
-              file=sys.stderr)
+    if linfo["colors_missing"]:
+        print(f"[INFO] 词云：{len(linfo['colors_missing'])} 个词没有方向配色，"
+              f"用兜底色（多为跨方向通用词）", file=sys.stderr)
     note_fonts(stem, (FIG_W, FIG_H),
-               [("词云副标题", 9), ("方向图例", 9), ("标题", 20)] +
+               [("词云图注", 9), ("方向图例", 9), ("标题", 20)] +
                [("最小词", (linfo["font_size_px"] or [10, 10])[0] * pt_per_px),
                 ("最大词", (linfo["font_size_px"] or [10, 10])[1] * pt_per_px)],
                extra={"n_words_placed": linfo["placed"],
                       "n_words_skipped": drop_n,
                       "n_terms_available": linfo["n_available"],
                       "n_terms_requested": linfo["n_requested"],
-                      "engine": "library"})
+                      "engine": "library-raster",
+                      "ink_coverage_pct": round(ink_pct, 2)})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png, tight=False)
     plt.close(fig)
     return made
@@ -2691,10 +2929,13 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
              "它们要么描述不了作者，要么根本不是词。\n")
     _wci = (FIG_NOTES.get(f"{AUTHOR}_知识图谱_词云") or {}).get("wordcloud_info") or {}
     if _wci:
-        _eng = ("`wordcloud`（amueller）占位检测 —— 只借它**算布局**，"
-                "绘制仍走 matplotlib（标题/图例/矢量 SVG 因此保留）"
-                if _wci.get("canvas_px") and _wci.get("random_state") is not None
-                else "自研螺旋 + 矩形碰撞")
+        _eng = ("`wordcloud`（amueller）**自绘**（v17.11）—— 布局与出图同一个引擎，"
+                "**位置即所见**；标题/图注/方向图例由 matplotlib 矢量叠加"
+                if _wci.get("engine") == "library-raster"
+                else ("`wordcloud`（amueller）占位检测 —— 只借它**算布局**，"
+                      "绘制走 matplotlib"
+                      if _wci.get("canvas_px") and _wci.get("random_state") is not None
+                      else "自研螺旋 + 矩形碰撞"))
         L.append(f"> **布局引擎**：{_eng}")
         if _wci.get("canvas_px"):
             L.append(f"> **放置情况**：候选 {_wci.get('n_terms_available')} 个词型"
@@ -2704,17 +2945,31 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
                         f"（{'、'.join(map(str, (_wci.get('dropped_head') or [])[:10]))} …）"
                         if _wci.get("dropped_n") else "，全部放下")
                      + "。")
-            L.append(f"> 布局画布 {_wci.get('canvas_px')} px @ "
-                     f"{_wci.get('pixel_per_inch')} px/in；`random_state="
-                     f"{_wci.get('random_state')}`（固定 → 可复现）；"
+            L.append(f"> 布局画布 {_wci.get('canvas_px')} px；位图 "
+                     f"{_wci.get('raster_px')} px（scale={_wci.get('raster_scale')}）；"
+                     f"位图墨迹覆盖率（alpha>40，整幅布局画布，含抗锯齿过渡像素）"
+                     f"**{_wci.get('ink_coverage_pct')}%**；"
+                     f"`random_state={_wci.get('random_state')}`（固定 → 可复现）；"
                      f"`relative_scaling={_wci.get('relative_scaling')}`；"
-                     f"字号 {_wci.get('font_size_px')} px。")
+                     f"净距 {_wci.get('margin_px')} px；字号 {_wci.get('font_size_px')} px。")
             L.append(f"> 绑定字体文件：`{_wci.get('font_file')}`（{_wci.get('font_name')}）"
-                     "—— **两边必须锁同一个文件**，否则复刻出来会压字（见版本变动 v17.2）。")
-            if _wci.get("replay_ink_overlaps"):
-                L.append(f"> [WARN] 复刻后有 **{_wci['replay_ink_overlaps']} 对**词墨迹框"
-                         "重叠（matplotlib 与 PIL 的字形度量存在细微差异）—— "
-                         "**请目视核对最终图**；数量远大于个位数时说明映射出了问题。")
+                     "—— 库按文件渲染，故成品字形与布局同源。")
+            if _wci.get("mono_font_file"):
+                L.append(f"> **等宽英文字体**：纯 ASCII 词（{_wci.get('mono_n_ascii')} 个）"
+                         f"用 `{_wci.get('mono_font_file')}`（{_wci.get('mono_font_name')}）渲染，"
+                         f"字距收紧 **{_wci.get('mono_tracking')}×字号**（度量与绘制同时收紧，"
+                         "预留框同步变窄，不会因此压字）；中文词仍用上面的中文字体。")
+            L.append(f"> **字号比上限**：最大 ≤ {_wci.get('font_ratio_cap')} × 最小"
+                     f"（库把字号钳在 [min, max] 内）；成品实际字号区间 "
+                     f"{_wci.get('font_size_px')} px，**实际比 "
+                     f"{_wci.get('font_ratio_actual')}×**。")
+            if _wci.get("svg_embeds_raster"):
+                L.append("> [口径] 词云 SVG **内嵌位图**（v17.11 取舍）：布局与出图统一交给库，"
+                         "换来「位置即所见」；代价是 SVG 不再是矢量字形 —— "
+                         "PPT 用的 PNG 不受影响。")
+            if _wci.get("colors_missing_n"):
+                L.append(f"> 其中 {_wci['colors_missing_n']} 个词没有方向配色，用兜底色"
+                         "（多为跨方向通用词）。")
             if _wci.get("font_missing"):
                 L.append(f"> [WARN] {_wci['font_missing']}")
         L.append("")
@@ -3086,15 +3341,16 @@ def self_test() -> int:
         if _ff and not pathlib.Path(_ff).exists():
             lib_bad += 1
             print(f"  解析到的字体文件不存在：{_ff}")
-        _l1, _i1 = wordcloud_library_layout(_fx, _ff, max_words=90)
-        _l2, _i2 = wordcloud_library_layout(_fx, _ff, max_words=90)
+        _l1, _i1 = wordcloud_library_layout(_fx, _ff, max_words=WC_MAX_WORDS)
+        _l2, _i2 = wordcloud_library_layout(_fx, _ff, max_words=WC_MAX_WORDS)
         if [(w[0][0], s, (int(p[0]), int(p[1]))) for w, s, p, *_ in _l1] != \
            [(w[0][0], s, (int(p[0]), int(p[1]))) for w, s, p, *_ in _l2]:
             lib_bad += 1
             print("  固定 random_state 下两次布局不一致（不可复现）")
-        if _i1["n_requested"] != min(90, len(_fx)):
+        _n_req_want = len(_fx) if WC_MAX_WORDS is None else min(WC_MAX_WORDS, len(_fx))
+        if _i1["n_requested"] != _n_req_want:
             lib_bad += 1
-            print(f"  请求数口径不对：{_i1['n_requested']} vs {min(90, len(_fx))}")
+            print(f"  请求数口径不对：{_i1['n_requested']} vs {_n_req_want}")
         if _i1["placed"] != _i1["n_requested"] - len(_i1["dropped"]):
             lib_bad += 1
             print(f"  放置/未放置计数不自洽：{_i1}")
@@ -3105,6 +3361,48 @@ def self_test() -> int:
                 lib_bad += 1
                 print(f"  坐标越界：{_wf[0]} → (x={x_}, y={y_}) 画布 {W_}x{H_}")
                 break
+        # v17.11 新增：**出图路径**契约 —— 库自绘必须可复现且真的画出了墨迹。
+        #   复刻层（召回 64%）已删，这里守的是"位图由库自己出"这条新路径：
+        #   同一份权重两次渲染 md5 一致；非空画布上墨迹像素 > 0；配色被采纳。
+        try:
+            _c1 = {"神经元": "#1B3A6B", "突触": "#E4572E"}
+            _w1, _ii1 = wordcloud_library_build(_fx, _ff, _c1)
+            _b1 = wordcloud_library_image(_w1).tobytes()
+            _w2, _ii2 = wordcloud_library_build(_fx, _ff, _c1)
+            _b2 = wordcloud_library_image(_w2).tobytes()
+            if _b1 != _b2:
+                lib_bad += 1
+                print("  两次渲染的位图不一致（出图不可复现）")
+            if not _b1:
+                lib_bad += 1
+                print("  渲染结果为空位图")
+            _miss_col = [w for w in ("神经元", "突触") if w in _ii1["colors_missing"]]
+            if _miss_col:
+                lib_bad += 1
+                print(f"  配色未采纳：{_miss_col} 被当成缺色")
+            # v17.12 新增两条契约：
+            #   ① 字号比**硬上限**（6×）—— 库把字号钳在 [min,max]，只要 max=6×min 就成立；
+            #   ② 等宽英文字体**真的生效** —— 带 mono_file 与不带，ASCII 词的栅格必须不同
+            #      （否则就是"解析到了字体但没切上去"这种静默失效）。
+            if (_ii1.get("font_ratio_actual") or 0) > WC_LIB_FONT_RATIO:
+                lib_bad += 1
+                print(f"  字号比超上限：{_ii1.get('font_ratio_actual')} > {WC_LIB_FONT_RATIO}")
+            _mf, _mn = resolve_mono_font_file()
+            if not _mf:
+                lib_bad += 1
+                print("  未解析到任何拉丁等宽字体（试过：" +
+                      "、".join(WC_MONO_FONT_CANDIDATES) + "）")
+            else:
+                _fx_ascii = {"synaptic": 20, "tomography": 14, "记录": 10}
+                _wa, _ = wordcloud_library_build(_fx_ascii, _ff, {}, mono_file=None)
+                _wb, _ = wordcloud_library_build(_fx_ascii, _ff, {}, mono_file=_mf)
+                if (wordcloud_library_image(_wa).tobytes()
+                        == wordcloud_library_image(_wb).tobytes()):
+                    lib_bad += 1
+                    print("  等宽英文字体未生效（带/不带 mono_file 的栅格完全相同）")
+        except Exception as _e:                       # noqa: BLE001 —— 自检要报出来而不是中断
+            lib_bad += 1
+            print(f"  库自绘路径异常：{type(_e).__name__}: {_e}")
         bad += lib_bad
         print("词云库布局契约：通过" if lib_bad == 0 else "词云库布局契约：失败")
 

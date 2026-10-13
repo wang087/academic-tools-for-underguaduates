@@ -18,7 +18,7 @@
 ## 快速开始
 
 ```bash
-cd C:\Users\22525\AppData\Local\Temp\dsh-PhU9DN\pkgreal2_831c15\流程1
+cd <解压后的路径>/流程1        # 目录名就叫 流程1；下面所有命令都相对它
 
 # ① 端到端自检（离线 20 项，不联网、秒级）
 uv run python 流程1/scripts/selftest_pipeline.py --offline

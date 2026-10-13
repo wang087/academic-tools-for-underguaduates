@@ -122,12 +122,54 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
+import cdp_module as cdpmod        # noqa: E402  ← CDP 取全文模块的**唯一探测入口**
 import fetch_pacing as fp          # noqa: E402
 import fulltext_credentials as creds  # noqa: E402
-import fulltext_publishers as fpb  # noqa: E402
 import fulltext_result as fr       # noqa: E402
 import oa_candidates as oac        # noqa: E402
 from fulltext_result import FullTextResult  # noqa: E402
+
+# ── 出版商层（fulltext_publishers）现在住在可选模块里 ──────────────
+#   它属于「用浏览器/出版商接口取正文」这条被单独抽出、可整目录删除的链路
+#   （合规原因见 optional-cdp-fulltext/README.md）。核心**不直接 import 它**：
+#   模块在 → 正常用；模块不在 → 下面这个桩让所有调用点都不崩，并把路线如实
+#   改成"交备用链路"，而不是假装还能取。
+_CDP_OK = cdpmod.available()
+CDP_ABSENT_REASON = ("CDP 取全文模块未安装（optional-cdp-fulltext/ 缺失）"
+                     " → 出版商 API 与浏览器路线均不可用，改走备用链路"
+                     "（nature-skill 获取模块 / 白名单直连 / 元数据 API）")
+fpb = cdpmod.module_import("fulltext_publishers")
+
+
+class _PublishersAbsent:
+    """`fulltext_publishers` 缺席时的**诚实桩**：任何调用都答"不可用"。"""
+
+    ALLOW_ENV = "LIT_FLOW1_ALLOW_PUBLISHER_API"
+
+    @staticmethod
+    def classify_doi(doi: str) -> str:            # 无法判定 → 归入 other
+        return "other"
+
+    @staticmethod
+    def allow_publisher_api():
+        return False, CDP_ABSENT_REASON
+
+    @staticmethod
+    def config_path():
+        return pathlib.Path(".")
+
+    @staticmethod
+    def fetch_fulltext(doi, provider, out_dir, **kw):
+        return FullTextResult.failed(provider or "publisher", "module_absent",
+                                     reason=CDP_ABSENT_REASON,
+                                     extra={"doi": doi, "invariant": "cdp_module_absent"})
+
+
+if fpb is None:
+    fpb = _PublishersAbsent()
+
+# 缺模块时的路线判据：不再指向 cdp（主链路不存在），改指向备用链路
+NEXT_WHEN_ABSENT = "fallback"
 
 try:
     import logutil                 # noqa: E402
@@ -287,6 +329,11 @@ def choose_route(article: dict, *, mode: str | None = None) -> dict:
                 "gate_open": gate_open, "gate_reason": gate_why,
                 "credentials_usable": cred_ok, "credentials_reason": cred_why}
 
+    if not _CDP_OK:
+        # 主链路（CDP 批量下载器）不存在 → 不能答 next="cdp"（那是空话）
+        return {"provider": NEXT_WHEN_ABSENT, "mode": "",
+                "reason": "cdp_module_absent", "next": NEXT_WHEN_ABSENT,
+                "note": CDP_ABSENT_REASON}
     return {"provider": "cdp", "mode": "browser",
             "reason": "other_publisher", "next": "cdp"}
 
@@ -313,6 +360,10 @@ def fallback_after_oa(article: dict, *, mode: str | None = None) -> dict:
                 "reason": "api_fallback_confirmation_required", "next": "confirm",
                 "gate_open": gate_open, "gate_reason": gate_why,
                 "credentials_usable": cred_ok, "credentials_reason": cred_why}
+    if not _CDP_OK:
+        return {"provider": NEXT_WHEN_ABSENT, "mode": "",
+                "reason": "cdp_module_absent", "next": NEXT_WHEN_ABSENT,
+                "note": CDP_ABSENT_REASON}
     return {"provider": "none", "mode": "",
             "reason": "other_publisher_no_remaining_route", "next": "none"}
 
@@ -684,6 +735,36 @@ def self_test() -> int:
         print(f"  {'[OK]' if cond else '[X] '} {label}" + (f" —— {detail}" if detail and not cond else ""))
 
     print("=== fulltext_router.py --self-test（零网络）===")
+
+    # ── 可选模块缺席时的**降级契约**（合规发行常见）────────────────
+    #   出版商层（classify_doi / fetch_fulltext）在可选模块里；它不在时，
+    #   本模块**不能假装还能走出版商路线**：所有"交回 CDP"的路线必须改成
+    #   "交备用链路"，且桩函数必须诚实回答"不可用"。这组用例就是守这条。
+    if not _CDP_OK:
+        print("\n⓪ 可选模块未安装 → 降级契约（出版商层用例整体跳过）")
+        chk(fpb.classify_doi("10.1016/j.cell.2014.03.011") == "other",
+            "桩：classify_doi 一律归 other（判不了就别猜）")
+        _g, _why = fpb.allow_publisher_api()
+        chk(_g is False and "模块未安装" in _why, "桩：API 闸门关闭且给出原因", _why)
+        _r = fpb.fetch_fulltext("10.1/x", "elsevier", pathlib.Path("."))
+        chk((not _r.ok) and _r.status == "module_absent",
+            "桩：fetch_fulltext 返回 module_absent（不返回假成功）", f"实得 {_r.status}")
+        # 缺模块时的**不变量**：任何路线都不得指向 cdp（主链路不存在）。
+        #   mode=oa+api 下允许的第一层（OA 瀑布）照样先用 —— 那是合规的直连层，
+        #   所以这里断言"不指向 cdp"，而不是"必须 fallback"。
+        _cr = choose_route({"doi": "10.9999/x", "title": "Unknown"}, mode="oa+api")
+        chk(_cr.get("next") != "cdp",
+            "缺模块时路由不指向 CDP 主链路（next≠cdp）", f"实得 {_cr}")
+        _cr2 = choose_route({"doi": "10.9999/x", "title": "Unknown"}, mode="api")
+        chk(_cr2.get("next") != "cdp",
+            "缺模块时路由不指向 CDP 主链路（mode=api 亦同）", f"实得 {_cr2}")
+        _fb = fallback_after_oa({"doi": "10.9999/x", "title": "Unknown"}, mode="oa")
+        chk(_fb.get("next") == NEXT_WHEN_ABSENT,
+            f"fallback_after_oa → next={NEXT_WHEN_ABSENT}", f"实得 {_fb}")
+        print(f"  [SKIP] 出版商层用例（分类/闸门/HANDOFF 单/API 兜底）—— 模块未安装")
+        print("\n[OK] 自检全部通过（降级契约）" if bad == 0 else "\n[X] 自检有失败项")
+        return 0 if bad == 0 else 1
+
     print("\n① 中文硬分流判据（nature lib/routing.mjs:24-29 的等价实现）")
     chk(looks_chinese("基于深度学习的图像分割综述"), "中文题名 → looks_chinese")
     chk(not looks_chinese("A survey of deep learning"), "英文题名 → 非中文")
@@ -801,7 +882,10 @@ def self_test() -> int:
                       out_dir=outdir, mode="oa", cdp_failed=True, fetch_impl=fake3)
         chk(r.status == "browser_handoff" and r.kind == "HANDOFF",
             "→ HANDOFF/browser_handoff", f"实得 {r}")
-        chk((r.extra or {}).get("next") == "cdp", "next=cdp（交回主链路）")
+        # 主链路是否在，取决于**可选模块是否安装**：装了 → next=cdp；没装 → next=fallback
+        _want_next = "cdp" if _CDP_OK else NEXT_WHEN_ABSENT
+        chk((r.extra or {}).get("next") == _want_next,
+            f"next={_want_next}（模块{"" if _CDP_OK else "未"}安装）")
         cand_urls = [c["url"] for c in (r.extra or {}).get("candidates") or []]
         chk(any("sciencedirect.com" in u for u in cand_urls),
             "交接单里带上了已排序的候选 URL", f"实得 {cand_urls}")
@@ -831,9 +915,12 @@ def self_test() -> int:
         dead2 = _Fake({}, [])
         r = route_doi({"doi": "10.9999/unknown-prefix", "title": "Unknown publisher"},
                       out_dir=outdir, mode="oa", cdp_failed=True, fetch_impl=dead2)
+        # 模块在 → 如实认输（next=none）；模块不在 → 交备用链路（next=fallback）
+        _want2 = "none" if _CDP_OK else NEXT_WHEN_ABSENT
         chk(r.status in ("oa_not_found", "oa_resolution_inconclusive")
-            and (r.extra or {}).get("next") == "none",
-            "非受支持出版商 + OA 走空 → 如实认输（next=none，不谎称还能交回 CDP）",
+            and (r.extra or {}).get("next") == _want2,
+            f"非受支持出版商 + OA 走空 → next={_want2}"
+            f"（模块{"" if _CDP_OK else "未"}安装时不谎称还能交回 CDP）",
             f"实得 {r.status} / next={(r.extra or {}).get('next')}")
 
         r = route_doi({"doi": "10.1016/j.cell.2014.03.011", "title": "Cell paper"},
