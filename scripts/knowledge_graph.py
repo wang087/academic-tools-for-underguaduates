@@ -34,6 +34,11 @@
 #     --format=svg|png|auto 默认 auto：先试 SVG，失败退 PNG
 #     --formats=svg         **只出 SVG**（批量出图时省一半时间；SVG 失败即报错）
 #     --wc-lang=both|zh|en  词云语言口径（默认 both；只要中文用 zh）
+#     --kw-model            词云中文留词再加一层 **kw 模型精筛**（默认关）：
+#                           Qwen3-0.6B kw 适配器对通过规则门的词判 term/fragment，
+#                           fragment 剔除并记入 drop_reasons（graph_data.json 可审计）。
+#                           需要 torch/transformers/peft —— 用 小模型/.venv 的 python，
+#                           或自检：python scripts/selftest_small_model.py
 #     --wc-min-docs=3       **只来自方法描述**的词至少要出现在几篇论文里
 #     --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
 #                           **文章关键词 > 题名 > 摘要 > 卡片方法描述** 的权重
@@ -2466,12 +2471,18 @@ WC_WEIGHTS = {"keywords": 3, "title": 2, "abstract": 2, "methods": 1}
 
 
 def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
-                              weights=None, lang="both", min_docs=WC_MIN_DOCS):
+                              weights=None, lang="both", min_docs=WC_MIN_DOCS,
+                              kw_model=None):
     """词云权重：关键词优先 + 全局邻接熵筛词 + 单位/受控标签剔除。
 
     `cards`  —— doi → 解读卡
     `recs`   —— doi → 题录（本轮起用于取**题名**；旧版收了这个参数却没用）
     `lang`   —— both（默认）｜ zh 只出中文词 ｜ en 只出英文词
+    `kw_model` —— None（默认，纯规则）｜ small_model.SmallModel 实例。
+      给出时，对**通过全部规则门**的中文留词再跑一遍 kw 适配器
+      （term/fragment 二分类，留出集实测 97.1%），判 fragment 者剔除。
+      只删不加：模型不会把规则杀掉的词捞回来 —— 规则门是确定性下限，
+      模型是精度补丁（邻接熵在 3–4 字术语上的误留/误杀见 zh_terms 注释）。
 
     语料优先级（用户指定）：
       ① 文章自带 Keywords（权重 3）—— 作者/期刊自己认定的词，最可信
@@ -2596,6 +2607,38 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
         del term_dir[t]
         del term_src[t]
         term_doi.pop(t, None)
+
+    # ── kw 模型精筛（可选，--kw-model）────────────────────────
+    #   对通过全部规则门的**中文**留词跑 kw 适配器（term/fragment 二分类）。
+    #   输入格式与训练口径逐字一致（字符串/出现次数/文档数/左右邻接 top5），
+    #   文档数取 term_doi（跨论文口径），邻接取 zh_info 的全局统计。
+    #   只删不加、解析不出保守保留；剔除全部记入 dropped（原因可审计）。
+    kw_stats = None
+    if kw_model is not None and lang in ("both", "zh"):
+        zh_tokens = [t for t in w if _CJK_RUN.fullmatch(t)]
+        if zh_tokens:
+            items = [{
+                "g": t,
+                "n": zh_info.get(t, {}).get("n", w[t]),
+                "n_docs": len(term_doi[t]),
+                "left": [x for x, _ in zh_info.get(t, {}).get("left", [])],
+                "right": [x for x, _ in zh_info.get(t, {}).get("right", [])],
+            } for t in zh_tokens]
+            labels = kw_model.kw_classify(items)
+            n_frag = n_unparsed = 0
+            for t, lab in zip(zh_tokens, labels):
+                if lab == "fragment":
+                    _drop(t, "kw 模型判碎片", 1)
+                    del w[t]
+                    del term_dir[t]
+                    del term_src[t]
+                    term_doi.pop(t, None)
+                    n_frag += 1
+                elif lab is None:
+                    n_unparsed += 1        # 保守保留
+            kw_stats = {"checked": len(zh_tokens), "dropped_fragment": n_frag,
+                        "unparsed_kept": n_unparsed,
+                        "note": "只删不加：规则门是确定性下限，kw 模型是精度补丁"}
     dirs = sorted({d for _, c in term_dir.items() for d in c})
     for i, d in enumerate(dirs):
         dir_label[d] = palette[i % len(palette)]
@@ -2607,8 +2650,13 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
     #   这里按出现次数封顶，并显式记下"被封顶的总数"，不静默截断。
     frag_all = {g: st for g, st in zh_info.items() if not st["keep"]}
     frag_keep = sorted(frag_all.items(), key=lambda x: -x[1]["n"])[:80]
-    reason_keep = {t: dict(drop_reason[t]) for t, _ in dropped.most_common(80)
-                   if t in drop_reason}
+    # 封顶 80 条之外**必须补上 kw 模型剔除的词**：模型门只剔零星几个，
+    #   按丢弃次数排序永远进不了前 80 —— 不补就会"删了词但审计表查无此词"。
+    _kw_dropped = {t for t, rs in drop_reason.items() if "kw 模型" in str(rs)}
+    reason_keep = {t: dict(drop_reason[t])
+                   for t, _ in dropped.most_common(80) if t in drop_reason}
+    reason_keep.update({t: dict(drop_reason[t]) for t in _kw_dropped
+                        if t in drop_reason and t not in reason_keep})
     stats = {
         "weights": weights,
         "lang": lang,
@@ -2630,6 +2678,7 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
         "fragments_truncated": f"仅列出现次数最高的 80/{len(frag_all)} 条",
         "drop_reasons": reason_keep,
         "drop_reasons_truncated": f"仅列出现次数最高的 80/{len(dropped)} 条",
+        "kw_model": kw_stats,
     }
     return w, color_of, dir_label, dropped, stats
 
@@ -3458,6 +3507,24 @@ def main() -> int:
     if wc_lang not in ("both", "zh", "en"):
         print(f"[X] --wc-lang 取值 {wc_lang!r} 不在 both/zh/en 内")
         return 2
+
+    # ── kw 模型精筛（默认关；显式开启却不可用时**硬失败**，不静默降级）──
+    use_kw_model = "--kw-model" in sys.argv
+    if use_kw_model:
+        try:
+            import small_model as _sm
+        except ImportError:
+            print("[X] --kw-model 需要 scripts/small_model.py（未随流程部署？）")
+            return 2
+        try:
+            KW_MODEL = _sm.SmallModel()
+        except _sm.SmallModelError as e:
+            print("[X] --kw-model 已显式开启但模型层不可用：")
+            print(str(e))
+            return 2
+        print("[INFO] kw 模型精筛已启用（Qwen3-0.6B kw 适配器，只删不加）")
+    else:
+        KW_MODEL = None
     wc_weights = {}
     for _k in ("keywords", "title", "abstract", "methods"):
         _v = _argval(f"wc-weight-{_k}")
@@ -3509,7 +3576,7 @@ def main() -> int:
     # ── ② 词云 ────────────────────────────────────────────────
     w, color_of, dir_label, dropped, wc_stats = compute_wordcloud_weights(
         cards, recs, vocab, doi_dir, weights=opts.get("wc_weights"),
-        lang=opts["wc_lang"], min_docs=opts["wc_min_docs"])
+        lang=opts["wc_lang"], min_docs=opts["wc_min_docs"], kw_model=KW_MODEL)
     graphs["wordcloud"] = draw_wordcloud(plt, w, color_of, GRAFDIR,
                                          f"{AUTHOR}_知识图谱_词云", fmt, dpi, dir_label,
                                          also_png, wc_stats, opts["wc_engine"])

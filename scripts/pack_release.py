@@ -15,6 +15,8 @@
 #   ├── 研究方法与关键词总表.md                 # 词表的来源文档（附）
 #   ├── vendor/ppt-master/                     # 依赖：ppt-master 运行时（去 .git/projects/docs）
 #   ├── vendor/nature-paper-card/               # 依赖：已并入的 nature-paper-card（Apache-2.0）
+#   ├── vendor/llm_lifecycle/                   # 依赖：llama.cpp 服务启停+精准释放（随 scripts 无关，走 ③c）
+#   ├── vendor/small-model-assets/              # 可选（--assets=…）：模型权重资产，见 ③d
 #   ├── README-PACKAGE.md                      # 打包说明（与原目录的差异）
 #   └── PACKAGE_MANIFEST.json                  # 逐文件 sha256 + 重写记录
 #
@@ -45,6 +47,20 @@
 #     --force             目标已存在时先清空再打包
 #     --dry-run           只打印将要做什么
 #     --self-test         纯逻辑自检（不落盘）
+#     --assets=list       模型资产打包（默认 none —— 只打代码；收包机器上
+#                         模型层会**明确报错指路**，不会静默）。可选值逗号分隔：
+#                           adapters  outputs/{deai,kw}_qwen3_06b（去 checkpoint/runs，~80 MB）
+#                           hf        .hf-home/qwen3-06b-hf 基座（~1.45 GB，adapters 的前提）
+#                           gguf      llamacpp/models/Qwen3-0.6B-Q8_0.gguf（~610 MB）
+#                           llama-bin llamacpp 的 exe/dll 运行时（**Windows/CUDA-13 专用**）
+#                           all       以上全部
+#                         资产源默认取本仓库上级的 小模型/（可用 --model-root= 覆盖）。
+#                         **缺资产 = 硬失败**（显式要求了却打不进去，不静默出空包）。
+#     --model-root=路径   模型仓库根（含 .hf-home/、outputs/、llamacpp/）
+#     --runtime=<python 目录>  内嵌独立解释器到 <dest>/runtime/（照 GPT-SoVITS 范式；
+#                         **只带解释器与标准库，不含 torch/CUDA** —— 那些装机时按
+#                         设备装）。给出后额外生成 install.ps1 与 start.ps1。
+#                         例：--runtime=../pythons/cpython-3.12-windows-x86_64-none
 #
 # 可移植配置：无（全部走命令行）
 # ─────────────────────────────────────────────────────────────
@@ -143,6 +159,137 @@ SLIM_PATHS = ("skills/ppt-master/references/ai-image-comparison",
               "skills/ppt-master/templates/icons",
               "skills/ppt-master/templates/sounds")
 EXCLUDE_FILE_PATTERNS = [r".*\.pyc$", r".*\.log$", r"latest_.*\.log$"]
+
+# ── 模型资产打包（v17.19，--assets=…）─────────────────────────
+#   落点与开发机 小模型/ **同构**（.hf-home/qwen3-06b-hf、outputs/…、llamacpp/…），
+#   因此 small_model.py 把 vendor/small-model-assets 列为**根候选⓪**即可直接命中，
+#   llm_session 的 workspace 也随同一根可达 gguf —— 换机器开箱即用，无需外部目录。
+ASSETS_DST = "vendor/small-model-assets"
+ASSET_KINDS = ("adapters", "hf", "gguf", "llama-bin")
+ADAPTER_DIRS = ("deai_qwen3_06b", "kw_qwen3_06b")
+ADAPTER_SKIP_DIRS = {"checkpoint", "runs", "__pycache__"}      # 按**前缀**判 checkpoint-*
+ADAPTER_SKIP_FILES = {"training_args.bin"}                     # 训练态，推理不读
+HF_REL = pathlib.Path(".hf-home") / "qwen3-06b-hf"
+GGUF_REL = pathlib.Path("llamacpp") / "models" / "Qwen3-0.6B-Q8_0.gguf"
+LLAMA_EXTS = {".exe", ".dll"}
+
+
+def default_model_root() -> pathlib.Path | None:
+    """模型仓库根：SMALL_MODEL_ROOT 环境变量 → 仓库根的各级父目录探测。"""
+    env = (os.environ.get("SMALL_MODEL_ROOT") or "").strip()
+    if env:
+        p = pathlib.Path(env)
+        return p if (p / HF_REL).is_dir() else None
+    for base in (REPO, *REPO.parents):
+        if (base / HF_REL).is_dir() and (base / "outputs").is_dir():
+            return base
+    return None
+
+
+def parse_assets(argval) -> set:
+    """--assets=… → 合法 kind 集合（none/空 → 空集；all → 全部）。"""
+    raw = (argval("assets") or "none").strip().lower()
+    if raw in ("", "none"):
+        return set()
+    if raw == "all":
+        return set(ASSET_KINDS)
+    got = {x.strip() for x in raw.split(",") if x.strip()}
+    bad = got - set(ASSET_KINDS)
+    if bad:
+        raise ValueError(f"--assets 含未知取值 {'、'.join(sorted(bad))}"
+                         f"（可用：{('、'.join(ASSET_KINDS))} 或 all/none）")
+    if "adapters" in got:
+        got.add("hf")          # 适配器**必须**配基座才能加载（TRAINED_MODELS.md §六）
+    return got
+
+
+# ── 发行版随包脚本（--runtime 时生成到目标根）──────────────────
+#   两个都按 **pwsh 7** 写：Windows PowerShell 5.1 会按 ANSI 读无 BOM 的中文脚本，
+#   把中文注释读坏导致解析失败（llm.ps1 同此坑，见 v17.18）。
+#   ★ install.ps1 **只装依赖、不下权重**（权重随包在 vendor/small-model-assets/）；
+#   ★ torch 按 **-Device 选索引**装进随包 runtime —— 这正是"不打包 CUDA 执行环境"
+#     的落点：轮子随设备与驱动变化，装了也别处不可用。
+_INSTALL_PS1 = r"""# ─────────────────────────────────────────────────────────────
+# 流程1 发行版 · 依赖安装（在**目标机器**上跑一次；pwsh 7）
+#   .\install.ps1 -Device cuda130 -Source default
+#   .\install.ps1 -Device cpu                 # 无 NVIDIA 显卡
+# Device：torch 轮子索引（Blackwell sm_120 必须 cuda130 —— 旧轮子不含该架构）
+# Source：default | tuna(清华 PyPI 镜像) | hf-mirror(设 HF_ENDPOINT，HF 走镜像)
+# 权重已随包（流程1\vendor\small-model-assets\），本脚本**不下载模型**。
+# ─────────────────────────────────────────────────────────────
+param(
+  [ValidateSet("cuda130","cuda128","cuda126","cpu")][string]$Device = "cuda130",
+  [ValidateSet("default","tuna","hf-mirror")][string]$Source = "default"
+)
+$ErrorActionPreference = "Stop"
+$here = $PSScriptRoot
+$py = Join-Path $here "runtime\python.exe"
+if (-not (Test-Path $py)) { Write-Host "[X] 缺少内嵌解释器：$py" -ForegroundColor Red; exit 2 }
+
+$idx = switch ($Device) {
+  "cuda130" { "https://download.pytorch.org/whl/cu130" }
+  "cuda128" { "https://download.pytorch.org/whl/cu128" }
+  "cuda126" { "https://download.pytorch.org/whl/cu126" }
+  "cpu"     { "https://download.pytorch.org/whl/cpu" }
+}
+$pypi = @()
+if ($Source -eq "tuna") { $pypi = @("-i","https://pypi.tuna.tsinghua.edu.cn/simple") }
+if ($Source -eq "hf-mirror") { $env:HF_ENDPOINT = "https://hf-mirror.com" }
+
+Write-Host "[1/3] torch（$Device -> $idx）" -ForegroundColor Cyan
+& $py -m pip install --upgrade pip
+& $py -m pip install torch --index-url $idx
+
+Write-Host "[2/3] 流程与小模型层依赖" -ForegroundColor Cyan
+& $py -m pip install @pypi pypdf websocket-client pymupdf pillow networkx matplotlib `
+    wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft
+
+Write-Host "[3/3] ppt-master 依赖" -ForegroundColor Cyan
+$req = Join-Path $here "流程1\vendor\ppt-master\requirements.txt"
+if (Test-Path $req) { & $py -m pip install @pypi -r $req }
+else { Write-Host "[!] 未找到 ppt-master requirements，跳过" -ForegroundColor Yellow }
+
+Write-Host ""
+Write-Host "[OK] 依赖安装完成。自检： .\start.ps1 doctor" -ForegroundColor Green
+"""
+
+_START_PS1 = r"""# ─────────────────────────────────────────────────────────────
+# 流程1 发行版 · 启动器（pwsh 7）
+#   .\start.ps1 doctor                      环境自检（模型层 + 流程离线）
+#   .\start.ps1 run <script.py> [args...]    用内嵌解释器跑流程脚本（替代 uv run）
+#   .\start.ps1 <python 参数...>             直接透传给内嵌解释器
+# ─────────────────────────────────────────────────────────────
+param(
+  [Parameter(Position=0)][string]$Action = "doctor",
+  [Parameter(Position=1, ValueFromRemainingArguments=$true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+$here = $PSScriptRoot
+$py = Join-Path $here "runtime\python.exe"
+$flow = Join-Path $here "流程1"
+if (-not (Test-Path $py)) { Write-Host "[X] 缺 runtime\python.exe —— 先跑 .\install.ps1" -ForegroundColor Red; exit 2 }
+$env:PATH = "$(Split-Path $py);$env:PATH"
+if (-not $env:HF_ENDPOINT) { $env:HF_ENDPOINT = "https://hf-mirror.com" }
+# 权重随包 -> 让 small_model / llm_lifecycle 指向包内资产根（换机器开箱即用）
+$assets = Join-Path $flow "vendor\small-model-assets"
+if (Test-Path $assets) { $env:SMALL_MODEL_ROOT = $assets; $env:LLM_WORKSPACE = $assets }
+
+switch ($Action) {
+  "doctor" {
+    Write-Host "== 模型层自检 (deai/kw) ==" -ForegroundColor Cyan
+    & $py (Join-Path $flow "scripts\selftest_small_model.py")
+    Write-Host "== 流程离线自检 ==" -ForegroundColor Cyan
+    & $py (Join-Path $flow "scripts\selftest_pipeline.py") --offline
+  }
+  "run" {
+    if (-not $Rest -or $Rest.Count -lt 1) { Write-Host "用法：.\start.ps1 run <script.py> [args...]" -ForegroundColor Yellow; exit 2 }
+    $script = $Rest[0]
+    if (-not [System.IO.Path]::IsPathRooted($script)) { $script = Join-Path $flow $script }
+    if ($Rest.Count -gt 1) { & $py $script @($Rest[1..($Rest.Count-1)]) } else { & $py $script }
+  }
+  default { & $py $Action @Rest }
+}
+"""
 
 
 def sha256(p: pathlib.Path) -> str:
@@ -244,6 +391,12 @@ def _run(log) -> int:
     dry = "--dry-run" in sys.argv
     force = "--force" in sys.argv
     slim = "--slim" in sys.argv
+    try:
+        assets = parse_assets(argval)
+    except ValueError as e:
+        print(f"[X] {e}")
+        return 2
+    runtime_src = (argval("runtime") or "").strip() or None
     # 合规开关：默认**包含**取全文 CDP 模块；要发行不含该能力的版本时显式排除。
     no_cdp_mod = "--exclude-optional-cdp-fulltext" in sys.argv
     extra_exclude = set(EXCLUDE_TOP_WHEN_NO_CDP) if no_cdp_mod else set()
@@ -258,6 +411,10 @@ def _run(log) -> int:
     print(" 取全文 CDP 模块：" + ("**已排除**（--exclude-optional-cdp-fulltext："
           "发行版不含出版商正文自动化；流程改走备用链路）" if no_cdp_mod
           else "包含（optional-cdp-fulltext/；合规发行请加 --exclude-optional-cdp-fulltext）"))
+    print(" 模型资产：" + ("none（只打代码；模型层会在运行时报错指路）" if not assets
+          else "、".join(sorted(assets)) + f"（源 {default_model_root() or '未找到'}）"))
+    print(" 内嵌运行时：" + (runtime_src if runtime_src
+          else "无（不内嵌解释器）"))
     print("═" * 68)
 
     if not SRC.is_dir():
@@ -412,6 +569,125 @@ def _run(log) -> int:
             print(f"  · vendor/nature-paper-card：{ns_files} 个文件"
                   f"（单技能并入，Apache-2.0；补丁登记见其 UPSTREAM.md）")
 
+    # ── ③c vendor/llm_lifecycle：llama.cpp 服务启停+精准释放（v17.18 并入）──
+    #   与 ppt-master / nature-paper-card 平级：**运行/调试期要用的随包脚本**，
+    #   不带的话零样本基座通道（llm_session）在这台机器上就跑不了。
+    lc_src = SRC / "vendor" / "llm_lifecycle"
+    if lc_src.is_dir():
+        lc_dst = dest / "vendor" / "llm_lifecycle"
+        lc_n = 0
+        for f in iter_files(lc_src):
+            rel = f.relative_to(lc_src)
+            data = f.read_bytes()
+            out = lc_dst / rel
+            if not dry:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(data)
+            lc_n += 1
+            manifest["files"].append(
+                {"path": f"vendor/llm_lifecycle/{rel}", "bytes": len(data),
+                 "sha256": hashlib.sha256(data).hexdigest()})
+        n_copy += lc_n
+        print(f"  · vendor/llm_lifecycle：{lc_n} 个文件（随包，零样本通道启停/释放）")
+    else:
+        manifest["skipped"].append("vendor/llm_lifecycle（源缺失）")
+
+    # ── ③d 模型资产：vendor/small-model-assets（--assets=…，默认 none）──
+    #   落点与开发机 小模型/ **同构**，small_model.py 把它列为根候选⓪，直接命中。
+    #   **只打权重与最小运行件**：torch/CUDA 轮子、nvidia dll、.venv 一律不打
+    #   （随设备变化，安装时装 —— 见 install.ps1）。
+    if assets:
+        mr = pathlib.Path(argval("model-root") or "") if argval("model-root") else default_model_root()
+        if mr is None:
+            print("[X] --assets 已指定，但找不到模型仓库根（含 .hf-home/qwen3-06b-hf）。")
+            print("  用 --model-root=<路径> 指定，或设 SMALL_MODEL_ROOT 环境变量。")
+            return 2
+        print(f"  · 模型资产源：{mr}｜范围：{', '.join(sorted(assets))}")
+        adst = dest / ASSETS_DST
+        got = {}
+        for kind in ("hf", "adapters", "gguf"):
+            if kind not in assets:
+                continue
+            if kind == "hf":
+                srcs = [(mr / HF_REL, adst / HF_REL, set(), set())]
+            elif kind == "adapters":
+                srcs = [(mr / "outputs" / d, adst / "outputs" / d,
+                         ADAPTER_SKIP_DIRS, ADAPTER_SKIP_FILES)
+                        for d in ADAPTER_DIRS]
+            else:
+                srcs = [(mr / GGUF_REL, adst / GGUF_REL, set(), set())]
+            nn = 0
+            for s, d, skip_dirs, skip_files in srcs:
+                if not s.exists():
+                    print(f"[X] --assets 含 {kind}，但源不存在：{s}")
+                    return 2
+                if s.is_file():
+                    files = [s]
+                else:
+                    files = [f for f in sorted(s.rglob("*")) if f.is_file()
+                             and not any(part.startswith(tuple(skip_dirs))
+                                         for part in f.relative_to(s).parts)
+                             and f.name not in skip_files
+                             and "__pycache__" not in f.parts]
+                for f in files:
+                    rel = f.relative_to(mr)
+                    data = f.read_bytes()
+                    out = dest / ASSETS_DST / rel
+                    if not dry:
+                        out.parent.mkdir(parents=True, exist_ok=True)
+                        out.write_bytes(data)
+                    nn += 1
+                    manifest["files"].append(
+                        {"path": f"{ASSETS_DST}/{rel}", "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
+            got[kind] = nn
+            n_copy += nn
+            print(f"    - {kind}：{nn} 个文件")
+        manifest["assets"] = {"source": mr.name, "kinds": sorted(assets), "files": got}
+
+    # ── ③e 内嵌运行时（--runtime=<python 目录>）：换机器可离线起解释器 ──
+    #   照 GPT-SoVITS 范式：随包带一个**独立解释器**，装机时再按设备装 torch 等。
+    #   ★ 只带解释器与标准库/自带 pip；**torch / CUDA 轮子 / nvidia dll / .venv
+    #     一律不带** —— 它们随设备与驱动变化，装了也别处不可用（install.ps1 负责）。
+    if runtime_src:
+        rt = pathlib.Path(runtime_src).expanduser()
+        if not (rt / "python.exe").is_file():
+            print(f"[X] --runtime 指向的目录下没有 python.exe：{rt}")
+            return 2
+        rt_dst = dest / "runtime"
+        skip_rt = {"__pycache__", "include", "libs"}   # 开发用头文件/导入库，运行时不需要
+        rn = rbytes = 0
+        for f in sorted(rt.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = f.relative_to(rt)
+            if any(part in skip_rt for part in rel.parts):
+                continue
+            data = f.read_bytes()
+            out = rt_dst / rel
+            if not dry:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(data)
+            rn += 1
+            rbytes += len(data)
+            manifest["files"].append({"path": f"runtime/{rel}", "bytes": len(data),
+                                      "sha256": hashlib.sha256(data).hexdigest()})
+        n_copy += rn
+        manifest["runtime"] = {"source": rt.name, "files": rn, "mb": round(rbytes / 1048576)}
+        print(f"  · runtime/：{rn} 个文件 / {rbytes / 1048576:.0f} MB（解释器，**不含 torch**）")
+
+        # 生成 install.ps1（按设备装依赖）与 start.ps1（启动器）
+        for fname, content in (("install.ps1", _INSTALL_PS1),
+                               ("start.ps1", _START_PS1)):
+            data = content.encode("utf-8")
+            if not dry:
+                (dest / fname).write_bytes(data)
+            manifest["files"].append({"path": fname, "bytes": len(data),
+                                      "sha256": hashlib.sha256(data).hexdigest()})
+            n_copy += 1
+    elif assets:
+        print("  [WARN] 指定了 --assets 但未给 --runtime：收包机器需自备 Python。")
+
     # ── ④ 打包说明 ────────────────────────────────────────────
     notes = render_notes(name, dest, manifest)
     if not dry:
@@ -445,7 +721,11 @@ def _run(log) -> int:
     print(f"\n[OK] 打包完成 → {dest}")
     print("  下一步（在新目录内自检，确认脱离原仓库也能跑）：")
     print(f"    cd {dest}")
-    print(f"    uv run python {name}/scripts/selftest_pipeline.py --offline")
+    if runtime_src:
+        print("    pwsh -File install.ps1 -Device cuda130 -Source tuna   # 装依赖")
+        print("    pwsh -File start.ps1 doctor                           # 自检")
+    else:
+        print(f"    uv run python {name}/scripts/selftest_pipeline.py --offline")
     return 0
 
 
@@ -505,16 +785,24 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L.append("```bash")
     L.append(f"cd {dest}")
     L.append("")
-    L.append("# ① 端到端自检（离线 20 项，不联网、秒级）")
-    L.append(f"uv run python {name}/scripts/selftest_pipeline.py --offline")
-    L.append("#    联网全量（38 项）")
-    L.append(f"uv run python {name}/scripts/selftest_pipeline.py")
-    L.append("")
-    L.append("# ② 阶段 0：准备阶段（在对话里收齐选择后落盘）")
-    L.append(f"uv run python {name}/scripts/prepare_stage.py \\")
-    L.append("    --set output_format=markdown --set translate=no \\")
-    L.append("    --set reverse_refs=yes --set make_ppt=no")
-    L.append(f"uv run python {name}/scripts/prepare_stage.py --check-all")
+    if manifest.get("runtime"):
+        L.append("# ① 装依赖（按设备选 torch 索引；pwsh 7）")
+        L.append("pwsh -File install.ps1 -Device cuda130 -Source tuna")
+        L.append("# ② 自检（模型层 + 流程离线）")
+        L.append("pwsh -File start.ps1 doctor")
+        L.append("# ③ 跑阶段脚本（用内嵌解释器，替代 uv run --with）")
+        L.append(f"pwsh -File start.ps1 run scripts/{{阶段脚本}}.py")
+    else:
+        L.append("# ① 端到端自检（离线 20 项，不联网、秒级）")
+        L.append(f"uv run python {name}/scripts/selftest_pipeline.py --offline")
+        L.append("#    联网全量（38 项）")
+        L.append(f"uv run python {name}/scripts/selftest_pipeline.py")
+        L.append("")
+        L.append("# ② 阶段 0：准备阶段（在对话里收齐选择后落盘）")
+        L.append(f"uv run python {name}/scripts/prepare_stage.py \\")
+        L.append("    --set output_format=markdown --set translate=no \\")
+        L.append("    --set reverse_refs=yes --set make_ppt=no")
+        L.append(f"uv run python {name}/scripts/prepare_stage.py --check-all")
     L.append("```")
     L.append("")
     L.append(f"完整流程见 [`{name}/SKILL.md`]({name}/SKILL.md)；"
@@ -525,11 +813,41 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L.append("| 项 | 要求 |")
     L.append("|---|---|")
     L.append("| 操作系统 | Windows（流程基于 win32 + Git Bash） |")
-    L.append("| Python | 通过 `uv` 运行，脚本按需 `uv run --with <pkg>` 拉依赖 |")
+    if manifest.get("runtime"):
+        L.append("| Python | **随包内嵌** `runtime/python.exe`（不含 torch）；"
+                 "依赖按设备装：`pwsh -File install.ps1 -Device cuda130\\|cpu` |")
+    else:
+        L.append("| Python | 通过 `uv` 运行，脚本按需 `uv run --with <pkg>` 拉依赖 |")
     L.append("| 浏览器 | Microsoft Edge（阶段 B–E 的 CDP 抓取要用） |")
     L.append("| 网络 | 阶段 D2/G2/H2 走 OpenAlex 等元数据 API；"
              "摘要在第一层直连；**原文全文经 CDP** |")
     L.append("")
+
+    if manifest.get("assets") or manifest.get("runtime"):
+        L.append("## 小模型（可换机器运行）\n")
+        if manifest.get("assets"):
+            a = manifest["assets"]
+            got = "、".join(f"{k} {v} 文件" for k, v in (a.get("files") or {}).items())
+            L.append(f"- **权重随包**：`{ASSETS_DST}/`（{got}）—— 与开发机 `小模型/` 同构，"
+                     "`scripts/small_model.py` 把它列为根候选⓪，换机器开箱即用。")
+        else:
+            L.append("- **未随包权重**：装好依赖后设 `SMALL_MODEL_ROOT` 指向模型仓库根"
+                     "（含 `.hf-home/qwen3-06b-hf`、`outputs/`）。")
+        if manifest.get("runtime"):
+            r = manifest["runtime"]
+            L.append(f"- **内嵌运行时**：`runtime/`（{r['files']} 文件 / {r['mb']} MB，"
+                     "**不含 torch/CUDA** —— 随设备变化，装机时按 `-Device` 装）。")
+            L.append("- 装机与自检：")
+            L.append("```powershell")
+            L.append("pwsh -File install.ps1 -Device cuda130 -Source tuna   # Blackwell(sm_120) 用 cuda130")
+            L.append("pwsh -File start.ps1 doctor                           # 模型层 + 流程离线自检")
+            L.append("pwsh -File start.ps1 run scripts/knowledge_graph.py --kw-model")
+            L.append("```")
+        L.append("- 设备不写死：`SMALL_MODEL_DEVICE=cuda|cuda:N|cpu`（默认 auto）；"
+                 "CPU 可用但会在 stderr 提示低吞吐。")
+        L.append("- 零样本基座通道（llama.cpp）需目标机自备 `llama-server`"
+                 "（本包**未含**该二进制；装了设为 `LLAMA_SERVER` 或放进 `llamacpp/`）。")
+        L.append("")
 
     L.append("## 抓取策略（v7.1 分层）\n")
     L.append("| 层 | 内容 | 方式 |")

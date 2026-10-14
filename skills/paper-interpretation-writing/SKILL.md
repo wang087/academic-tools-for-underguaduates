@@ -172,6 +172,11 @@ python scripts/check_interpretation.py 解读.md --tier L2 --source 原文.txt
 
 # 机器可读报告 / 让警告也失败
 python scripts/check_interpretation.py 解读.md --tier L3 --json --strict
+
+# 可选：加开 deai 模型二审（本地 Qwen3-0.6B 适配器，规则黑名单外的同义变体）。
+# 只出 MODEL_* warning、不影响退出码；需 torch/transformers/peft，
+# 先跑 python 流程1/scripts/selftest_small_model.py 确认环境。
+python scripts/check_interpretation.py 解读.md --tier L2 --model
 ```
 
 校验器覆盖：空话、越界推测、术语缺对照、缺收尾落点、**档位超篇幅**、

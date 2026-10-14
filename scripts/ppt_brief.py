@@ -25,8 +25,10 @@
 #
 # 用法：
 #   uv run python 流程1/scripts/ppt_brief.py
-#     --ppt-dir=<ppt-master 仓库根>   默认自动探测（$PPT_MASTER_DIR 或 <本仓>/ppt-master）
-#     --project-name=<项目名>         默认 <作者名>_文献汇报
+#     --ppt-dir=<ppt-master 仓库根>   默认自动探测（$PPT_MASTER_DIR 或 <本仓>/vendor/ppt-master）
+#     --outdir=<输出根>               默认流程输出根 WD（PAPER_WORKDIR / run_root()）；
+#                                     项目落 <WD>/<作者名>_汇报PPT_<画布>_<日期>
+#     --project-name=<项目名>         默认 <作者名>_汇报PPT
 #     --title=<PPT 标题>              默认「<作者名> 研究工作汇报」
 #     --pages=short|standard|long     默认读准备阶段计划，再默认 standard
 #     --canvas=ppt169                 画布格式（默认 PPT 16:9）
@@ -386,7 +388,7 @@ def collect_direction_review() -> dict:
     final = load_json(REFDIR / "final_list.json", {}) or {}
     man = load_json(REFDIR / "manifest.json", {}) or {}
     meta = {t.get("slug"): t for t in (man.get("tasks") or [])}
-    vocab = load_json(CDPDIR / "tag_vocabulary.json", {})         or load_json(TPL.parent / "templates" / "方法范式标签词表.json", {}) or {}
+    vocab = load_json(CDPDIR / "tag_vocabulary.json", {})         or load_json(_HERE.parent / "templates" / "方法范式标签词表.json", {}) or {}
     allowed_d = vocab.get("direction_tags_vocabulary") or []
     aliases = (vocab.get("aliases") or {})
     al_d = {str(k).lower(): v for k, v in (aliases.get("_方向别名") or {}).items()}
@@ -1157,7 +1159,9 @@ def main() -> int:
             "\n"
             "选项：\n"
             "  --ppt-dir=<路径>      ppt-master 仓库根（默认自动探测）\n"
-            "  --project-name=<名>   项目名（默认 <作者名>_文献汇报）\n"
+            "  --outdir=<路径>       PPT 项目输出根（默认 <PAPER_WORKDIR>/流程输出根，\n"
+            "                       项目名 <作者名>_汇报PPT；**不落 vendor/ppt-master/projects/**）\n"
+            "  --project-name=<名>   项目名（默认 <作者名>_汇报PPT）\n"
             "  --title=<标题>        PPT 标题（默认「<作者名> 研究工作汇报」）\n"
             "  --pages=short|standard|long   页数预算（默认读 prepare_plan.json\n"
             "                       的 ppt_pages，再默认 standard）\n"
@@ -1192,9 +1196,18 @@ def main() -> int:
         print(f"[X] --canvas 取值 {canvas!r} 不在 {list(CANVAS)} 内")
         return 2
     title = _argval("title") or f"{AUTHOR} 研究工作汇报"
-    project = _argval("project-name") or f"{AUTHOR}_文献汇报"
+    project = _argval("project-name") or f"{AUTHOR}_汇报PPT"
     lang = _argval("lang", "zh-CN")
     audience = _argval("audience") or "课题组老师与同学（同方向，熟悉基本概念）"
+
+    # ── PPT 项目落点：与流程输出目录**统一** ──────────────────
+    #   默认落 <流程输出根> WD（= PAPER_WORKDIR 或 run_root()），项目名
+    #   `<作者名>_汇报PPT`（project_manager 会再拼 `_<画布>_<日期>`）。
+    #   **不再落 `vendor/ppt-master/projects/`** —— 那是**依赖目录**：
+    #     ① 产物混在依赖里不利交付（收包的人只想要 <作者名>_汇报PPT*/）；
+    #     ② v17.14/打包时依赖可能被整体替换或裁掉，连带把交付物删掉。
+    #   可用 `--outdir=<路径>` 覆盖输出根（默认 WD）。
+    outdir = pathlib.Path(_argval("outdir", "") or WD).resolve()
 
     ppt_dir = find_ppt_dir(_argval("ppt-dir", "") or "")
     if ppt_dir is None:
@@ -1246,6 +1259,7 @@ def main() -> int:
         print(f"  ppt-master 根：{ppt_dir}")
         print(f"  项目名：{project}（画布 {canvas}，预算 {n_low}–{n_high} 页，"
               f"Spec 里写实际 {n_pages} 页）")
+        print(f"  输出根：{outdir}（≠ vendor/ppt-master/projects/，与流程输出目录统一）")
         print(f"  sources/{AUTHOR}_汇报材料.md  （{len(source_md)} 字符）")
         print(f"  design_spec.md                （{len(spec)} 字符）")
         print(f"  spec_lock.md                  （{len(lock)} 字符）")
@@ -1257,7 +1271,8 @@ def main() -> int:
     if not pm.exists():
         print(f"[X] 找不到 {pm}")
         return 2
-    init = run([sys.executable, str(pm), "init", project, "--format", canvas],
+    init = run([sys.executable, str(pm), "init", project, "--format", canvas,
+                "--dir", str(outdir)],
                cwd=ppt_dir)
     if init.returncode != 0:
         print("[X] project_manager.py init 失败：")
@@ -1265,9 +1280,9 @@ def main() -> int:
         return 1
     proj_path = parse_project_path(init.stdout)
     if not proj_path:
-        # 兜底：取 projects/ 下最新目录
-        cands = sorted((ppt_dir / "projects").glob(f"{project}*"),
-                       key=lambda p: p.stat().st_mtime)
+        # 兜底：取输出根下最新目录（**当年那份在 ppt_dir/projects/ 下找的写法已废弃** ——
+        #   项目早已改落 WD，再去依赖目录里找只会落空）
+        cands = sorted(outdir.glob(f"{project}*"), key=lambda p: p.stat().st_mtime)
         proj_path = cands[-1] if cands else None
     if not proj_path or not proj_path.is_dir():
         print("无法确定新建项目路径；init 输出：")
