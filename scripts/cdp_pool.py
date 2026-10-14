@@ -142,6 +142,32 @@ LEVEL_NAMES = {0: "日常档", 1: "极简档", 2: "扩展档", 3: "极速档"}
 #   实例行为不一致；统一由该变量决定，重启沿用同一档。
 DEFAULT_LEVEL = int(os.environ.get("PAPER_CDP_LEVEL", "0") or 0)
 
+# ── 附加启动参数：PAPER_CDP_EXTRA_ARGS（缺省空）────────────────
+#
+# 为什么需要：某些环境下 Edge 的 **renderer 进程沙箱**创建失败 ——
+#   浏览器主进程能起、DevTools 端口就绪、浏览器级 CDP 命令正常，
+#   但 renderer 一个都起不来，于是**所有页面级命令永远超时**。
+#   此时唯一有效的开关是 `--no-sandbox`（逐项二分定位结论见
+#   `optional-cdp-fulltext/cdp_up_nosandbox.py` 头部说明）。
+#
+# 旧行为的问题：`cdp_up_nosandbox.py` 只在**启动时**追加 `--no-sandbox`，
+#   而 `download_all_fulltexts.py` 检测到端口失联会调用
+#   `cdp_pool.launch_one(...)` **自行重启** —— 那条路径不经过可选模块，
+#   重启回来的实例没有 `--no-sandbox` → renderer=0 → 该实例后续每篇都失败。
+#   即「启动时好好的，中途崩一次就再也起不来」。
+#
+# 本钩子让**所有**调用方（含中途重启）都能带上同一套附加参数：
+#
+#     PAPER_CDP_EXTRA_ARGS="--no-sandbox"
+#
+# [STOP] 默认**为空** —— 沙箱是有价值的防线，正常环境不要设它。
+#   只在「不加就无法起 renderer」的环境按需设置，与本流程其它可移植配置一致。
+#   参数以空格分隔；末尾的 about:blank 始终保持在最后。
+_EXTRA_ARGS = [
+    a for a in (os.environ.get("PAPER_CDP_EXTRA_ARGS", "") or "").split()
+    if a
+]
+
 # 每个工作目录的实例登记表，便于 status / down
 REGISTRY = ".work_cdp/cdp_instances.json"
 
@@ -161,9 +187,15 @@ def profile_for(wd: pathlib.Path, port: int, tag: str = "") -> pathlib.Path:
 
 
 def build_args(port: int, profile: pathlib.Path, level: int) -> list[str]:
-    """按档位选一套启动参数（档位是并列的，不叠加）。默认 L0 日常档。"""
+    """按档位选一套启动参数（档位是并列的，不叠加）。默认 L0 日常档。
+
+    末尾统一追加 `PAPER_CDP_EXTRA_ARGS`（缺省空），使**中途重启**与
+    首次启动拿到完全一致的参数 —— 否则本机 renderer 起不来的环境里，
+    重启回来的实例会是「端口通、renderer=0」的假活状态。
+    """
     lv = max(0, min(level, len(LEVELS) - 1))
     args = [a.format(port=port, profile=str(profile)) for a in LEVELS[lv]]
+    args.extend(_EXTRA_ARGS)
     args.append("about:blank")
     return args
 

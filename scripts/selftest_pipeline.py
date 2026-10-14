@@ -82,6 +82,8 @@ def run(script: str, wd: pathlib.Path, args: list[str] | None = None,
 
     `with_pkgs`：该阶段需要的额外依赖（如阶段 K 的 matplotlib/networkx）。
     用 `uv run --with` 按需加载，不污染项目环境 —— 与流程文档里的命令一致。
+    **无 uv 时回退到当前解释器**（发行包内嵌 runtime 的依赖已由 install.ps1 装好，
+      此时 `sys.executable` 就是它）——否则换机器后自检会因为"没有 uv"整段假失败。
     """
     env = dict(os.environ)
     env["PAPER_WORKDIR"] = str(wd)
@@ -89,7 +91,7 @@ def run(script: str, wd: pathlib.Path, args: list[str] | None = None,
     env["PAPER_NAME_TOKENS"] = "hou, xudong|xudong hou|zhou, cong-zhao"
     env["PAPER_SURNAME"] = "Hou"
     env["PAPER_GIVEN"] = "Xudong"
-    if with_pkgs:
+    if with_pkgs and shutil.which("uv"):
         cmd = (["uv", "run", "--no-project"]
                + [x for pkg in with_pkgs for x in ("--with", pkg)]
                + ["python", str(SDIR / script)] + (args or []))
@@ -220,22 +222,30 @@ def make_refs_cards(wd: pathlib.Path, verbose: bool) -> int:
     return n
 
 
-def ppt_projects_dir() -> pathlib.Path:
-    """ppt-master 的 projects 目录 —— 复用 ppt_brief 的定位逻辑。
+def ppt_master_root() -> pathlib.Path:
+    """ppt-master 仓库根（含 skills/ppt-master/SKILL.md）—— 复用 ppt_brief 的定位。
 
-    不能写死 REPO/"ppt-master"：打包发行版（流程1/）把依赖放在
-      `<流程1>/vendor/ppt-master`，那里才是真正会被写入的位置。
-      两处若不一致，自检会去错误的地方找新建项目，误报"未找到新建项目"。
+    不能写死 REPO/"ppt-master"：打包发行版把依赖放在 `<流程>/vendor/ppt-master`，
+      那里才是 `project_manager.py` 真正所在。用它来调 validate。
     """
     try:
         sys.path.insert(0, str(SDIR))
         from ppt_brief import find_ppt_dir          # type: ignore
         d = find_ppt_dir()
         if d:
-            return d / "projects"
+            return d
     except Exception:
         pass
-    return REPO / "ppt-master" / "projects"
+    return REPO / "ppt-master"
+
+
+def ppt_projects_dir() -> pathlib.Path:
+    """**历史**：ppt-master 的 projects 目录。
+
+    v17.19 起阶段 P 的项目**不再落这里**（改落流程输出根，见 ppt_brief `--outdir`），
+    本函数仅留给仍想查看旧产物的调用，新自检一律用 `wd` 作为输出根。
+    """
+    return ppt_master_root() / "projects"
 
 
 def main() -> int:
@@ -675,7 +685,10 @@ def main() -> int:
 
         # ── 阶段 P：PPT ───────────────────────────────────────
         print("\n【阶段 P】PPT 材料与 Spec 生成")
-        PROJ = ppt_projects_dir()
+        # v17.19：项目改落**流程输出根**（ppt_brief 默认 --outdir=WD），
+        #   不再进 ppt-master/projects —— 自检也据此在 wd 下找新建项目。
+        PROJ = wd
+        ppt_root = ppt_master_root()
         ppts = sorted(PROJ.glob(f"{AUTHOR}*"))
         before = set(ppts)
         # 项目名带本次运行的唯一后缀：`project_manager.py init` 用
@@ -693,15 +706,14 @@ def main() -> int:
         check("阶段 P 执行成功", rc == 0, (out.strip().splitlines() or [""])[-1][:90])
         if new:
             proj = new[-1]
-            # 断言项目确实落在**本流程解析出的** ppt-master 下。
-            #   打包发行版（流程1/）若因路径解析错误而用了别处的 ppt-master，
-            #   产物会写到包外 —— 这条断言专门防这个。
+            # 断言项目确实落在**本流程输出根**下（v17.19 起不再落 ppt-master/projects）。
+            #   打包发行版若因路径解析错误把产物写到包外，这条断言会抓到。
             inside = PROJ.resolve() in proj.resolve().parents
-            check("阶段 P 写入了本流程解析到的 ppt-master", inside,
-                  f"ppt-master 根：{PROJ.parent}")
+            check("阶段 P 写入了流程输出根（非 ppt-master/projects）", inside,
+                  f"输出根：{PROJ}")
             check("design_spec.md / spec_lock.md 已生成",
                   (proj / "design_spec.md").exists() and (proj / "spec_lock.md").exists())
-            pm = PROJ.parent / "skills" / "ppt-master" / "scripts" / "project_manager.py"
+            pm = ppt_root / "skills" / "ppt-master" / "scripts" / "project_manager.py"
             p = subprocess.run([sys.executable, str(pm), "validate", str(proj)],
                                capture_output=True, text=True, encoding="utf-8",
                                errors="replace")
@@ -743,7 +755,7 @@ def main() -> int:
                 shutil.rmtree(proj, ignore_errors=True)
         else:
             check("找到新建的 ppt-master 项目", False,
-                  "未在 ppt-master/projects 下发现新目录")
+                  f"未在流程输出根 {PROJ} 下发现 {AUTHOR}* 目录")
 
         # ── 闸门关闭路径 ─────────────────────────────────────
         print("\n【闸门】全关（反向/PPT 都关）")

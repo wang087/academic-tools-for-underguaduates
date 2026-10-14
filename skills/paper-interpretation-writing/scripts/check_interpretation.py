@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Check a Chinese paper-interpretation draft against the writing module.
 
-Deterministic and local-only: it reads text files, makes no network or model
+Deterministic and local-only by default: it reads text files, makes no network
 calls, and never scores prose quality. What it can do mechanically is catch the
 failure modes that are *checkable* -- empty filler, speculation that leaked into
 a conclusion section, an abbreviation used without its first-mention gloss,
@@ -18,16 +18,26 @@ mechanism accuracy and cross-tier consistency still need a human (or a model)
 reading the source. The report says so, rather than implying a clean run means
 the draft is correct.
 
+``--model`` adds an optional second-opinion layer (still local, no network): a
+fine-tuned Qwen3-0.6B compliance classifier (``deai`` adapter, measured 99.1%
+on its held-out set) re-reads every sentence and catches synonym variants the
+string rules miss. Its findings are **warnings only** -- they never change the
+exit code, so the delivery gate keeps its deterministic behaviour. See
+``scripts/small_model.py`` in the pipeline repository for setup and
+``scripts/selftest_small_model.py`` for a migration check.
+
 Usage:
     python check_interpretation.py draft.md --tier L1
     python check_interpretation.py draft.md --tier L3 --source paper.txt
     python check_interpretation.py draft.md --tier L2 --json --strict
+    python check_interpretation.py draft.md --tier L2 --model
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -343,6 +353,20 @@ def sections(text: str) -> list[tuple[str, str]]:
     for index, match in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
         out.append((match.group(1).strip(), text[match.end():end]))
+    return out
+
+
+def sections_with_offsets(text: str) -> list[tuple[str, str, int]]:
+    """Like ``sections`` but also returns each body's start offset in ``text``."""
+    headings = list(re.finditer(r"^#{1,6}[ \t]*(.+)$", text, re.M))
+    if not headings:
+        return [("", text, 0)]
+    out: list[tuple[str, str, int]] = []
+    if headings[0].start() > 0:
+        out.append(("", text[: headings[0].start()], 0))
+    for index, match in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+        out.append((match.group(1).strip(), text[match.end():end], match.end()))
     return out
 
 
@@ -742,8 +766,111 @@ def check_tier(text: str, tier: str) -> list[dict]:
     return problems
 
 
+# --------------------------------------------------------------------------
+# Optional model layer (deai adapter) -- warnings only, never errors
+# --------------------------------------------------------------------------
+
+#: deai label -> (code suffix, human hint). Codes are emitted as ``MODEL_*`` so
+#: they can never collide with the deterministic rule codes above.
+_MODEL_LABEL_HINTS = {
+    "EMPTY_FILLER": "空话套话（规则黑名单外的同义变体）：换成具体的缺口或结果",
+    "SPECULATION_LEAK": "结论语境出现展望/推测措辞：移到待验证问题",
+    "STRONG_VERB_OVERREACH": "动词强度越级（如「证明了/证实了」超出证据强度）：降级措辞",
+    "L1_FORBIDDEN": "疑似 L1 档禁写内容（误差项/样本量/图表引用/实验步骤）",
+    "NUMBER_CONVERSION": "疑似把原文数字换算或概数化：数值必须原样引用",
+    "UNSUPPORTED_NOVELTY": "疑似无依据的新颖性断言（首次/重大突破）",
+    "TERM_NO_GLOSS": "疑似术语首现缺中英对照",
+}
+
+
+def model_findings(text: str, tier: str = "all") -> tuple[list[dict], dict]:
+    """Sentence-level second opinion from the deai adapter.
+
+    Two deliberate constraints keep the layer trustworthy:
+
+    * **Warnings only.** The 99.1% held-out accuracy is real but it was
+      measured on injected violations; on live drafts the model can still
+      misfire, and an error here would block delivery through a gate whose
+      contract is deterministic. A human reads warnings; nothing else changes.
+    * **Context exemption.** ``SPECULATION_LEAK`` and ``L1_FORBIDDEN`` are
+      context-dependent labels (speculation is legitimate under 待验证/展望;
+      L1-forbidden content is fine in L2/L3). Sentences inside open sections
+      are exempted from ``SPECULATION_LEAK``, mirroring the rule layer, and
+      ``L1_FORBIDDEN`` is only reported when ``tier`` is L1 or ``all``.
+
+    Raises ``RuntimeError`` when the model layer was explicitly requested but
+    is unavailable -- an explicit switch must fail loudly, never degrade
+    silently (the pipeline's standing convention).
+    """
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent.parent.parent / "scripts",   # 流程1/skills/<skill>/scripts -> 流程1/scripts
+        here,
+    ]
+    small_model = None
+    for cand in candidates:
+        if (cand / "small_model.py").is_file():
+            if str(cand) not in sys.path:
+                sys.path.insert(0, str(cand))
+            import small_model as _sm
+            small_model = _sm
+            break
+    if small_model is None:
+        raise RuntimeError(
+            "找不到 scripts/small_model.py —— deai 模型层未随流程部署。")
+    try:
+        model = small_model.SmallModel()
+    except small_model.SmallModelError as error:
+        raise RuntimeError(str(error)) from error
+
+    # (absolute line, sentence, section kind), in document order. Line numbers
+    # come from each section body's real offset in the text -- accumulating
+    # body newline counts would drift, because heading lines are not part of
+    # any body.
+    entries: list[tuple[int, str, str]] = []
+    for heading, body, offset in sections_with_offsets(text):
+        kind = heading_kind(heading)
+        base = text.count("\n", 0, offset)
+        for relative, sentence in sentences(body):
+            entries.append((base + relative, sentence, kind))
+
+    todo = [(n, s, k) for n, s, k in entries if mask_code_spans(s).strip()]
+    labels = model.deai_classify([s for _, s, _ in todo])
+
+    problems: list[dict] = []
+    unparsed = 0
+    for (number, sentence, kind), label in zip(todo, labels):
+        if label is None:
+            unparsed += 1
+            continue
+        if label == "OK":
+            continue
+        if label == "SPECULATION_LEAK" and kind == "open":
+            continue
+        if label == "L1_FORBIDDEN" and tier not in ("L1", "all"):
+            continue
+        hint = _MODEL_LABEL_HINTS.get(label, "模型判为违规")
+        problems.append(
+            finding(
+                f"MODEL_{label}",
+                "warning",
+                f"[deai 模型二审] {hint}",
+                number,
+                sentence,
+            )
+        )
+    stats = {
+        "sentences_checked": len(todo),
+        "model_warnings": len(problems),
+        "unparsed_outputs": unparsed,
+        "severity_policy": "warning-only（不进 error_count，不影响退出码）",
+    }
+    return problems, stats
+
+
 def check(text: str, source: str | None = None, tier: str = "all",
-          check_years: bool = False, check_all_numbers: bool = False) -> dict:
+          check_years: bool = False, check_all_numbers: bool = False,
+          use_model: bool = False) -> dict:
     """Run the applicable checks and return a machine-readable report."""
     if tier not in TIER_CHECKS:
         tier = "all"
@@ -767,6 +894,11 @@ def check(text: str, source: str | None = None, tier: str = "all",
     if "tier" in selected:
         findings += check_tier(text, tier)
 
+    model_stats = None
+    if use_model:
+        model_problems, model_stats = model_findings(text, tier=tier)
+        findings += model_problems
+
     errors = [f for f in findings if f["severity"] == "error"]
     warnings = [f for f in findings if f["severity"] == "warning"]
 
@@ -775,6 +907,7 @@ def check(text: str, source: str | None = None, tier: str = "all",
         "tier": tier,
         "cjk_chars": count_cjk(text),
         "source_checked": source is not None,
+        "model_layer": model_stats,
         "error_count": len(errors),
         "warning_count": len(warnings),
         "findings": findings,
@@ -838,6 +971,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--encoding", default="utf-8", help="输入文件编码（默认 utf-8）"
     )
+    parser.add_argument(
+        "--model", action="store_true",
+        help="加开 deai 模型二审（本地 Qwen3-0.6B 适配器，见 scripts/small_model.py）："
+             "逐句判别规则黑名单外的同义变体，只出 warning，不影响退出码。"
+             "也可用环境变量 CHECK_INTERPRETATION_MODEL=1 开启。"
+             "依赖 torch/transformers/peft；不可用时**报错退出**，不静默降级。",
+    )
     return parser
 
 
@@ -871,13 +1011,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"错误：无法读取 {source_path}（{error}）", file=sys.stderr)
             return 2
 
-    report = check(
-        draft,
-        source=source,
-        tier=args.tier,
-        check_years=args.check_years,
-        check_all_numbers=args.check_all_numbers,
-    )
+    use_model = bool(args.model or
+                     (os.environ.get("CHECK_INTERPRETATION_MODEL") or "").strip()
+                     in ("1", "true", "yes", "on"))
+
+    try:
+        report = check(
+            draft,
+            source=source,
+            tier=args.tier,
+            check_years=args.check_years,
+            check_all_numbers=args.check_all_numbers,
+            use_model=use_model,
+        )
+    except RuntimeError as error:
+        print(f"错误：--model 已显式开启但模型层不可用，按约定不静默降级。\n{error}",
+              file=sys.stderr)
+        return 2
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -889,9 +1039,14 @@ def main(argv: list[str] | None = None) -> int:
             if item.get("excerpt"):
                 print(f"        > {item['excerpt']}")
         print()
+        model_note = ""
+        if report.get("model_layer"):
+            ms = report["model_layer"]
+            model_note = (f"，deai 模型二审 {ms['sentences_checked']} 句"
+                          f" → {ms['model_warnings']} 条 warning")
         print(f"error {report['error_count']} / warning {report['warning_count']}"
               f"（档位 {report['tier']}，{report['cjk_chars']} 个汉字，"
-              f"原文核对 {'开' if report['source_checked'] else '关'}）")
+              f"原文核对 {'开' if report['source_checked'] else '关'}{model_note}）")
         print(report["notice"])
         if not report["findings"]:
             print("\n未发现可机械判定的问题。仍需回原文核对语气与机制。")
