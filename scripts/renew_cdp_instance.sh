@@ -27,7 +27,8 @@ for p in "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
 done
 [ -z "${MSEDGE:-}" ] && { echo "未找到 msedge.exe"; exit 1; }
 
-PROFILE="${WORKDIR}/.edge-cdp-p${PORT}-${TAG}"
+# profile 收在 .work_cdp/ 下（与 cdp_pool.py 的 PROFILE_HOME 保持一致）
+PROFILE="${WORKDIR}/.work_cdp/cdp_profiles/.edge-cdp-p${PORT}-${TAG}"
 LOGDIR="${WORKDIR}/.work_cdp/logs"
 mkdir -p "$LOGDIR"
 

@@ -78,6 +78,174 @@ def _slug_free(path: pathlib.Path) -> bool:
         return False
 
 
+# ── 卡不可解析时的**归因**（转义校验）────────────────────────────────
+#   为什么不能只报「损坏」：解读卡由**并行 subagent** 直接写 JSON 文本，
+#   最常见的失败是**字符串里的引号没转义** —— 典型如把论文标题原样抄进去：
+#       "one_line": "本文讨论 "cBAF" 复合物……"      ← 第二个 " 提前闭合字符串
+#   此时 json.loads 抛的是 `Expecting ',' delimiter` / `Expecting property name…`，
+#   读起来像"结构错了"，于是被笼统归为"损坏卡"重派 —— 而重派时若不告诉
+#   subagent **是哪一行、哪个引号**，它很可能原样再写一遍。
+#   所以这里做**定位级**归因：算出可疑行号 + 该行原文，并给出可执行的修法。
+def _suspect_quote_pos(text: str):
+    """扫描出**未转义引号的精确位置** `(line, col, next_char)`；没有则 None。
+
+    判据（比"引号个数为奇数"可靠得多 —— 一行里有两处未转义引号时个数是偶数）：
+    一个字符串**正常闭合**后，紧跟的第一个非空白字符只可能是
+    `,` `}` `]` `:` 之一；若是字母/汉字，就说明这个 `"` 是**内容里的引号**
+    被当成了字符串结尾 —— 即未转义引号。这也正是 `json.loads` 报
+    `Expecting ',' delimiter` 的真实原因。
+    """
+    i, line, col, in_str, n = 0, 1, 0, False, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\n":
+            line, col, i = line + 1, 0, i + 1
+            continue
+        col += 1
+        if in_str:
+            if ch == "\\":
+                i += 2
+                col += 1
+                continue
+            if ch == '"':
+                in_str = False
+                j = i + 1
+                while j < n and text[j] in " \t\r\n":
+                    j += 1
+                if j < n and text[j] not in ",}]:":
+                    return line, col, text[j]
+        elif ch == '"':
+            in_str = True
+        i += 1
+    return None
+
+
+def _odd_quote_lines(text: str) -> list[int]:
+    """返回「未转义双引号个数为奇数」的行号（1 基）。
+
+    奇数个未转义 `"` 意味着该行的字符串**没有正常闭合** —— 是未转义引号
+    最可靠的信号（比匹配异常文本来得稳）。`\\"` 视为已转义，不计。
+    """
+    out: list[int] = []
+    for i, line in enumerate(text.splitlines(), 1):
+        n, j = 0, 0
+        while j < len(line):
+            if line[j] == "\\":
+                j += 2
+                continue
+            if line[j] == '"':
+                n += 1
+            j += 1
+        if n % 2:
+            out.append(i)
+    return out
+
+
+def diagnose_json(path: pathlib.Path) -> dict:
+    """卡不可解析 → 给出**具体原因 + 行号 + 修法**；可解析则 ok=True。
+
+    只读、零副作用。返回键：ok / reason / detail / line / col / excerpt / hint。
+    """
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return {"ok": False, "reason": "unreadable", "detail": str(e)[:120],
+                "line": None, "col": None, "excerpt": "", "hint": "文件读不到"}
+    try:
+        json.loads(raw)
+        return {"ok": True, "reason": "", "detail": "", "line": None,
+                "col": None, "excerpt": "", "hint": ""}
+    except json.JSONDecodeError as e:
+        line, col, msg = e.lineno, e.colno, e.msg
+        lines = raw.splitlines()
+
+        def _at(n: int) -> str:
+            return lines[n - 1][:160] if 0 < n <= len(lines) else ""
+
+        excerpt = _at(line)
+        odd = _odd_quote_lines(raw)
+        suspect = _suspect_quote_pos(raw)
+        # 归因优先序：未转义引号（精确位置）→ 奇数引号行 → 裸控制字符 → 其它语法
+        if suspect and abs(suspect[0] - line) <= 3:
+            sline, scol, nxt = suspect
+            return {"ok": False, "reason": "unescaped-quote", "detail": msg,
+                    "line": sline, "col": scol, "excerpt": _at(sline),
+                    "hint": f'第 {sline} 行第 {scol} 列：字符串在这里被一个**内容里的引号**'
+                            f'提前闭合（紧跟 {nxt!r}，而合法字符只能是 , }} ] :）。'
+                            f'把该引号写成 \\" ，或改用 json.dumps 生成整份卡。'}
+        if odd and any(abs(line - L) <= 3 for L in odd):
+            hit = min(odd, key=lambda L: abs(line - L))
+            return {"ok": False, "reason": "unescaped-quote", "detail": msg,
+                    "line": hit, "col": col, "excerpt": _at(hit),
+                    "hint": f'第 {hit} 行双引号未闭合（字符串里有未转义的 "）。'
+                            f'把该行内容里的 " 写成 \\" ，或改用 json.dumps 生成整份卡。'}
+        if "Invalid control character" in msg:
+            return {"ok": False, "reason": "raw-control-char", "detail": msg,
+                    "line": line, "col": col, "excerpt": excerpt,
+                    "hint": f"第 {line} 行字符串里有裸换行/制表符；改用 \\n / \\t 转义。"}
+        if suspect:
+            sline, scol, nxt = suspect
+            return {"ok": False, "reason": "unescaped-quote", "detail": msg,
+                    "line": sline, "col": scol, "excerpt": _at(sline),
+                    "hint": f'第 {sline} 行第 {scol} 列：字符串被内容里的引号提前闭合'
+                            f'（紧跟 {nxt!r}）。把该引号写成 \\" 。'}
+        if odd:
+            hit = odd[0]
+            return {"ok": False, "reason": "unescaped-quote", "detail": msg,
+                    "line": hit, "col": col, "excerpt": _at(hit),
+                    "hint": f'第 {hit} 行双引号个数为奇数（未转义引号）。'
+                            f'把内容里的 " 写成 \\" 。'}
+        return {"ok": False, "reason": "json-syntax", "detail": msg,
+                "line": line, "col": col, "excerpt": excerpt,
+                "hint": f"第 {line} 行第 {col} 列：{msg}（检查尾逗号 / 缺括号 / 单引号当键）"}
+    except Exception as e:                                    # pragma: no cover
+        return {"ok": False, "reason": "unknown",
+                "detail": f"{type(e).__name__}: {e}"[:120],
+                "line": None, "col": None, "excerpt": "", "hint": ""}
+
+
+def check_json(target: pathlib.Path, as_json: bool = False) -> int:
+    """对卡文件（或目录下全部 *.json）做**转义校验**并逐张归因。
+
+    退出码：0 = 全部可解析（干净）；4 = 有坏卡（附行号与修法）；2 = 路径不存在。
+
+    为什么要单独给一个入口：卡由并行 subagent 直接写文本，`json.loads`
+    一失败整张卡就进不了 build；而"哪一行、哪个引号"才是重派时唯一有用的
+    信息。build 之前跑一次，能把这类问题挡在汇总之外
+    （而不是让 `refs_build` 报"缺卡 N 篇"那样看不出根因）。
+    """
+    if not target.exists():
+        print(f"[X] 路径不存在：{target}")
+        return 2
+    files = ([target] if target.is_file()
+             else sorted(p for p in target.rglob("*.json") if p.is_file()))
+    if not files:
+        print(f"[X] 未找到 *.json：{target}")
+        return 2
+    bad = []
+    for f in files:
+        d = diagnose_json(f)
+        if not d["ok"]:
+            bad.append({"file": str(f), **d})
+    if as_json:
+        print(json.dumps({"checked": len(files), "bad_count": len(bad), "bad": bad},
+                         ensure_ascii=False, indent=1))
+        return 4 if bad else 0
+    print(f"转义校验：{len(files)} 个文件，坏卡 {len(bad)}")
+    for d in bad:
+        loc = (f"第 {d['line']} 行" if d.get("line") else "行号未知")
+        print(f"  [STOP] {d['file']}")
+        print(f"        归因：{d['reason']}（{loc}）"
+              f"{('：' + d['detail']) if d.get('detail') else ''}")
+        if d.get("excerpt"):
+            print(f"        原文：{d['excerpt'].strip()[:140]}")
+        if d.get("hint"):
+            print(f"        修法：{d['hint']}")
+    if not bad:
+        print("  [OK] 全部可解析（无未转义引号 / 无裸控制字符 / 无语法错）")
+    return 4 if bad else 0
+
+
 def _parse_failed_cards(stage_dir: pathlib.Path) -> set[str]:
     """读 manifest.json 里被拒收/损坏的卡名（存在则用，不存在则空集）。"""
     mf = stage_dir / "manifest.json"
@@ -178,6 +346,12 @@ def survey(stage: str, expect: int) -> dict:
     # 孤儿卡：results 里有、tasks 里没有 -> 上一轮残留，不计入本轮
     orphan = [n for n in raw_results if n not in set(tasks)]
     bad = [n for n in raw_results if n not in done]
+    # 归因：不可解析的卡逐张定位（未转义引号 / 裸控制字符 / 其它语法）
+    bad_detail = []
+    for n in bad:
+        diag = diagnose_json(rdir / n)
+        if not diag["ok"]:
+            bad_detail.append({"file": n, **diag})
     rejected = sorted(_parse_failed_cards(d))
     # 能解析但**容器类型不合规**的卡：不重派就会带病进 build（H-3）
     shape = {n: card_shape_problems(json.loads((rdir / n).read_text(encoding="utf-8")), stage)
@@ -223,6 +397,7 @@ def survey(stage: str, expect: int) -> dict:
         "missing": missing[:20],
         "in_flight_estimate": in_flight,
         "unreadable": bad[:20],
+        "unreadable_detail": bad_detail[:20],
         "orphan_results": orphan[:20],
         "rejected": rejected[:20],
         "shape_bad_count": len(shape_bad),
@@ -243,7 +418,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--expect", type=int, default=0,
                     help="本批已分派但尚未回收的数量（用于估算在飞）；0=不估算")
     ap.add_argument("--json", action="store_true", help="只输出 JSON（机读）")
+    ap.add_argument("--check-json", metavar="PATH", default="",
+                    help="转义校验：对单个卡或整个目录逐张归因（未转义引号/裸控制字符/"
+                         "语法错），给出**行号 + 原文 + 修法**；退出码 0=干净 / 4=有坏卡")
     args = ap.parse_args(argv)
+
+    if args.check_json:
+        return check_json(pathlib.Path(args.check_json), as_json=args.json)
 
     stages = [args.stage] if args.stage else sorted(STAGES)
     reports = [survey(s, max(0, args.expect)) for s in stages]
@@ -266,8 +447,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    任务包 {r['tasks_total']}  已回收 {r['results_good']}"
               f"  缺 {r['missing_count']}   进度 {r['progress_pct']}%")
         if r["unreadable"]:
-            print(f"    [WARN] 不可解析的结果卡 {len(r['unreadable'])}："
+            print(f"    [STOP] 不可解析的结果卡 {len(r['unreadable'])}："
                   f"{', '.join(r['unreadable'][:3])}")
+            # 归因到**行**：重派时把这一行原文一并交给 subagent，
+            #   否则它极可能原样再写一遍同一个未转义引号。
+            for d in (r.get("unreadable_detail") or [])[:5]:
+                loc = (f"第 {d['line']} 行" if d.get("line") else "行号未知")
+                print(f"      · {d['file']} → {d['reason']}（{loc}）")
+                if d.get("hint"):
+                    print(f"        {d['hint']}")
+                if d.get("excerpt"):
+                    print(f"        原文：{d['excerpt'].strip()[:120]}")
         if r["orphan_results"]:
             print(f"    [INFO] 孤儿卡（上轮残留，不计入）{len(r['orphan_results'])}")
         if r["rejected"]:

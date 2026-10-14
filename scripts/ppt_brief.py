@@ -1028,6 +1028,113 @@ def gen_spec_lock(title, canvas_key, n_pages, audience, tiers=None) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
+def svg_escape_problems(path: pathlib.Path) -> list[dict]:
+    """手写 SVG 的**转义/XML 预检**：逐条给出 行号 + 原文 + 修法。
+
+    为什么需要它（而不是只靠 ppt-master 的 `svg_quality_checker.py`）：
+    那个质检器**确实**会发现 XML 错（内部 `ET.parse` 抛 `ParseError`），但它
+    报的是 `not well-formed (invalid token): line 12, column 7` ——
+    既不说"是哪种非法字符"，也不说"该怎么改"。阶段 P 的 SVG 由主 agent
+    **手写**，最常犯的就是两类转义错：
+
+    | 症状 | 真实原因 | 修法 |
+    |---|---|---|
+    | `invalid token`，位置指向正文中间 | 正文里出现了**单独的 `<`**（如 `p < 0.05`、`<5%`）—— XML 会把它当成标签开头 | 写成 `&lt;` |
+    | `not well-formed` / `undefined entity` | 裸 `&`（如 `A & B`、`R&D`） | 写成 `&amp;` |
+
+    返回列表；空列表 = 通过。**只读**，不修改文件。
+    """
+    problems: list[dict] = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return [{"line": 0, "reason": "unreadable", "excerpt": "", "hint": str(e)[:120]}]
+
+    # ① 权威判据：ElementTree 能否解析
+    parse_err = None
+    try:
+        import xml.etree.ElementTree as ET
+        ET.fromstring(text)
+    except Exception as e:
+        parse_err = e
+
+    # ② 定位级扫描：注释 / CDATA / 处理指令之外，裸 `<` 与裸 `&`
+    #    先把注释与 CDATA 挖掉（它们内部允许裸 `<` 和 `&`），并保留行号。
+    masked = []
+    for i, line in enumerate(text.splitlines(), 1):
+        st = line
+        st = re.sub(r"<!--.*?-->", "", st)          # 单行注释
+        st = re.sub(r"<!\[CDATA\[.*?\]\]>", "", st)  # 单行 CDATA
+        masked.append((i, st))
+
+    ok_entity = re.compile(r"&(?:amp|lt|gt|quot|apos|#[0-9]+|#x[0-9A-Fa-f]+);")
+    tag_start = re.compile(r"<(?:[A-Za-z_/?!]|$)")
+
+    for i, line in masked:
+        for m in re.finditer(r"<", line):
+            nxt = line[m.start():m.start() + 2]
+            if not tag_start.match(nxt):
+                problems.append({
+                    "line": i, "reason": "bare-lt",
+                    "excerpt": text.splitlines()[i - 1].strip()[:150],
+                    "hint": f"第 {i} 行第 {m.start()+1} 列：出现了**单独的 `<`**"
+                            f"（后面紧跟 {nxt[1:2]!r}，不像标签开头）。"
+                            f"正文里的 `<` 必须写成 `&lt;`（如 `p &lt; 0.05`）。"})
+                break
+        if any(p["line"] == i for p in problems):
+            continue
+        for m in re.finditer(r"&", line):
+            if not ok_entity.match(line[m.start():]):
+                problems.append({
+                    "line": i, "reason": "bare-amp",
+                    "excerpt": text.splitlines()[i - 1].strip()[:150],
+                    "hint": f"第 {i} 行第 {m.start()+1} 列：裸 `&`（未构成实体）。"
+                            f"必须写成 `&amp;`（如 `A &amp; B`）。"})
+                break
+
+    # ③ 解析失败但上面的扫描没命中 → 如实给出解析器原文（不假装已定位）
+    if parse_err is not None and not problems:
+        problems.append({
+            "line": getattr(parse_err, "position", (0, 0))[0] or 0,
+            "reason": "xml-parse",
+            "excerpt": "",
+            "hint": f"ElementTree 解析失败：{str(parse_err)[:160]}"
+                    f"（未识别为裸 `<` / 裸 `&`；请按行号核对标签闭合与引号）"})
+    return problems
+
+
+def check_svg(target: pathlib.Path) -> int:
+    """`--check-svg` 的实现：对 SVG 文件（或目录下全部 *.svg）做转义预检。
+
+    退出码 0 = 全部通过 / 4 = 有转义问题 / 2 = 路径不存在。
+    """
+    if not target.exists():
+        print(f"[X] 路径不存在：{target}")
+        return 2
+    files = ([target] if target.is_file()
+             else sorted(p for p in target.rglob("*.svg") if p.is_file()))
+    if not files:
+        print(f"[X] 未找到 *.svg：{target}")
+        return 2
+    bad = 0
+    for f in files:
+        probs = svg_escape_problems(f)
+        if not probs:
+            continue
+        bad += 1
+        print(f"  [STOP] {f}")
+        for p in probs:
+            loc = f"第 {p['line']} 行" if p["line"] else "行号未知"
+            print(f"        {p['reason']}（{loc}）")
+            if p.get("excerpt"):
+                print(f"        原文：{p['excerpt']}")
+            print(f"        修法：{p['hint']}")
+    print(f"SVG 转义预检：{len(files)} 个文件，有问题 {bad}")
+    if not bad:
+        print("  [OK] 全部通过（无裸 `<` / 无裸 `&` / XML 可解析）")
+    return 4 if bad else 0
+
+
 def self_test() -> int:
     fmt, vb = CANVAS["ppt169"]
     assert fmt == "PPT 16:9" and vb == "0 0 1280 720"
@@ -1139,6 +1246,42 @@ def self_test() -> int:
                         tiers=tiers)
     assert any("素材受限" in b for _, bs in p_l1 for b in bs), "低档位未写进任何页面"
     print("档位落到产物：通过（source md / design_spec / spec_lock / §IX 页面各就位）")
+
+    # ── 标签词表的**回退分支** ────────────────────────────────
+    #   该分支只在 `.work_cdp/tag_vocabulary.json` 缺失时才走 —— 恰恰是
+    #   实测中最容易长期不被覆盖的路径：这里曾引用过一个**从未定义**的模块级
+    #   常量，表现为 `NameError`（不是"读不到就用默认值"那种可恢复情形）。
+    #   两条断言：① 回退目标文件确实存在；② 函数整体跑得通、不再引用未定义名字。
+    _tpl = _HERE.parent / "templates" / "方法范式标签词表.json"
+    assert _tpl.exists(), f"标签词表回退目标不存在：{_tpl}"
+    try:
+        _dr = collect_direction_review()
+    except NameError as e:            # pragma: no cover - 回归护栏
+        raise AssertionError(f"collect_direction_review() 引用了未定义的名字：{e}") from e
+    assert isinstance(_dr, dict), type(_dr)
+    print(f"标签词表回退：通过（{_tpl.name} 就位；collect_direction_review() 无 NameError）")
+
+    # ── SVG 转义预检（手写 SVG 的两类经典 XML 错）────────────────
+    #   正文里的 `p < 0.05` / `<5%` 会被 XML 当成标签开头；裸 `&` 则是未定义实体。
+    #   两条都必须能**定位到行**并给出 `&lt;` / `&amp;` 的修法 ——
+    #   上游质检器只会报 `not well-formed (invalid token)`，看不出根因。
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _td:
+        _ok = pathlib.Path(_td) / "ok.svg"
+        _ok.write_text('<svg xmlns="http://www.w3.org/2000/svg">'
+                       '<text>p &lt; 0.05 &amp; R&amp;D</text></svg>', encoding="utf-8")
+        assert not svg_escape_problems(_ok), svg_escape_problems(_ok)
+        _lt = pathlib.Path(_td) / "bare_lt.svg"
+        _lt.write_text('<svg xmlns="http://www.w3.org/2000/svg">'
+                       '<text>p < 0.05</text></svg>', encoding="utf-8")
+        _p1 = svg_escape_problems(_lt)
+        assert _p1 and _p1[0]["reason"] == "bare-lt", _p1
+        _amp = pathlib.Path(_td) / "bare_amp.svg"
+        _amp.write_text('<svg xmlns="http://www.w3.org/2000/svg">'
+                        '<text>A & B</text></svg>', encoding="utf-8")
+        _p2 = svg_escape_problems(_amp)
+        assert _p2 and _p2[0]["reason"] == "bare-amp", _p2
+    print("SVG 转义预检：通过（裸 `<` / 裸 `&` 均能定位到行并给出修法）")
     print("\n[OK] 自检全部通过")
     return 0
 
@@ -1170,6 +1313,8 @@ def main() -> int:
             "  --audience=<文本>     受众描述\n"
             "  --dry-run             只打印将要写什么，不落盘、不调 ppt-master\n"
             "  --no-graphs           不接入阶段 K 的图谱与方向综述整理\n"
+            "  --check-svg=<路径>     手写 SVG 转义预检（裸 `<` / 裸 `&` → 行号 + 修法）；\n"
+            "                       跑 svg_quality_checker.py **之前**先跑这个\n"
             "  --self-test           纯逻辑自检（不联网、不落盘）\n"
             "  -h, --help            显示本帮助\n"
             "\n"
@@ -1178,6 +1323,8 @@ def main() -> int:
         return 0
     if "--self-test" in sys.argv:
         return self_test()
+    if _argval("check-svg", ""):
+        return check_svg(pathlib.Path(_argval("check-svg", "")))
 
     log = get("ppt")
     dry = "--dry-run" in sys.argv

@@ -548,8 +548,11 @@ done
 **`3` 极速档（推荐）** —— L0 + 关闭启动期后台任务（后台网络/组件更新/同步/默认应用等）。
 L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测不影响 Cloudflare 放行。
 
-**端口 ↔ profile**：`9222 → .edge-cdp-profile`（沿用历史，保留放行 Cookie）；
+**端口 ↔ profile**：profile 收在 **`.work_cdp/cdp_profiles/`** 下（不散落在交付目录）；
+`9222 → .edge-cdp-profile`（沿用历史，保留放行 Cookie）；
 其余 → `.edge-cdp-p<port>`。**一实例一 profile 是硬约束**。
+历史遗留若仍建在输出根，**优先沿用不迁移**（换路径等于 Cookie 作废）；
+想收拢：`cdp_pool.py down` 之后 `cdp_pool.py clean --apply`（**移动**而非删除）。
 
 ---
 
@@ -873,6 +876,8 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 │                                          #   方向聚类 = 时间线（行=方向、x=年份）
 │                                          #   词云 = wordcloud 库占位检测算布局 + matplotlib 出图
 │                                          #   含词云取词口径/逐篇关键词采纳、被剔词与原因、字号自述、布局坐标
+├── <作者名>_汇报PPT_<画布>_<日期>/          # 阶段 P：PPT 项目（`make_ppt=yes` 时；见下）
+│   └── exports/<项目名>_<时间戳>.pptx       #   **最终 PPTX 交付物**（＋ validation/*.report.json）
 ├── .work_cdp/                             # 中间数据 + logs/
 │   ├── prepare_plan.json                  #   阶段 0：准备计划 + 阶段闸门（单一事实源）
 │   ├── crossref_all.json                  #   题录核实结果（题录总表）
@@ -891,16 +896,22 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 └── 流程1/                                  # 本 skill
 ```
 
-**PPT 产出（阶段 P，`make_ppt=yes` 时）**：
+**PPT 产出（阶段 P，`make_ppt=yes` 时）**：项目落**流程输出根**（默认 `PAPER_WORKDIR`，
+即上图的 `<作者名>/`），**不落** `vendor/ppt-master/projects/` ——
+产物混在依赖目录里不利交付，也不该随发行包分发。
 
 ```
-ppt-master/projects/<项目名>/
+<作者名>_汇报PPT_<画布>_<日期>/
 ├── sources/<作者名>_汇报材料.md            # 由《论文解读》+《研究方向综述》汇编
 ├── design_spec.md                         # 简化 Strategist 的确定性产物（I–X 全节）
 ├── spec_lock.md                           # 同上（canvas/colors/typography/page_rhythm…）
 ├── svg_output/*.svg                       # 由主 agent **手写**（不得脚本批量生成）
-└── exports/<项目名>_<时间戳>.pptx          # 最终交付物（＋ validation/*.report.json）
+└── exports/<项目名>_<时间戳>.pptx          # **最终 PPTX 交付物**（＋ validation/*.report.json）
 ```
+
+> `--outdir=<路径>` 覆盖输出根（默认 `<PAPER_WORKDIR>`）；
+> `--project-name=<名>` 默认 `<作者名>_汇报PPT`，ppt-master 的 project_manager
+> 会再拼 `_<画布>_<日期>`。
 
 > **目录名兼容**：规范名为 `<作者名>_paper_Exports`。若已有历史 `<作者名>_Exports`
 > 且其中已含 PDF，`store.exports_dir()` 会**继续沿用**（不迁移、不丢文件）并提示一次。

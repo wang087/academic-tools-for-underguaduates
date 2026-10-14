@@ -119,11 +119,18 @@ for i in $(seq 0 $((COUNT - 1))); do
   PORT=$((BASE_PORT + i))
   LV="$LEVEL"                        # 默认全部 L0 日常档（A/B 时可显式指定 1 或 2）
 
-  # 9222 沿用历史 profile（保留已获得的放行 Cookie）；其余端口独立 profile
+  # profile 收在 .work_cdp/ 下（不再散落在交付目录）；
+  #   9222 沿用历史 profile 以保留已获得的放行 Cookie。
+  #   历史遗留（建在输出根的 .edge-cdp-*）**优先沿用**，否则换路径等于 Cookie 全废。
   if [ "$PORT" -eq 9222 ]; then
-    PROFILE="${WORKDIR}/.edge-cdp-profile"
+    NAME=".edge-cdp-profile"
   else
-    PROFILE="${WORKDIR}/.edge-cdp-p${PORT}"
+    NAME=".edge-cdp-p${PORT}"
+  fi
+  if [ -d "${WORKDIR}/${NAME}" ]; then
+    PROFILE="${WORKDIR}/${NAME}"
+  else
+    PROFILE="${WORKDIR}/.work_cdp/cdp_profiles/${NAME}"
   fi
   mkdir -p "$PROFILE"
 
