@@ -50,6 +50,28 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 >    「不许这样做，因为会那样」是规则，留在这里。**
 >    阈值与上限（每批 ≤ 4、`--min-px-fig 60`、并发 = min(通道数, 站点数) 等）
 >    属规则，留在本文件；**推出这些阈值的那批数据**进汇总文件。
+> 8. **[STOP] 增加类操作必须在大阶段开始前显式确认，且必须分项确认** ——
+>    「增加类操作」指一切**对流程的增加或分支**：新增功能、新增脚本、
+>    新增分支或模式、在选择点**走向不同路径**、临时改动既定的阶段编排。
+>
+>    （1）**时点**：这类操作**不得**在阶段执行中途引入，必须在**该链路的第一个大阶段**
+>    开始之前完成确认 —— 本科科研辅助前置链路 = **阶段 N**；
+>    作者论文分析链路 = **阶段 0**。
+>    中途才发现要新增，一律**停下来回到该起点**确认，不得边走边加。
+>
+>    （2）**分项**：确认必须**一项一问**，不得合并。
+>    · **不得打包确认** —— 把多个互相独立的选项并成一句「是否照默认跑」属违规；
+>      每项都要单独给出**取值、后果与默认值**，由用户逐项回答。
+>    · **不得替用户默认** —— 未获明确答复的项按「**不新增**」处理（保守），
+>      并在该阶段产出里如实标注「该项未确认、未执行」。
+>    · **阶段 0 的选项尤其不得打包** —— 例如**综述档位**、**输出物格式**、
+>      **是否翻译**、**是否制作 PPT** 分属四个**互相独立**的选择，
+>      必须**分别确认**，不得合并为一次确认。
+>    · 判据：**用户能否对每一项单独说「是 / 否」**。做不到，就是合并确认。
+>
+>    （3）**落盘**：逐项答复照常落进阶段 0 的单一事实源
+>    `.work_cdp/prepare_plan.json`；确认记录与被跳过项一并写入
+>    `run_journal.jsonl`，供回溯。
 >
 > **判定顺序**：`SKILL.md` > 子流程文件 > 任何外部或历史资料。
 > 若流程目录下存在来源不明的第三方 `SKILL.md`，**一律以本流程为准**，不要混用其步骤与产物约定。
@@ -320,6 +342,12 @@ N 大方向确定（无交互：拆解用户输入 + 匹配关键词群）
 >
 > **本阶段不需要与用户交互** —— 直接根据用户已有输入推断并落盘，
 > 然后**继续往下走**。只在输入**完全无法判断大方向**时才回问一句。
+>
+> [STOP] **唯一例外（硬性要求，见文件头第 8 条）**：若本次运行**要对流程做"增加类操作"**
+> —— 新增功能 / 新增脚本 / 新增分支或模式 / 在某个选择点**走向不同路径** /
+> 临时改动既定的阶段编排 —— 必须在**本阶段开始之前**向用户**逐项**确认
+> （一项一问，**不得合并**、**不得替用户默认**；未答复的项按"不新增"处理）。
+> **常规执行既定流程不受影响**，仍是零交互往下走。
 
 **执行步骤**：
 
@@ -1280,8 +1308,24 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 > 这些答案落盘为**单一事实源** `.work_cdp/prepare_plan.json`，
 > 后续每个阶段开头只问它一句。
 
-**执行方式**：agent 在对话中逐一确认下列问题，收齐后调用脚本落盘。
+**执行方式**：agent 在对话中**逐项确认**下列 13 个问题，收齐后调用脚本落盘。
 **不要**让用户面对交互式命令行 —— 脚本是记录器，不是提问器。
+
+> [STOP] **必须分项确认，不得打包**（硬性要求，见文件头第 8 条）：
+>
+> - **一项一问**：每个选项单独给出**取值、默认值、以及选它的后果**，由用户逐项回答。
+> - **不得合并**：把 N 个互相独立的选项并成一句「是否照默认跑」「其余按默认可以吗」
+>   属**违规**。**尤其禁止**把**输出物格式（#1）**、**是否翻译（#2）**、
+>   **是否制作 PPT（#6）**、**综述解读档位（#9）** 合并成一次确认 —— 
+>   这四项互相独立，必须**分别**确认。
+> - **不得替用户默认**：未获明确答复的项按「**不新增**」处理（保守），
+>   并在阶段产出与交付说明里如实标注「该项未确认、未执行」。
+> - **判据**：**用户能否对每一项单独说「是 / 否」**。做不到就是合并确认，必须重问。
+> - **时点**：确认在**阶段 0 开始之前**完成；跑到中途才想新增选项，
+>   必须**停下来回到阶段 0** 补确认，不得边走边加。
+>
+> 确认记录与被跳过项一并写入 `run_journal.jsonl`，逐项答复落盘为
+> `.work_cdp/prepare_plan.json`（单一事实源）。
 
 | #  | 问题                                                                  | 取值                              | 默认                 |
 | -- | --------------------------------------------------------------------- | --------------------------------- | -------------------- |
@@ -1483,8 +1527,11 @@ bash scripts/renew_cdp_instance.sh "$PAPER_WORKDIR" 9223     # 只重建 9223，
 > **提速要点**：① 并行启动（先全部拉起、再统一探活，0.25s 轮询）；
 > ② L3 关后台任务；③ `navigate()` 自适应 settle（正文就绪即返回）。
 
-> **端口 ↔ profile 约定**：`9222 → .edge-cdp-profile`（沿用历史 profile，保留已获得的
-> 放行 Cookie）；其余端口 → `.edge-cdp-p<port>`（独立 profile）。
+> **端口 ↔ profile 约定**：profile 收在 **`.work_cdp/cdp_profiles/`** 下（不散落在交付目录）；
+> `9222 → .edge-cdp-profile`（沿用历史 profile，保留已获得的放行
+> Cookie）；其余端口 → `.edge-cdp-p<port>`（独立 profile）。
+> 历史遗留若仍建在输出根，**优先沿用、不自动迁移**（换路径等于 Cookie 作废）；
+> 收拢用 `cdp_pool.py clean --apply`（先 `down`；**移动**而非删除）。
 > **一实例一 profile 是硬约束**：Edge 同一 profile 无法起第二个调试端口。
 
 ### 阶段 C：抓取 ORCID 全部成果
@@ -2394,8 +2441,11 @@ x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠
 # ① 生成材料 + design_spec.md + spec_lock.md（一条命令）
 uv run python 流程1/scripts/ppt_brief.py --pages=standard
 # ② 页面 SVG 由主 agent **手写**（ppt-master Step 6；不得脚本批量生成）
-# ③ svg_quality_checker.py 必须 0 error
-# ④ Step 7 三条命令串行导出：total_md_split → finalize_svg → svg_to_pptx
+# ③ 转义预检：手写 SVG 里的裸 `<` / 裸 `&` 会让 XML 无法解析；
+#    先跑这条（定位到行 + 给修法），再跑上游质检 —— 上游只报 invalid token，看不出根因
+uv run python 流程1/scripts/ppt_brief.py --check-svg <project>/svg_output
+# ④ svg_quality_checker.py 必须 0 error
+# ⑤ Step 7 三条命令串行导出：total_md_split → finalize_svg → svg_to_pptx
 ```
 
 **本流程对 ppt-master 的改动 = 简化 Strategist Phase**：
@@ -2438,7 +2488,14 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
   > 阶段分组来自 `.work_cdp/periods.json`（**未配置就不分组**，不内置任何作者履历）。
   >
 - 用 `rename_to_title.py` 确认全部 PDF 已按**题名**命名且索引已登记。
-- 生成 `<作者名>_交付物索引.md`（交付总览 + 数据核验链 + 复现步骤 + 本次改造台账）。
+- 生成 `<日期根>/交付物索引.md`：`uv run python 流程1/scripts/make_delivery_index.py`
+  （**作者链路模式下由脚本产出**：产物清单 + 数据核验 + 限制申报）。
+  交付总览、数据核验链、复现步骤与本次改造台账由主 agent 按需补充。
+  > 索引**按链路分模式**：为什么必须分 —— 只认入门链路布局时，作者链路会得到
+  > 一份「14 行全写未产出、却仍 exit 0」的答非所问交付物（取证见
+  > [实测结果汇总.md](实测结果汇总.md#i-1)）。现在两条链路的产物同处**一个日期根**
+  > （入门 `outputs/…`、作者 `<作者名>/…`），索引写在该日期根下，一份覆盖两条链路；
+  > 只跑了一条就只出那一条；两条都没产物则 `exit 2` 并说明该跑什么。
 - `report_artifacts` 申报交付物。
 
 ---
@@ -2735,6 +2792,8 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 ├── <作者名>_研究方向文献终表.md              # 阶段 H2①：去重 + 相关性整理后的最终列表
 ├── <作者名>_研究方向综述.md                 # 阶段 H2③：review 结果（单一文件）
 ├── <作者名>_知识图谱.md                     # 阶段 K：三图说明 + 聚类解读 + 冲突线索 + 剔除记录
+├── <作者名>_汇报PPT_<画布>_<日期>/           # 阶段 P：PPT 项目（`make_ppt=yes` 时；见下）
+│   └── exports/<项目名>_<时间戳>.pptx        #   **最终 PPTX 交付物**（＋ validation/*.report.json）
 ├── .work_cdp/                             # 中间数据 + logs/ 日志
 │   ├── prepare_plan.json                  #   阶段 0：准备计划 + 阶段闸门（单一事实源）
 │   ├── crossref_all.json                  #   题录核实结果（题录总表）
@@ -2755,8 +2814,24 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 └── 流程1/                                  # 本 skill
 ```
 
-**`.work_cdp/refs/`**
+**阶段 P 的 PPTX 落点**（`make_ppt=yes` 时）：项目落**流程输出根**（默认 `PAPER_WORKDIR`，
+即上图的 `<作者名>/`），**不落** `vendor/ppt-master/projects/` ——
+产物混在依赖目录里不利交付，也不该随发行包分发。
 
+```
+<作者名>_汇报PPT_<画布>_<日期>/
+├── sources/<作者名>_汇报材料.md            # 由《论文解读》+《研究方向综述》汇编
+├── design_spec.md                         # 简化 Strategist 的确定性产物（I–X 全节）
+├── spec_lock.md                           # 同上（canvas/colors/typography/page_rhythm…）
+├── svg_output/*.svg                       # 由主 agent **手写**（不得脚本批量生成）
+└── exports/<项目名>_<时间戳>.pptx          # **最终 PPTX 交付物**（＋ validation/*.report.json）
+```
+
+> `--outdir=<路径>` 覆盖输出根（默认 `<PAPER_WORKDIR>`）；
+> `--project-name=<名>` 默认 `<作者名>_汇报PPT`，ppt-master 的 project_manager
+> 会再拼 `_<画布>_<日期>`。
+
+**`.work_cdp/refs/`**
 ```
 .work_cdp/refs/
 ├── source_refs.json      # 作者论文 DOI → 其参考文献（含 source_id / venue）
@@ -2802,7 +2877,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | ~~`harvest_mentors.py`~~          | [STOP]**已弃用**：原抓**学校教师个人主页系统**，覆盖面与方向完整度均不如学部官网（过半数页面无方向栏位）。默认 `exit 2`，确需运行加 `--allow-deprecated`                                                                                                                                                                                                                                                                                                                                                                    | 请改用`harvest_faculty.py`                                                                                                                                                                                    |
 | ~~`harvest_colleges.py`~~         | [STOP]**已被取代**：功能并入 `harvest_faculty.py`（并改为配置驱动）。保留用于复现 USTC 历史数据。默认 `exit 2`，确需运行加 `--allow-deprecated`                                                                                                                                                                                                                                                                                                                                                                                                | 请改用`harvest_faculty.py`                                                                                                                                                                                    |
 | **`merge_roster.py`**        | **合并 + 清洗**（仅在两源并存时用）。把学院官网方向并入 roster 再统一清洗。**必须在一次运行内按「恢复→合并→清洗」完成** —— 分多次串跑会误差累积（曾把名单砍掉近四分之一，数据见 [实测结果汇总.md](实测结果汇总.md#s-8)）。单一数据源场景**不再需要**本步骤                                                                                                                                                                                                                                                                                                                        | `uv run python merge_roster.py --roster … --college … --from-backup`                                                                                                                                        |
-| **`make_delivery_index.py`** | **生成《交付物索引.md》**：汇总产物清单、数据来源、方向获取途径、结构化字段覆盖率、「为什么有人没有方向」的原因分布、检索与 PRISMA 计数、**解读证据层级（读 `reviews/manifest.json`）**。产物路径**按候选逐个探测**，三种布局都认（当前布局 = `outputs/01_导师名单/` + `outputs/07_检索*/` + `.work_cdp/reviews/`；旧 v11 平铺；v8–v10 双源）；**文件不在就写「未产出」，不写死历史案例的结论**                                                                                                                                                                                                                                                                                                                                                                                                                                  | `uv run python make_delivery_index.py --root outputs --direction 神经与脑科学`                                                                                                                                            |
+| **`make_delivery_index.py`** | **生成《交付物索引.md》**：汇总产物清单、数据来源、方向获取途径、结构化字段覆盖率、「为什么有人没有方向」的原因分布、检索与 PRISMA 计数、**解读证据层级**。**按链路分模式**（判据 = 是否找到 `*_论文列表.md` 等作者链路产物）：入门链路读 `outputs/01_导师名单/` + `outputs/07_检索*/` + `.work_cdp/reviews/`；**作者链路**读 `*_论文列表.md` / `*_论文解读.md` / `*_研究方向综述.md` / `*_知识图谱.md` / `*_汇报PPT*` / `*_Exports/全文清单.md`，证据层级改读 **`interpret/manifest.json`**。两条链路的产物**同处一个日期根**（入门 `outputs/…`、作者 `<作者名>/…`），索引统一写到 `<日期根>/交付物索引.md`；只跑了一条链路时只出那一条的索引，**两条都没产物则 exit 2**（不再产出一份「全是未产出」的文件） | `uv run python make_delivery_index.py`（自动判别链路）/ `--paper-only` / `--mentor-only` / `--root <路径>` / `--direction <方向>` |
 | **`reviews_prepare.py`**     | **阶段 R①：综述任务包组装**。把阶段 R 的检索结果转成**与 `interpret_prepare` 逐字段同名**的任务包，使 §7.2 的并行 subagent 机制可原样套用。产物写 `.work_cdp/reviews/`，与 `interpret/`、`refs/` **互不干扰**。支持 `--fetch-abstracts` 按 DOI/PMID 从 Europe PMC 补摘要                                                                                                                                                                                                                                                     | `uv run python reviews_prepare.py --from-europepmc .work_cdp/reviews/europepmc.json --fetch-abstracts`                                                                                                        |
 | **`reviews_build.py`**       | **阶段 R②：领域概貌汇总**。把解读卡机械合并为《领域概貌.md》：术语按**出现篇数**排序、共识标 、**争议原样并列不替用户判定**、阅读顺序按「入门→奠基→方法」排。卡不全时**如实告警**并注明报告基于部分文献                                                                                                                                                                                                                                                                                                                         | `uv run python reviews_build.py --topic "阿尔茨海默病早期诊断"--status` 只看进度                                                                                                                              |
 | **`reviews_fulltext.py`**    | **阶段 R①.5：综述全文获取（skill 先试 / CDP 兜底）**。把阶段 R 任务包接到 §5.1 分层链路上：**补 PMCID**（原检索漏采，是下游停在摘要级的根因）→ **第一层** EPMC `fullTextXML`（白名单授权通道）→ **第二层-A** 缺口转 `download_all_fulltexts.py` → **第二层-B** `--repo` 出版社被 CAPTCHA 时改走 **PMC 仓库副本（仍经 CDP）** → **回填**（按字数**择优**，防付费墙残页盖住真正文）→ **副链路** `--fallback` 三层都没拿到时转 `fulltext_router.py`（CDP 备用，产物由回填第 ④ 通道收取）。**取不到就如实保持 `abstract`，不臆造**。用法见 `docs/阶段R全文获取模块.md` | `uv run python reviews_fulltext.py --all --cdp --repo --fallback --backfill`（分步：`--probe` / `--layer1` / `--layer2` / `--cdp` / `--repo` / `--fallback [--fallback-mode off\|oa\|oa+api] [--fallback-arxiv]` / `--backfill`。**`--fallback` 必须在 `--cdp`/`--repo` 之后、`--backfill` 之前**）                                                |
@@ -2922,7 +2997,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | **`refs_curate.py`**       | **阶段 H2①**：DOI/题名两级**去重** + 按作者主体研究方向**打分**（分量全公开）+ **剔除无关**（剔除项逐条留档）                                                                                                                                                                                                                                                                                                                                                                                                                                            | `uv run python refs_curate.py [--cut=25] [--keep-top=0] [--self-test]`                                                                                                                                                                                                                            |
 | **`refs_prepare.py`**      | **阶段 H2②**：组装**自包含**综述任务包（题录 + 摘要 + 受控标签词表）；**不联网**                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `uv run python refs_prepare.py [--top=40] [--only=DOI] [--self-test]`                                                                                                                                                                                                                             |
 | **`refs_build.py`**        | **阶段 H2③**：回收综述解读卡 → 《`<作者名>_研究方向综述.md`》（含网络角色 / 缺卡清单 / 限制申报）；**不联网**                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `uv run python refs_build.py [--self-test]`                                                                                                                                                                                                                                                       |
-| **`ppt_brief.py`**         | **阶段 P**：汇编 PPT 材料 + **确定性生成** `design_spec.md` / `spec_lock.md`（= 简化的 Strategist Phase）+ 调 ppt-master 初始化与校验                                                                                                                                                                                                                                                                                                                                                                                                                             | `uv run python ppt_brief.py [--pages=short\|standard\|long] [--dry-run] [--self-test]`                                                                                                                                                                                                              |
+| **`ppt_brief.py`**         | **阶段 P**：汇编 PPT 材料 + **确定性生成** `design_spec.md` / `spec_lock.md`（= 简化的 Strategist Phase）+ 调 ppt-master 初始化与校验。项目落**流程输出根**（默认 `PAPER_WORKDIR`），**不落** `vendor/ppt-master/projects/`。另提供**手写 SVG 转义预检**：正文里的裸 `<`（`p < 0.05`）与裸 `&`（`R&D`）会让 XML 无法解析，上游质检器只报 `invalid token`、看不出根因；本预检**定位到行并给修法**，应在 `svg_quality_checker.py` **之前**跑                                                                                                                                                                                                                                                                                                                                                                                                                             | `uv run python ppt_brief.py [--pages=short\|standard\|long] [--outdir=<路径>] [--check-svg=<project>/svg_output] [--dry-run] [--self-test]`                                                                                                                                                                                                              |
 | **`knowledge_graph.py`**   | [**]**阶段 K**：三张图（overview / 词云 / 方向聚类）。overview 用 **igraph 径向整齐树**（作者在圆心 → 阶段扇区 → 方向 → 综述编号；方法词另置外环；记忆连接沿环画弧），标签避让交给 **adjustText**（只移文字、不动节点）；词云**按「文章关键词 > 题名 > 摘要 > 解读卡方法描述」加权取词**（中文用**左右邻接熵**挡跨词碎片、剔除单位/试剂缩写与受控范式标签），**布局用 `wordcloud` 库自绘**（`to_image()` 位图直接嵌进 matplotlib 画布，位置即所见；标题/图注/图例仍矢量，见 v17.11）；纯 ASCII 词按词切**拉丁等宽字体**并收紧字距，最大字号 ≤ 6×最小字号（v17.12）；方向聚类改为 **CiteSpace 式时间线**（行=方向、x=年份）；三张图都做**字号自述**，overview 坐标落盘可审计 | `uv run --with matplotlib --with networkx --with python-igraph --with adjustText --with wordcloud python knowledge_graph.py [--recent-years=3] [--also-png] [--format=svg\|png\|auto] [--wc-engine=library\|custom] [--wc-lang=both\|zh\|en] [--wc-min-docs=3] [--wc-weight-keywords=3] [--self-test]` |
 | **`pack_release.py`**      | **打包发行版**：把本流程 + 全部依赖（含 `vendor/ppt-master`）输出为一个可独立运行的目录（默认 `<仓库根>/流程1/`），并把文档里的 `流程1/` 路径**同步重写成新目录名**（幂等，重复打包不会变成 `流程11/`）；产出 `PACKAGE_MANIFEST.json`（逐文件 sha256）与 `README-PACKAGE.md`                                                                                                                                                                                                                                                                              | `uv run python pack_release.py [--dest=路径] [--slim] [--force] [--no-vendor] [--dry-run] [--self-test]`                                                                                                                                                                                          |
 | **`selftest_pipeline.py`** | [**]**端到端自检**：在临时工作目录里跑一遍 阶段 0 → D2 → G2 → H → H2 → P，验证**脚本之间的契约**（闸门收敛、字段命名、产物格式、外部校验器）。**为必跑项** —— 它挡下过 4 类静态看不出的缺陷（[版本变动.md](版本变动.md)）                                                                                                                                                                                                                                                                                                                                 | `uv run python selftest_pipeline.py [--offline] [--limit=4] [--keep] [--verbose]`                                                                                                                                                                                                                 |

@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -171,6 +172,37 @@ _EXTRA_ARGS = [
 # 每个工作目录的实例登记表，便于 status / down
 REGISTRY = ".work_cdp/cdp_instances.json"
 
+# profile 的**新家**：收进中间数据目录，不再散落在交付目录（输出根）
+PROFILE_HOME = ".work_cdp/cdp_profiles"
+_LEGACY_NOTED: set[str] = set()
+
+
+def _profile_name(port: int, tag: str = "") -> str:
+    """profile 目录的**叶子名**（与历史命名逐字一致，便于登记表与迁移对齐）。"""
+    if port == 9222 and not tag:
+        return ".edge-cdp-profile"
+    return f".edge-cdp-p{port}{('-' + tag) if tag else ''}"
+
+
+def _port_of_profile_name(name: str) -> int | None:
+    """profile 叶子名 → 端口；认不出来返回 None。"""
+    if name == ".edge-cdp-profile":
+        return 9222
+    m = re.match(r"^\.edge-cdp-p(\d+)", name)
+    return int(m.group(1)) if m else None
+
+
+def _note_legacy_profile(p: pathlib.Path) -> None:
+    """旧布局提示只打一次（避免多实例刷屏）。"""
+    key = str(p)
+    if key in _LEGACY_NOTED:
+        return
+    _LEGACY_NOTED.add(key)
+    sys.stderr.write(
+        f"[INFO] 沿用历史 profile {p.name}/（位于输出根）。"
+        f"如需收进 {PROFILE_HOME}/：先 `cdp_pool.py down`，再 `cdp_pool.py clean --apply`"
+        f"（**移动**而非删除，Cookie 一并保留）。\n")
+
 
 def find_edge() -> str:
     for p in EDGE_CANDIDATES:
@@ -180,10 +212,24 @@ def find_edge() -> str:
 
 
 def profile_for(wd: pathlib.Path, port: int, tag: str = "") -> pathlib.Path:
-    """端口 → profile 目录。9222 沿用历史 profile（保留已获得的放行 cookie）。"""
-    if port == 9222 and not tag:
-        return wd / ".edge-cdp-profile"
-    return wd / f".edge-cdp-p{port}{('-' + tag) if tag else ''}"
+    """端口 → profile 目录（**收在 `.work_cdp/cdp_profiles/` 下**）。
+
+    **为什么不再直接建在输出根**：输出根是交付目录，而每个 profile 有
+    数十至数百 MB、且含 Cookie —— 散在交付目录里既碍眼（`ls` 一屏全是
+    `.edge-cdp-*`），又是凭据泄露面。收进中间数据目录后，交付时删掉
+    整个 `.work_cdp/` 即可。
+
+    **历史兼容（不可省）**：早期版本建在输出根（`<wd>/.edge-cdp-profile`），
+    那些目录里存着**已经通过 Cloudflare 放行的 Cookie**。换路径等于把它们
+    全部作废、重新挑战风控。所以：**旧路径存在就继续沿用**（不迁移、不丢文件），
+    并提示一次；想收拢请跑 `clean --apply`（移动而非删除，Cookie 一并带走）。
+    """
+    name = _profile_name(port, tag)
+    legacy = wd / name
+    if legacy.is_dir():
+        _note_legacy_profile(legacy)
+        return legacy
+    return wd / PROFILE_HOME / name
 
 
 def build_args(port: int, profile: pathlib.Path, level: int) -> list[str]:
@@ -393,16 +439,121 @@ def renew(wd: pathlib.Path | None = None, port: int = 9222, level: int | None = 
     return launch_one(wd, port, level=level, tag=tag, fresh=True, log=log)
 
 
+def _dir_size_bytes(p: pathlib.Path) -> int:
+    total = 0
+    try:
+        for f in p.rglob("*"):
+            try:
+                if f.is_file():
+                    total += f.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return total
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
+def clean(wd: pathlib.Path | None = None, log=None,
+          apply: bool = False, purge: bool = False) -> dict:
+    """把散落在**输出根**的历史 `.edge-cdp-*` 收进 `.work_cdp/cdp_profiles/`。
+
+    为什么需要它：profile 每个数十至数百 MB 且含 Cookie，长期堆在交付目录里
+    既占空间又是凭据泄露面。`profile_for()` 已把**新建**的 profile 放到
+    `.work_cdp/` 下，但**历史遗留**仍在输出根。
+
+    **默认只报告，不动盘**（dry-run）。两级显式动作：
+
+    | 参数 | 行为 | 风险 |
+    |---|---|---|
+    | （无） | 只列出：位置、端口、大小、是否在用 | 零 |
+    | `--apply` | **移动**旧目录到 `.work_cdp/cdp_profiles/` | 低：文件与 Cookie 一并保留，`profile_for()` 之后自然命中新位置 |
+    | `--purge` | 顺带**删除**孤儿 profile（端口无存活实例且不在登记表） | 高：**会丢 Cookie**，需 `--apply`/`--purge` 显式给出 |
+
+    **永不**移动/删除「有存活实例」的 profile —— Edge 正在使用它。
+    """
+    wd = wd or _wd()
+    home = wd / PROFILE_HOME
+    # 名字可能撞车的都当历史残留（输出根下以 .edge-cdp 开头者）
+    legacy = sorted(p for p in wd.glob(".edge-cdp*") if p.is_dir())
+    orphans = sorted(p for p in home.glob(".edge-cdp*") if p.is_dir()) if home.is_dir() else []
+
+    report: list[dict] = []
+    moved = purged = 0
+    live = {p for p in range(9222, 9222 + 8) if is_alive(p)}
+    reg = _load_registry(wd)
+
+    def _record(p: pathlib.Path, where: str) -> dict:
+        port = _port_of_profile_name(p.name)
+        in_use = port in live
+        entry = {"name": p.name, "where": where, "port": port,
+                 "in_use": in_use, "mb": _dir_size_bytes(p)}
+        report.append(entry)
+        return entry
+
+    if not legacy and not orphans:
+        if log:
+            log.info(f"无 profile 残留（输出根与 {PROFILE_HOME}/ 都干净）")
+        return {"legacy": [], "profiles": [], "moved": 0, "purged": 0}
+
+    for p in legacy:
+        e = _record(p, "输出根")
+        if e["in_use"]:
+            if log:
+                log.warn(f"跳过 {p.name}/：端口 {e['port']} 有存活实例，Edge 正在用它")
+            continue
+        if apply:
+            home.mkdir(parents=True, exist_ok=True)
+            dst = home / p.name
+            if dst.exists():
+                if log:
+                    log.warn(f"跳过 {p.name}/：{PROFILE_HOME}/ 下已有同名目录")
+                continue
+            import shutil
+            try:
+                shutil.move(str(p), str(dst))
+                moved += 1
+                if log:
+                    log.ok(f"已收拢 {p.name}/ → {PROFILE_HOME}/（{_mb(e['mb'])}，Cookie 保留）")
+            except OSError as ex:
+                if log:
+                    log.error(f"移动 {p.name}/ 失败：{str(ex)[:80]}")
+    for p in orphans:
+        e = _record(p, PROFILE_HOME)
+        if purge and not e["in_use"] and str(e["port"]) not in reg:
+            import shutil
+            shutil.rmtree(p, ignore_errors=True)
+            purged += 1
+            if log:
+                log.ok(f"已删除孤儿 profile {p.name}/（{_mb(e['mb'])}）")
+        elif e["in_use"]:
+            if log:
+                log.info(f"保留 {p.name}/：端口 {e['port']} 存活")
+    if log:
+        log.info(f"profile 清点：输出根 {len(legacy)} 个 / 收拢区 {len(orphans)} 个；"
+                 f"本次移动 {moved}、删除 {purged}"
+                 + ("" if (apply or purge) else "（dry-run，未改盘；确认后加 --apply）"))
+    return {"legacy": [r for r in report if r["where"] == "输出根"],
+            "profiles": [r for r in report if r["where"] == PROFILE_HOME],
+            "moved": moved, "purged": purged}
+
+
 # ── CLI ─────────────────────────────────────────────────────
-USAGE = ("usage: cdp_pool.py {up|status|down|renew|kill}\n"
+USAGE = ("usage: cdp_pool.py {up|status|down|renew|kill|clean}\n"
          "       up     [--n=3] [--base=9222] [--levels=0,3] [--fresh]\n"
          "       status [--base=9222] [--span=8]\n"
          "       down   [--base=9222] [--span=8]\n"
          "       renew  [--port=9222] [--level=3] [--tag=...]\n"
          "       kill   [--port=9222]\n"
+         "       clean  [--apply] [--purge]      # profile 清点；--apply 收拢进 "
+         f"{PROFILE_HOME}/\n"
          "\n"
          "  档位：0=L0 日常（默认） 1=L1 极简 2=L2 扩展 3=L3 极速\n"
-         "  跨脚本统一档位请设 PAPER_CDP_LEVEL（缺省 0）")
+         "  跨脚本统一档位请设 PAPER_CDP_LEVEL（缺省 0）\n"
+         f"  profile 落点：{PROFILE_HOME}/（历史遗留仍在输出根，用 clean --apply 收拢）")
 
 
 def main():
@@ -430,6 +581,8 @@ def main():
         elif a.startswith("--level="): kw["level"] = int(a.split("=", 1)[1])
         elif a.startswith("--tag="): kw["tag"] = a.split("=", 1)[1]
         elif a == "--fresh": kw["fresh"] = True
+        elif a == "--apply": kw["apply"] = True
+        elif a == "--purge": kw["purge"] = True
     log = get_log("cdp_pool", wd=wd)
 
     if cmd == "up":
@@ -449,6 +602,18 @@ def main():
         renew(wd, kw.get("port", 9222), kw.get("level"), kw.get("tag", ""), log=log)
     elif cmd == "kill":
         kill_port(kw.get("port", 9222), log=log)
+    elif cmd == "clean":
+        rep = clean(wd, log=log, apply=kw.get("apply", False),
+                    purge=kw.get("purge", False))
+        for r in rep["legacy"]:
+            print(f"  [根] {r['name']:<28} port={r['port']}  {_mb(r['mb'])}"
+                  + ("  ← 存活实例在用，跳过" if r["in_use"] else ""))
+        for r in rep["profiles"]:
+            print(f"  [收] {r['name']:<28} port={r['port']}  {_mb(r['mb'])}"
+                  + ("  ← 存活实例在用" if r["in_use"] else ""))
+        print(f"移动 {rep['moved']} / 删除 {rep['purged']}")
+        if not (kw.get("apply") or kw.get("purge")):
+            print("（dry-run：未改盘。确认后加 --apply；仅删孤儿再加 --purge）")
     else:
         print(USAGE)
     log.close()

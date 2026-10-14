@@ -88,7 +88,13 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
 # ② 页面 SVG 由主 agent **手写**到 <project>/svg_output/
 #    这不是一条命令，是 Step 6 的作者工作；必须逐页手写，不得脚本批量生成
 
-# ③ SVG 质检（必须 0 error）
+# ③a SVG 转义**预检**（手写 SVG 后、跑上游质检前先跑这条）
+#     正文里单独的 `<`（如 `p < 0.05`、`<5%`）与裸 `&`（如 `R&D`）都会让 XML 无法解析。
+#     上游质检器只报 `not well-formed (invalid token): line N, column M` ——
+#     看不出是哪种字符、也不知道该怎么改；本流程的预检**定位到行并给出修法**。
+uv run python 流程1/scripts/ppt_brief.py --check-svg <project>/svg_output
+
+# ③b SVG 质检（必须 0 error）
 uv run python ppt-master/skills/ppt-master/scripts/svg_quality_checker.py <project>
 
 # ④ Step 7 串行导出（一条一条跑，前一条成功再跑下一条）
@@ -171,6 +177,8 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 - [ ] [NEW] **图谱页版式未缩到读不清**：整幅铺放 + 角落叠标题，`Crop Policy: no-crop`
 - [ ] [NEW] **方向综述整理页**的口径与《研究方向综述.md》一致（同源数据）
 - [ ] `svg_output/` 每页由主 agent 手写，未使用生成器
+- [ ] **转义预检通过**：`ppt_brief.py --check-svg <project>/svg_output` 无
+      裸 `<` / 裸 `&`（正文里的 `<` 写 `&lt;`、`&` 写 `&amp;`）
 - [ ] `svg_quality_checker.py` 报 0 error
 - [ ] Step 7 三条命令**串行**执行，逐条确认成功
 - [ ] 导出的 PPTX 与 `validation/*.report.json` 均已产出
