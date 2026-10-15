@@ -35,6 +35,7 @@ from collections import Counter
 from datetime import datetime
 
 from logutil import run_root as _run_root  # noqa: E402
+from run_status import calculate_status, read_status, write_status  # noqa: E402
 
 # ── UTF-8 兜底 ──
 
@@ -56,7 +57,12 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
-WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
+_RUN_WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
+# 统一把索引根提升到日期目录：run_root() 在设置 PAPER_AUTHOR 时返回
+# <日期>/<作者>，但跨链路交付索引契约要求写在同一 <日期>/ 下。
+# 非日期目录（显式外置工作目录、历史布局）保持原路径，不臆测其父目录。
+WD = (_RUN_WD.parent if _RUN_WD.name and _RUN_WD.parent.name.isdigit()
+      and len(_RUN_WD.parent.name) == 8 else _RUN_WD)
 
 _REASON_CN = {
     "no_tab": "页面无「研究方向」页签",
@@ -94,6 +100,34 @@ def _pick(cands: list[pathlib.Path]) -> pathlib.Path | None:
     即"没有综述目录"这种**正常**情况反而把整个脚本崩掉。
     """
     return next((p for p in cands if p is not None and p.exists()), None)
+
+
+def _status_lines(status: dict) -> list[str]:
+    """把全局运行状态写入交付索引，避免部分结果看起来像完整交付。"""
+    state = status.get("status") or "UNKNOWN"
+    labels = {
+        "COMPLETE": "可交付：完整",
+        "PARTIAL": "限制交付：部分完成",
+        "BLOCKED": "不可交付：外部阻塞",
+        "NO_OUTPUT": "不可交付：无产物",
+        "RUNNING": "进行中：尚未完成",
+        "READY": "已准备：等待后续阶段",
+        "FAILED_CONTRACT": "不可交付：阶段契约失败",
+        "UNKNOWN": "未核实：没有统一运行状态",
+    }
+    lines = ["## 全局运行状态", "", f"**{labels.get(state, state)}**", ""]
+    lines.append("| 项 | 值 |")
+    lines.append("|---|---|")
+    for key, label in (("stage", "阶段"), ("expected", "预期"),
+                       ("completed", "完成"), ("blocked", "阻塞"),
+                       ("failed", "失败")):
+        if key in status:
+            lines.append(f"| {label} | {status.get(key)} |")
+    reasons = status.get("reasons") or []
+    if reasons:
+        lines.append("| 限制 | " + "；".join(str(x) for x in reasons) + " |")
+    lines.append("")
+    return lines
 
 
 # ══════════════════════════════════════════════════════════════
@@ -216,8 +250,12 @@ def _render_paper_section(wd: pathlib.Path, author_dir: pathlib.Path,
          _pick(sorted(author_dir.glob("*_研究方向文献终表.md")))),
         ("阶段 K：知识图谱说明 + 聚类解读 + 剔除记录",
          _pick(sorted(author_dir.glob("*_知识图谱.md")))),
-        ("阶段 P：PPT 项目（`make_ppt=yes` 时；`.pptx` 在 exports/ 下）",
-         _pick(sorted(author_dir.glob("*_汇报PPT*")))),
+        ("阶段 P：PPTX 交付物（`make_ppt=yes` 时；exports/ 下的实际文件）",
+         _pick(sorted(
+              p for project in author_dir.iterdir()
+              if project.is_dir() and (project / "exports").is_dir()
+              for p in project.joinpath("exports").glob("*.pptx")
+          ))),
         ("阶段 I《全文清单.md》：逐篇状态 / 来源通道 / 页数 / 未获取原因",
          (exp / "全文清单.md") if exp else None),
         ("原文全文 PDF 目录（题名命名；历史名 `<作者名>_Exports` 亦沿用）", exp),
@@ -292,14 +330,14 @@ def _render_paper_section(wd: pathlib.Path, author_dir: pathlib.Path,
     return L, stats
 
 
-def _paper_index(wd: pathlib.Path, author_dir: pathlib.Path, topic: str = "") -> list[str]:
+def _paper_index(wd: pathlib.Path, author_dir: pathlib.Path, topic: str = "") -> tuple[list[str], dict]:
     """**只**含作者链路的交付索引（入门链路未跑时用）。"""
     sec, stats = _render_paper_section(wd, author_dir, topic)
     L: list[str] = []
     A = L.append
     A(f"# 交付物索引 · {stats['author']}")
     A("")
-    A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} | 工作文件夹：`{wd}`")
+    A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} | 作者工作文件夹：`{author_dir}` | 交付索引根：`{wd}`")
     A("> ")
     A("> 流程：`流程1/` 作者论文分析链路（阶段 0 → A → … → I）")
     A("> ")
@@ -318,7 +356,7 @@ def _paper_index(wd: pathlib.Path, author_dir: pathlib.Path, topic: str = "") ->
     A("---")
     A("")
     L.extend(sec)
-    return L
+    return L, stats
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -351,11 +389,26 @@ def main(argv: list[str] | None = None) -> int:
     # 作者链路独有：直接出作者索引，**不再**渲染一屏「未产出」的入门布局
     #   （那正是缺陷 I-1：索引答非所问，而退出码仍是 0）
     if author_dirs and (args.paper_only or not mentor_here):
-        L = _paper_index(WD, author_dirs[0], args.topic)
+        L, stats = _paper_index(WD, author_dirs[0], args.topic)
+        status = read_status(WD)
+        if not status:
+            status = {
+                "status": calculate_status(
+                    has_output=bool(stats["n_tasks"] or stats["n_cards"]),
+                    expected=stats["n_tasks"], completed=stats["n_cards"],
+                    blocked=max(0, stats["n_tasks"] - stats["n_cards"])),
+            }
+            write_status(
+                WD, status=status["status"], stage="I",
+                expected=stats["n_tasks"], completed=stats["n_cards"],
+                blocked=max(0, stats["n_tasks"] - stats["n_cards"]),
+                reasons=status.get("reasons"),
+            )
+        L[8:8] = _status_lines(status)
         # 文件名与产出物规范一致：作者链路用 `<作者名>_交付物索引.md`
         outp = WD / f"{_author_of(author_dirs[0])}_交付物索引.md"
         outp.write_text("\n".join(L), encoding="utf-8")
-        print(f"→ {outp}  ({len(L)} 行)  [作者论文链路]")
+        print(f"→ {outp}  ({len(L)} 行)  [作者论文链路；状态 {status.get('status', 'UNKNOWN')}]")
         return 0
     if not mentor_here:
         # 两条链路的产物都没找到：如实说明，不再产出一份「全是未产出」的文件
@@ -710,6 +763,26 @@ def main(argv: list[str] | None = None) -> int:
         sec, _ = _render_paper_section(WD, author_dirs[0], topic_label)
         L.extend(sec)
 
+    review_expected = int(manifest.get("count") or len(manifest.get("tasks") or []) or
+                          len(cards))
+    status_reasons = list(gaps)
+    status = read_status(WD)
+    if not status:
+        status = {
+            "status": calculate_status(
+                has_output=bool(det or cards), expected=review_expected,
+                completed=len(cards),
+                blocked=max(0, review_expected - len(cards)),
+                reasons=status_reasons,
+            ),
+        }
+        write_status(
+            WD, status=status["status"], stage="I",
+            expected=review_expected, completed=len(cards),
+            blocked=max(0, review_expected - len(cards)),
+            reasons=status_reasons,
+        )
+    L[8:8] = _status_lines(status)
     outp = ((WD / f"{_author_of(author_dirs[0])}_交付物索引.md") if author_dirs
             else (OUT / "交付物索引.md"))
     outp.write_text("\n".join(L), encoding="utf-8")

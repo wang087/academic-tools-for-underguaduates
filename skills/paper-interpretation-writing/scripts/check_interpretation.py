@@ -1011,9 +1011,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"错误：无法读取 {source_path}（{error}）", file=sys.stderr)
             return 2
 
-    use_model = bool(args.model or
-                     (os.environ.get("CHECK_INTERPRETATION_MODEL") or "").strip()
-                     in ("1", "true", "yes", "on"))
+    env_model = (os.environ.get("CHECK_INTERPRETATION_MODEL") or "").strip().lower()
+    use_model = bool(args.model or env_model in ("1", "true", "yes", "on"))
+    # 小模型属于流程增加类操作：阶段 0 未逐项确认时，禁止在阶段 H 临时打开。
+    # 显式开关仍保留，但必须由准备计划确认，避免绕过 N/0 闸门。
+    plan_path = Path(os.environ.get("PAPER_WORKDIR", "")) / ".work_cdp" / "prepare_plan.json"
+    if use_model:
+        if not plan_path.is_file():
+            print("错误：缺少阶段 0 prepare_plan.json，拒绝启用 --model。", file=sys.stderr)
+            return 2
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            conf = (plan.get("_confirmations") or {}).get("deai_model_review") or {}
+            if not conf.get("confirmed") or plan.get("deai_model_review") is not True:
+                print("错误：deai 小模型未在阶段 0 逐项确认，禁止临时启用 --model。",
+                      file=sys.stderr)
+                return 2
+        except (OSError, json.JSONDecodeError):
+            print("错误：无法读取阶段 0 prepare_plan.json，拒绝启用 --model。", file=sys.stderr)
+            return 2
 
     try:
         report = check(

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/stage-plan",
+  "title": "流程1阶段计划",
+  "type": "object",
+  "required": ["_schema", "_stages_order", "_gates", "_confirmations"],
+  "properties": {
+    "_schema": {"type": "integer", "minimum": 1},
+    "_stages_order": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "_gates": {"type": "object", "additionalProperties": {"type": "string", "enum": ["run", "skip"]}},
+    "_gate_reasons": {"type": "object", "additionalProperties": {"type": "string"}},
+    "_confirmations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["confirmed", "source", "value"],
+        "properties": {
+          "confirmed": {"type": "boolean"},
+          "source": {"type": "string"},
+          "value": {}
+        },
+        "additionalProperties": true
+      }
+    },
+    "output_format": {"type": "string"},
+    "translate": {"type": "boolean"},
+    "reverse_refs": {"type": "boolean"},
+    "make_graphs": {"type": "boolean"},
+    "make_ppt": {"type": "boolean"},
+    "fulltext_fallback": {"type": "string"},
+    "interpret_tier": {"type": "string"},
+    "interpret_engine": {"type": "string"}
+  },
+  "additionalProperties": true
+}

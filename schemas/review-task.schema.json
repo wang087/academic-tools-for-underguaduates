@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/review-task",
+  "title": "流程1综述解读任务包",
+  "type": "object",
+  "required": ["seq", "doi", "title", "interpret_tier", "abstract", "result_path"],
+  "properties": {
+    "seq": {"type": "integer", "minimum": 1},
+    "interpret_tier": {"type": "string"},
+    "doi": {"type": "string", "minLength": 3},
+    "title": {"type": "string", "minLength": 1},
+    "journal": {"type": "string"},
+    "year": {"type": ["string", "integer", "null"]},
+    "authors": {"type": ["string", "array", "null"]},
+    "abstract": {"type": "string"},
+    "evidence_source": {"type": "string"},
+    "type": {"type": "string"},
+    "is_review": {"type": "boolean"},
+    "is_oa": {"type": "boolean"},
+    "oa_url": {"type": "string"},
+    "pmid": {"type": "string"},
+    "pmcid": {"type": "string"},
+    "citations": {"type": "integer", "minimum": 0},
+    "platform": {"type": "string"},
+    "why_selected": {"type": "string"},
+    "text": {"type": "string"},
+    "result_path": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

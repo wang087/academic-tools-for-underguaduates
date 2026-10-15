@@ -171,7 +171,7 @@ uv run python 流程1/scripts/unpaywall_check.py
 
 # 7) 全文一律走 CDP 多实例（OA 与付费墙同等对待；遇真挑战时弹窗等人工）
 #    注意：--manual-wait 必须 > 0，否则 CAPTCHA 弹窗链完全不触发（见 [版本变动.md](版本变动.md)）
-uv run --with websocket-client --with pypdf python 流程1/scripts/download_all_fulltexts.py \
+uv run --with websocket-client --with pypdf python 流程1/optional-cdp-fulltext/download_all_fulltexts.py \
     --n=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35
 
 # 8) PDF 题名命名（新下载已自动题名；此步补齐历史文件并登记索引）

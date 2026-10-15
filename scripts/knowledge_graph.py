@@ -56,6 +56,7 @@ import pathlib
 import re
 import sys
 import zlib
+import datetime
 
 from collections import Counter, defaultdict
 
@@ -220,6 +221,10 @@ fulltext student students supplementary appendix author authors university
 institute department school laboratory lab corresponding equally contributed
 accessed download downloaded copyright licence license creative commons
 mean median average ratio total sum std var sem sd ci
+# 常见散文/版式碎片：它们会从方法句、图注或断行中进入 token，
+# 不是作者研究术语。保留 myc/car/gaba 等生物医学缩写，不做“所有三字母词”一刀切。
+run cut day bona fide complex components cooperate early fate show showed
+using used methods method result results signal site single cell cells subunits
 """.split())
 
 # ④ 中文虚词/泛化词（用户点名 定量，其余为同类）。
@@ -325,6 +330,7 @@ def tokenize(text: str) -> list[str]:
 # ══════════════════════════════════════════════════════════════
 WC_MIN_COUNT = 3        # 中文候选词的最低出现次数
 WC_MIN_ENTROPY = 0.9    # 左右邻接熵下限（bit）；两者取小
+WC_MIN_N = 3            # 中文词最短 3 字；二字片段/缩写一律不入云
 WC_MAX_N = 4            # 中文词最长 4 字
 WC_EN_MIN_LEN = 3       # 英文词最短 3 字符
 WC_FLOOR_PT = 5.0       # 最终物理尺寸下的字号下限（见 note_fonts）
@@ -365,7 +371,7 @@ def _entropy(counter) -> float:
 
 
 def zh_terms(text: str):
-    """中文候选词 → (保留 {词: 次数}, 统计)。
+    """中文候选词（仅 3–4 字）→ (保留 {词: 次数}, 统计)。
 
     统计里带每个候选词的左右邻接熵与邻居样例，供报告如实列出
     「为什么这个词被判为碎片」—— 不做静默丢弃。
@@ -374,7 +380,7 @@ def zh_terms(text: str):
     left = defaultdict(Counter)
     right = defaultdict(Counter)
     for run in _CJK_RUN.findall(text or ""):
-        for n in range(2, WC_MAX_N + 1):
+        for n in range(WC_MIN_N, WC_MAX_N + 1):
             for i in range(len(run) - n + 1):
                 g = run[i:i + n]
                 cnt[g] += 1
@@ -384,7 +390,9 @@ def zh_terms(text: str):
     keep, info = {}, {}
     for g, c in cnt.items():
         hl, hr = _entropy(left[g]), _entropy(right[g])
-        if c < WC_MIN_COUNT:
+        if len(g) < WC_MIN_N:
+            why = "低于最短字数"
+        elif c < WC_MIN_COUNT:
             why = "重复不足"
         elif g[0] in FUNC_HEAD_ZH or g[-1] in FUNC_TAIL_ZH:
             why = "虚词边界"
@@ -403,10 +411,10 @@ def zh_terms(text: str):
 
 
 def zh_grams(text: str) -> set:
-    """只取 2–4 字候选（不算熵）—— 配合**全局**门控使用。"""
+    """只取 3–4 字候选（不算熵）—— 配合**全局**门控使用。"""
     out = set()
     for run in _CJK_RUN.findall(text or ""):
-        for n in range(2, WC_MAX_N + 1):
+        for n in range(WC_MIN_N, WC_MAX_N + 1):
             for i in range(len(run) - n + 1):
                 out.add(run[i:i + n])
     return out
@@ -1964,23 +1972,16 @@ def _mono_word_fonts(mono_file, tracking=WC_MONO_TRACKING):
         return int(s or 0)
 
     def _text(self, xy, word, fill=None, font=None, anchor=None, **kw):
+        # 关键修复：整词一次绘制，保留 PIL 的 kerning、baseline 和 bearing。
+        # 旧实现逐字符 text() + 手工 tracking，会让同一词的 glyph 顶部/侧边距
+        # 不同，并使 textbbox 与实际墨迹不再同源。
         f = _pick(font, word)
-        if f is None:
-            return orig_text(self, xy, word, fill, font, anchor, **kw)
-        tr = tracking * _size_of(f)
-        x, y = xy[0], xy[1]
-        for ch in word:
-            orig_text(self, (x, y), ch, fill, f, anchor, **kw)
-            x += f.getlength(ch) - tr
-        return None
+        return orig_text(self, xy, word, fill, f or font, anchor, **kw)
 
     def _textbbox(self, xy, word, font=None, anchor=None, **kw):
+        # 度量路径与绘制路径使用同一个整词字体，避免占位框/最终像素错位。
         f = _pick(font, word)
-        if f is None:
-            return orig_bbox(self, xy, word, font, anchor, **kw)
-        x0, y0, x1, y1 = orig_bbox(self, xy, word, f, anchor, **kw)
-        tr = tracking * _size_of(f)
-        return (x0, y0, x0 + max(1.0, (x1 - x0) - tr * (len(word) - 1)), y1)
+        return orig_bbox(self, xy, word, f or font, anchor, **kw)
 
     ImageDraw.ImageDraw.text = _text
     ImageDraw.ImageDraw.textbbox = _textbbox
@@ -2311,9 +2312,9 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi,
         #   或者更糟——以为"这个方向近年没有进展"。
         fig, ax = plt.subplots(figsize=(12, 8))
         note = "\n".join([
-            f"近 {recent_years} 年窗口内没有可归类的文献", "",
+            f"近 {recent_years} 个完整年度窗口内没有可归类的文献", "",
             "可能原因：尚未跑阶段 D2 / H2（无综述终表），",
-            "或该窗口内确实没有新论文。", "",
+            "或窗口内没有题录年份/方向证据。", "",
             "本图如实留空，不拿更早的论文冒充最新进展。",
         ])
         ax.text(0.5, 0.5, note, transform=ax.transAxes, ha="center",
@@ -2443,8 +2444,8 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi,
                 transform=ax.transAxes, ha="left", va="top", fontsize=9,
                 color="#8A6D3B")
     if len(rows) < 5:
-        ax.text(0.5, 0.5, f"近 {recent_years} 年样本仅 {len(rows)} 条\n"
-                          "样本不足，如实留空：不拿更早的论文冒充最新进展",
+        ax.text(0.5, 0.5, f"窗口内纳入 {len(rows)} 条（近 {recent_years} 个完整年度）\n"
+                          "每方向样本不足 4 篇，未计算热点簇；并非无相关文献",
                 transform=ax.transAxes, ha="center", va="center",
                 fontsize=13, color="#B03A1A", alpha=0.85)
 
@@ -2467,7 +2468,7 @@ def draw_direction_clusters(plt, rows, recent_years, outdir, stem, fmt, dpi,
 #     > 题名 > 摘要 > 解读卡方法描述（兜底与补充，量最大但最杂）
 # 权重可用 --wc-weight-keywords / -title / -abstract / -methods 覆盖。
 # ══════════════════════════════════════════════════════════════
-WC_WEIGHTS = {"keywords": 3, "title": 2, "abstract": 2, "methods": 1}
+WC_WEIGHTS = {"keywords": 3, "key_20": 2, "title": 2, "abstract": 2, "methods": 1}
 
 
 def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
@@ -2518,8 +2519,11 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
 
         kws = kw_by_doi.get(doi) or []
         title = str((recs.get(doi) or {}).get("title") or "").strip()
+        key20 = [str(x).strip() for x in as_list(c.get("key_20")) if str(x).strip()]
         if kws:
             corpora.append((doi, d, "keywords", weights["keywords"], " ; ".join(kws)))
+        if key20:
+            corpora.append((doi, d, "key_20", weights["key_20"], " ; ".join(key20)))
         if title:
             corpora.append((doi, d, "title", weights["title"], title))
         elif not kws:
@@ -2596,9 +2600,12 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
     # ── 方法描述来源的"单篇孤词"过滤（见 WC_MIN_DOCS 说明）────────
     #   判据用**论文数**（term_doi），不是方向数 —— 方向只有两三个，
     #   用方向数会把中文词几乎全杀掉（实测入云词型从 1449 掉到 159）。
-    curated = ("keywords", "title", "abstract")
+    curated = ("keywords", "key_20", "title", "abstract")
+    # 小样本时不能用固定的 3 篇门槛：两张解读卡会把所有
+    # methods-only 术语误删。仍要求跨至少 2 篇，避免单篇偶然散词。
+    effective_min_docs = min(int(min_docs), max(2, len(cards)))
     for t in list(w):
-        if len(term_doi[t]) >= min_docs:
+        if len(term_doi[t]) >= effective_min_docs:
             continue
         if any(src in curated for src in term_src[t]):
             continue
@@ -2610,6 +2617,8 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
 
     # ── kw 模型精筛（可选，--kw-model）────────────────────────
     #   对通过全部规则门的**中文**留词跑 kw 适配器（term/fragment 二分类）。
+    #   英文 token 不进入该模型：kw 适配器训练任务只接受中文术语格式，
+    #   英文已由 en_terms 的停用词/单位/长度规则处理。
     #   输入格式与训练口径逐字一致（字符串/出现次数/文档数/左右邻接 top5），
     #   文档数取 term_doi（跨论文口径），邻接取 zh_info 的全局统计。
     #   只删不加、解析不出保守保留；剔除全部记入 dropped（原因可审计）。
@@ -2666,9 +2675,16 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
         "keywords_coverage": f"{len(kw_by_doi)}/{len(cards)}",
         "paradigms": dict(paradigms.most_common()),
         "source_terms": dict(src_hits.most_common()),
+        "source_coverage": {
+            "keywords_docs": sum(1 for d in cards if kw_by_doi.get(d)),
+            "key_20_docs": sum(1 for c in cards.values() if as_list(c.get("key_20"))),
+            "title_docs": sum(1 for d in cards if str((recs.get(d) or {}).get("title") or "").strip()),
+            "methods_docs": sum(1 for c in cards.values() if as_list(c.get("methods"))),
+        },
         "term_source": {t: dict(term_src[t]) for t in w},
         "thresholds": {"min_count": WC_MIN_COUNT, "min_entropy": WC_MIN_ENTROPY,
-                       "max_n": WC_MAX_N, "min_docs": min_docs,
+                       "min_n": WC_MIN_N, "max_n": WC_MAX_N, "min_docs": min_docs,
+                       "effective_min_docs": effective_min_docs,
                        "font_floor_pt": WC_FLOOR_PT},
         "n_terms_kept": len(w),
         "n_dropped_types": len(dropped),
@@ -2774,10 +2790,9 @@ def assign_direction(text, rcard, prof, allowed_d, al_d, min_hit=2):
 
 
 def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
-                               cards=None):
-    """方向聚类：取每个方向**近 N 年**的文献，按方向内关键词共现分热点簇。"""
-    import datetime
-    this_year = datetime.date.today().year
+                               cards=None, cutoff_year=None):
+    """方向聚类：取每个方向近 N 个完整年度的文献，并返回可审计窗口统计。"""
+    this_year = int(cutoff_year or (datetime.date.today().year - 1))
     lo = this_year - recent_years + 1
 
     allowed_d = vocab.get("direction_tags_vocabulary") or []
@@ -3044,15 +3059,20 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("")
 
     L.append("## 六、方向聚类 · 近 N 年热点\n")
-    if hotspot_words:
+    if hotspot_words and any(len([r for r in rows if r.get("direction") == d]) >= 4 for d in hotspot_words):
         L.append("| 方向 | 近 N 年热点关键词（按频次，数据驱动，未做语义命名） | 样本数 |")
         L.append("|---|---|---|")
         cnt = Counter(r["direction"] for r in rows)
         for d, ws in sorted(hotspot_words.items(), key=lambda x: -cnt.get(x[0], 0)):
             L.append(f"| {d} | {'、'.join(ws)} | {cnt.get(d, 0)} |")
     else:
-        L.append(f"> 近 {opts['recent_years']} 年窗口内没有足够的文献，"
-                 "**如实留空**（不拿更早的论文冒充「最新进展」）。")
+        n_window = len(rows)
+        if n_window:
+            L.append(f"> 窗口内纳入 **{n_window}** 条文献，但每个方向样本均不足 4 篇，"
+                     "因此未计算热点簇；这不是“无相关文献”。")
+        else:
+            L.append(f"> 近 {opts['recent_years']} 个完整年度窗口内没有可归类的文献；"
+                     "请区分 H2 未产出、年份缺失与确实无新文献。")
     L.append("")
 
     L.append("## 七、阶段划分说明\n")
@@ -3223,7 +3243,7 @@ def self_test() -> int:
     bad += mem_bad
     print("记忆连接判据：通过" if mem_bad == 0 else "记忆连接判据：失败")
 
-    # ⑦ 中文邻接熵筛词：碎片必须被挡，真词必须留下。
+    # ⑦ 中文邻接熵筛词：三字以上碎片必须被挡，真词必须留下。
     #    语料刻意复刻用户实测的两类边界：
     #      「触前」左邻恒为「突」、「经元」左邻恒为「神」、
     #      「谷氨」右邻恒为「酸」、「鼠海」右邻恒为「马」 → 全部是碎片；
@@ -3245,11 +3265,15 @@ def self_test() -> int:
             print(f"  碎片 {g!r} 未被筛掉（左邻 {zh_info[g]['left']} "
                   f"右邻 {zh_info[g]['right']}，熵 "
                   f"{zh_info[g]['h_left']}/{zh_info[g]['h_right']}）")
-    for g in ("海马", "神经元", "突触", "谷氨酸", "突触前", "成像"):
+    for g in ("神经元", "谷氨酸", "突触前"):
         if g not in keep_zh:
             frag_bad += 1
             print(f"  真词 {g!r} 被误杀（熵 "
                   f"{zh_info.get(g, {}).get('h_left')}/{zh_info.get(g, {}).get('h_right')}）")
+    for g in ("海马", "突触", "成像"):
+        if g in keep_zh or g in zh_info:
+            frag_bad += 1
+            print(f"  二字词 {g!r} 未按最短字数规则过滤")
     bad += frag_bad
     print("中文邻接熵筛词：通过" if frag_bad == 0 else "中文邻接熵筛词：失败")
 
@@ -3474,7 +3498,7 @@ def main() -> int:
     try:
         dpi = int(_argval("dpi", "300") or 300)
         max_reviews = int(_argval("max-reviews", "3") or 3)
-        recent_years = int(_argval("recent-years", "5") or 5)
+        recent_years = int(_argval("recent-years", "3") or 3)
         max_dirs = int(_argval("max-dirs", "12") or 12)
         max_review_nodes = int(_argval("max-review-nodes", "24") or 24)
         wc_min_docs = int(_argval("wc-min-docs", str(WC_MIN_DOCS)) or WC_MIN_DOCS)
@@ -3511,6 +3535,17 @@ def main() -> int:
     # ── kw 模型精筛（默认关；显式开启却不可用时**硬失败**，不静默降级）──
     use_kw_model = "--kw-model" in sys.argv
     if use_kw_model:
+        plan_path = WD / ".work_cdp" / "prepare_plan.json"
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            conf = (plan.get("_confirmations") or {}).get("kw_model_filter") or {}
+            if plan.get("kw_model_filter") is not True or not conf.get("confirmed"):
+                print("[X] kw 小模型未在阶段 0 逐项确认，禁止临时启用 --kw-model")
+                return 2
+        except (OSError, json.JSONDecodeError):
+            print("[X] 无法读取阶段 0 prepare_plan.json，拒绝启用 --kw-model")
+            return 2
+    if use_kw_model:
         try:
             import small_model as _sm
         except ImportError:
@@ -3526,7 +3561,7 @@ def main() -> int:
     else:
         KW_MODEL = None
     wc_weights = {}
-    for _k in ("keywords", "title", "abstract", "methods"):
+    for _k in ("keywords", "key_20", "title", "abstract", "methods"):
         _v = _argval(f"wc-weight-{_k}")
         if _v is None:
             continue
@@ -3582,8 +3617,18 @@ def main() -> int:
                                          also_png, wc_stats, opts["wc_engine"])
 
     # ── ③ 方向聚类 ────────────────────────────────────────────
+    # H2 综述终表为空时，方向聚类仍应使用作者论文题录作为保底语料；
+    # 否则会把“未跑 H2”误显示成“近年没有相关文献”。
+    cluster_final = final
+    if not (final.get("items") or final.get("final")) and recs:
+        cluster_final = {"items": [
+            {"id": doi, "doi": doi, "year": r.get("year"),
+             "title": r.get("title") or "", "venue": r.get("journal") or r.get("container-title") or "",
+             "cited_by_count": r.get("is-referenced-by-count") or r.get("cited_by_count") or 0,
+             "abstract": r.get("abstract") or ""}
+            for doi, r in recs.items() if isinstance(r, dict)]}
     rows, hotspots, dir_how = compute_direction_clusters(
-        final, rcards, rmeta, recs, recent_years, vocab, cards=cards)
+        cluster_final, rcards, rmeta, recs, recent_years, vocab, cards=cards)
     graphs["directions"] = draw_direction_clusters(plt, rows, recent_years, GRAFDIR,
                                                    f"{AUTHOR}_知识图谱_方向聚类", fmt, dpi,
                                                    also_png)
@@ -3597,13 +3642,19 @@ def main() -> int:
         "cluster_notes": notes,
         "memory_links": memory_links,
         "contradictions": contradictions,
-        "wordcloud": {"weights": dict(w.most_common(120)),
+        "wordcloud": {"weights": dict(w),
                       "colors": color_of,
                       "direction_colors": dir_label,
                       "dropped": dict(dropped.most_common(80)),
                       "stats": wc_stats},
         "direction_clusters": {
             "recent_years": recent_years,
+            "cutoff_year": datetime.date.today().year - 1,
+            "n_window": len(rows),
+            "n_assigned": sum(1 for r in rows if r.get("direction") != "未分组"),
+            "n_unassigned": sum(1 for r in rows if r.get("direction") == "未分组"),
+            "n_clusterable": sum(1 for d in set(r.get("direction") for r in rows)
+                                if sum(1 for r in rows if r.get("direction") == d) >= 4),
             "rows": [{k: v for k, v in r.items() if k != "tokens"} for r in rows],
             "hotspots": hotspots},
         "periods": pinfo,

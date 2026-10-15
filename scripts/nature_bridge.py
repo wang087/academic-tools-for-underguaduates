@@ -68,8 +68,10 @@ def _fix_streams() -> None:
         if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
             continue
         try:
-            setattr(sys, name, io.TextIOWrapper(buf, encoding="utf-8",
-                                                errors="replace"))
+            # 只重配置现有流，不替换 TextIOWrapper；替换会在旧 wrapper
+            # 被回收时关闭底层管道，触发 closed-file/lost-sys.stderr。
+            if hasattr(s, "reconfigure"):
+                s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
         except Exception:
             pass
 
@@ -146,7 +148,34 @@ def scratch_dir(prefix: str = "nature_bridge_") -> pathlib.Path:
          而不是攒到进程结束 —— 长驻进程里 `atexit` 可能几小时都不触发。
     """
     global _ATEXIT_REGISTERED
-    base = pathlib.Path(tempfile.gettempdir())
+    base = pathlib.Path(tempfile.gettempdir()).resolve()
+    flow_root = FLOW_ROOT.resolve()
+    try:
+        base.relative_to(flow_root)
+    except ValueError:
+        pass
+    else:
+        # TMP/TEMP 被误设到流程目录时，不能在交付树中制造 scratch。
+        # 优先退回系统临时目录；若仍位于流程根内则明确失败。
+        # 依次尝试流程根外的专用临时区；不把 scratch 倒进交付树。
+        candidates = [FLOW_ROOT.parent / ".flow1-tmp",
+                      pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Temp",
+                      pathlib.Path.home() / ".flow1-tmp"]
+        base = None
+        for candidate in candidates:
+            candidate = candidate.resolve()
+            try:
+                candidate.relative_to(flow_root)
+                continue
+            except ValueError:
+                try:
+                    candidate.mkdir(parents=True, exist_ok=True)
+                    base = candidate
+                    break
+                except OSError:
+                    continue
+        if base is None:
+            raise RuntimeError(f"找不到流程根外可写临时目录（原始目录：{base}）")
     d = base / f"{prefix}{os.getpid()}_{next(tempfile._get_candidate_names())}"
     d.mkdir(parents=True, exist_ok=True)
     _SCRATCH_DIRS.append(d)

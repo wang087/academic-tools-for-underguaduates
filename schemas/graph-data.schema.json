@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/graph-data",
+  "title": "流程1知识图谱数据",
+  "type": "object",
+  "required": [
+    "author",
+    "nodes",
+    "edges",
+    "communities",
+    "cluster_notes",
+    "memory_links",
+    "contradictions",
+    "wordcloud",
+    "direction_clusters",
+    "periods",
+    "figure_notes",
+    "overview_layout",
+    "graphs"
+  ],
+  "properties": {
+    "author": {"type": "string", "minLength": 1},
+    "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+    "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "communities": {"type": "object", "additionalProperties": true},
+    "cluster_notes": {"type": "object", "additionalProperties": true},
+    "memory_links": {"type": "array", "items": {"$ref": "#/$defs/memory-link"}},
+    "contradictions": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+    "wordcloud": {"$ref": "#/$defs/wordcloud"},
+    "direction_clusters": {"$ref": "#/$defs/direction-clusters"},
+    "periods": {"type": "object", "additionalProperties": true},
+    "figure_notes": {"type": "object", "additionalProperties": true},
+    "overview_layout": {"type": "object", "additionalProperties": true},
+    "graphs": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "label": {"type": "string"},
+        "year": {"type": ["integer", "null"]},
+        "period": {"type": "string"},
+        "n_papers": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "kind"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "weight": {"type": ["integer", "number"], "minimum": 0},
+        "label": {"type": "string"},
+        "reason": {"type": "string"},
+        "shared": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "memory-link": {
+      "type": "object",
+      "required": ["name", "reason", "n", "lift", "shared"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "reason": {"type": "string"},
+        "n": {"type": "integer", "minimum": 0},
+        "lift": {"type": ["integer", "number"], "minimum": 0},
+        "shared": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "wordcloud": {
+      "type": "object",
+      "required": ["weights", "colors", "direction_colors", "dropped", "stats"],
+      "properties": {
+        "weights": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
+        "colors": {"type": "object", "additionalProperties": {"type": "string"}},
+        "direction_colors": {"type": "object", "additionalProperties": {"type": "string"}},
+        "dropped": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "stats": {"type": "object", "additionalProperties": true}
+      },
+      "additionalProperties": true
+    },
+    "direction-clusters": {
+      "type": "object",
+      "required": ["recent_years", "cutoff_year", "n_window", "n_assigned", "n_unassigned", "n_clusterable", "rows", "hotspots"],
+      "properties": {
+        "recent_years": {"type": "integer", "minimum": 0},
+        "cutoff_year": {"type": "integer"},
+        "n_window": {"type": "integer", "minimum": 0},
+        "n_assigned": {"type": "integer", "minimum": 0},
+        "n_unassigned": {"type": "integer", "minimum": 0},
+        "n_clusterable": {"type": "integer", "minimum": 0},
+        "rows": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "hotspots": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

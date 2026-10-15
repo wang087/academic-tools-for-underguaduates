@@ -39,6 +39,7 @@ import urllib.error
 import urllib.request
 
 from logutil import run_root as _run_root  # noqa: E402
+from run_status import calculate_status, write_status  # noqa: E402
 
 # ── UTF-8 兜底（幂等）──
 
@@ -1459,11 +1460,33 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     d.mkdir(parents=True, exist_ok=True)
+    write_status(WD, status="RUNNING", stage="S",
+                 reasons=["导师名单与详情正在抓取"])
 
     if args.stage in ("list", "all"):
         stage_list(unit, d, log, cfg, only_section=args.unit_name or "")
     if args.stage in ("detail", "all"):
         stage_detail(unit, d, log, cfg, limit=args.limit)
+
+    if args.stage == "list":
+        people = json.loads((d / "faculty_list.json").read_text(encoding="utf-8"))
+        write_status(WD, status=calculate_status(has_output=bool(people),
+                                                  expected=len(people),
+                                                  completed=len(people),
+                                                  blocked=len(people)),
+                     stage="S", expected=len(people), completed=len(people),
+                     blocked=len(people),
+                     reasons=["仅完成导师列表抓取；详情阶段尚未执行"])
+    elif args.stage == "detail":
+        people = json.loads((d / "faculty_detail.json").read_text(encoding="utf-8"))
+        failed = sum(1 for rec in people if rec.get("status") == "fetch_failed")
+        write_status(WD, status=calculate_status(has_output=bool(people),
+                                                  expected=len(people),
+                                                  completed=len(people) - failed,
+                                                  failed=failed),
+                     stage="S", expected=len(people), completed=len(people) - failed,
+                     failed=failed,
+                     reasons=([f"{failed} 位导师详情抓取失败"] if failed else []))
 
     if args.stage == "all":
         df = d / "faculty_detail.json"
@@ -1483,6 +1506,16 @@ def main(argv: list[str] | None = None) -> int:
         print_selection_prompt(payload)
         journal("S", "faculty.harvest", unit=f"{sk}:{uk}",
                 total=payload["total"], with_dir=payload["with_directions"])
+        failed = sum(1 for rec in people if rec.get("status") == "fetch_failed")
+        state = calculate_status(has_output=payload["total"] > 0,
+                                 expected=payload["total"],
+                                 completed=payload["total"] - failed,
+                                 failed=failed)
+        write_status(
+            WD, status=state, stage="S", expected=payload["total"],
+            completed=payload["total"] - failed, failed=failed,
+            reasons=([f"{failed} 位导师详情抓取失败"] if failed else []),
+        )
     return 0
 
 

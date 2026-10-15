@@ -56,7 +56,10 @@ def _fix_streams() -> None:
         if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
             continue
         try:
-            setattr(sys, name, io.TextIOWrapper(buf, encoding="utf-8", errors="replace"))
+            # 不替换 sys.stdout/stderr：临时 TextIOWrapper 被 GC 时会关闭
+            # subprocess 管道的底层 fd，导致自检结束阶段出现 closed file。
+            if hasattr(s, "reconfigure"):
+                s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
         except Exception:
             pass
 

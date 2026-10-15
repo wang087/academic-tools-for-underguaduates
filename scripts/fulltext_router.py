@@ -128,6 +128,7 @@ import fulltext_credentials as creds  # noqa: E402
 import fulltext_result as fr       # noqa: E402
 import oa_candidates as oac        # noqa: E402
 from fulltext_result import FullTextResult  # noqa: E402
+from run_status import calculate_status, write_status  # noqa: E402
 
 # ── 出版商层（fulltext_publishers）现在住在可选模块里 ──────────────
 #   它属于「用浏览器/出版商接口取正文」这条被单独抽出、可整目录删除的链路
@@ -1069,6 +1070,8 @@ def main() -> int:
         return 3
 
     wd = _workdir()
+    write_status(wd, status="RUNNING", stage="E", expected=len(articles),
+                 reasons=["全文路由正在处理"])
     out = a.out or (wd / ".work_cdp" / "fallback")
     out.mkdir(parents=True, exist_ok=True)
     report = a.report or (wd / ".work_cdp" / "reviews_fallback.json")
@@ -1101,6 +1104,14 @@ def main() -> int:
                                                     "handoff": n_ho, "failure": n_fa},
                           "report": str(report), "records": recs},
                          ensure_ascii=False, indent=1))
+    state = calculate_status(has_output=bool(recs), expected=len(recs),
+                             completed=n_ok, blocked=n_ho, failed=n_fa)
+    write_status(
+        wd, status=state, stage="E", expected=len(recs), completed=n_ok,
+        blocked=n_ho, failed=n_fa,
+        reasons=([f"{n_ho} 篇需要人工或主链路交接"] if n_ho else [])
+                + ([f"{n_fa} 篇全文路由失败"] if n_fa else []),
+    )
     return 1 if n_fa else 0
 
 

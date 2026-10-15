@@ -52,6 +52,7 @@ import sys
 from collections import Counter
 
 from logutil import run_root as _run_root  # noqa: E402
+from run_status import calculate_status, write_status  # noqa: E402
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -767,6 +768,15 @@ def main() -> int:
     print("saved:", p)
     print(f"解读档位：{tier}（{TIER_LABEL[tier]}）｜来源：{tier_src}")
     print(f"解读引擎：{engine}（{ENGINE_LABEL[engine]}）｜来源：{engine_src}")
+    state = calculate_status(has_output=bool(n_card), expected=n_all,
+                             completed=n_card,
+                             blocked=max(0, n_all - n_card - len(missing)),
+                             failed=len(missing))
+    write_status(
+        WD, status=state, stage="H", expected=n_all, completed=n_card,
+        blocked=max(0, n_all - n_card - len(missing)), failed=len(missing),
+        reasons=([f"{len(missing)} 篇缺少解读卡"] if missing else []),
+    )
     print(f"已解读 {n_card}/{n_all} 篇 ｜ 全文级 {n_full} 篇 ｜ 缺卡 {len(missing)} 篇")
     if engine == "paper-card":
         n_pc = len([r for r in pc_rows if r["card"]])

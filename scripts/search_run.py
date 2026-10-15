@@ -76,8 +76,11 @@ WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 # paginate.py 的位置：既有 skill 的取数层。它**不在本次输出目录下** ——
 # `PAPER_WORKDIR` 缺省是 `流程1/<年月日>/`，而 skills/ 在流程根、包根或工作文件夹，
 # 故按候选根目录逐个探测（与 `preflight_fallback.py` 同一判据）。
-SKILL_ROOTS = [WD / "skills", WD.parent / "skills",
-               pathlib.Path(__file__).resolve().parent.parent.parent / "skills"]
+SKILL_ROOTS = [
+    WD / "skills", WD.parent / "skills",
+    pathlib.Path(__file__).resolve().parent.parent / "skills",  # 流程1/skills
+    pathlib.Path(__file__).resolve().parent.parent.parent / "skills",
+]
 _PAGINATE_REL = pathlib.Path("paper-lookup") / "scripts" / "paginate.py"
 PAGINATE = next((r / _PAGINATE_REL for r in SKILL_ROOTS if (r / _PAGINATE_REL).exists()),
                 SKILL_ROOTS[0] / _PAGINATE_REL)

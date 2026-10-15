@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/bibliography-record",
+  "title": "流程1题录记录",
+  "type": "object",
+  "required": ["title"],
+  "properties": {
+    "doi": {"type": ["string", "null"]},
+    "title": {"type": "string", "minLength": 1},
+    "journal": {"type": ["string", "null"]},
+    "short_journal": {"type": ["string", "null"]},
+    "year": {"type": ["string", "integer", "null"]},
+    "pubYear": {"type": ["string", "integer", "null"]},
+    "vol": {"type": ["string", "null"]},
+    "issue": {"type": ["string", "null"]},
+    "page": {"type": ["string", "null"]},
+    "article_number": {"type": ["string", "null"]},
+    "type": {"type": ["string", "null"]},
+    "authors": {
+      "type": ["array", "string", "null"],
+      "items": {
+        "anyOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "properties": {
+              "family": {"type": "string"},
+              "given": {"type": "string"},
+              "name": {"type": "string"},
+              "affiliation": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": true
+          }
+        ]
+      }
+    },
+    "source": {"type": ["string", "null"]},
+    "abstract": {"type": ["string", "null"]},
+    "orcid_date": {"type": ["string", "null"]},
+    "_nodoi_note": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

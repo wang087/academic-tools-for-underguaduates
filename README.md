@@ -105,6 +105,50 @@
 >
 > 若需按新作者复用，请**只通过上述变量/参数传值**，不要改动脚本。
 
+### 当前脚本入口与边界（以本表为准）
+
+| 入口/命令 | 分类 | 联网 | 会写文件 | 说明 |
+|---|---|---:|---:|---|
+| `scripts/harvest_faculty.py` | **唯一主入口**（导师获取） | 是 | 是 | 阶段 S 名单与详情抓取；新运行从这里开始 |
+| `optional-cdp-fulltext/download_all_fulltexts.py` | **唯一主入口**（作者全文） | 是 | 是 | 作者论文全文主链路；受 CDP、站点熔断与人工交接约束 |
+| `scripts/reviews_fulltext.py` | **唯一主入口**（综述全文） | 是 | 是 | 综述检索结果的全文获取与登记 |
+| `scripts/fulltext_router.py` | fallback / 联网入口 | 是 | 是 | 仅在主链路已失败且显式声明后使用，不替代主链路 |
+| `scripts/faculty_discover.py --explain` | **调试入口** | 通常是 | 否 | 解释站点家族判定；不使用 `--write` 时不写配置 |
+| `scripts/selftest_engines.py` | **调试入口** | 否 | 否 | 导师引擎离线自检 |
+| `scripts/harvest_mentors.py` | **历史兼容入口** | 视旧命令 | 视旧命令 | 仅为旧调用保留；新运行不要从此处开始，暂不删除 |
+| `scripts/prepare_stage.py --check/--show` | **离线入口** | 否 | 否 | 查询阶段闸门或计划参数；不改变运行状态 |
+| `scripts/selftest_pipeline.py --offline` | **离线入口** | 否 | 是临时目录 | 契约自检；仅写临时自检产物 |
+| `scripts/agent_poll.py` | **只读命令** | 否 | 否 | 查看子代理进度；不提交或覆盖顶层运行状态 |
+| `scripts/interpret_prepare.py` | 文件写入入口 | 否 | 是 | 组装解读任务包 |
+| `scripts/interpret_build.py` | 文件写入入口 | 否 | 是 | 回收解读结果并生成交付物 |
+
+“联网”表示命令可能访问外部站点或服务，不代表每次运行都会联网；“会写文件”包含运行目录、索引、状态文件或临时自检目录。旧入口暂不删除，避免破坏已有调用，但新文档和新运行应优先使用本表中的唯一主入口。
+
+文档引用可用以下离线命令检查：
+
+```bash
+uv run python 流程1/scripts/check_doc_refs.py
+```
+
+### 核心 JSON schema（第一批）
+
+统一 schema 放在 `schemas/`，不改变现有产物字段或文件名。当前已覆盖：
+
+| 对象 | schema | 校验命令 |
+|---|---|---|
+| 阶段计划 | `schemas/stage-plan.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind stage-plan <prepare_plan.json>` |
+| 题录记录 | `schemas/bibliography-record.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind bibliography-record <题录.json>` |
+| 消歧结果 | `schemas/disambiguation-result.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind disambiguation-result <disambiguated.json>` |
+| 全文状态 | `schemas/fulltext-state.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind fulltext-state <fulltext_state.json>` |
+| 作者解读任务包 | `schemas/interpret-task.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind interpret-task <task.json>` |
+| 综述解读任务包 | `schemas/review-task.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind review-task <task.json>` |
+| 作者解读卡 | `schemas/interpret-card.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind interpret-card <result.json>` |
+| 综述解读卡 | `schemas/review-card.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind review-card <result.json>` |
+| 图谱数据 | `schemas/graph-data.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind graph-data <graph_data.json>` |
+| 统一运行状态 | `schemas/run-status.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind run-status <run_status.json>` |
+
+校验器会兼容题录常见的 DOI 索引对象、裸列表，以及作者字符串/结构化作者列表；阶段计划保留 `_gates`、`_confirmations` 等控制字段。消歧结果明确区分 `confirmed`、`review` 和 `dropped.code`；全文状态允许逐篇 DOI 记录与站点状态共存；作者任务包与综述任务包分别约束，不合并为一个模糊 schema。作者解读卡兼容综述型 `key_findings` 和机制型 `verified_conclusions` 等历史字段，综述解读卡兼容全文与摘要证据层级；图谱数据约束节点、边、词云和方向聚类的稳定外形，同时保留算法诊断字段；统一运行状态约束交付索引使用的机读状态事实源。交付索引本身当前是 Markdown 展示层，尚无对应 JSON 产物，因此不伪造独立的交付索引 schema，也不改写历史索引。
+
 ---
 
 ## 阶段 S：任意学校 / 院系（**复用模式**）
@@ -223,7 +267,7 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 ├── README.md                             # 本文件（快速上手）
 ├── run_all.sh                            # 一键执行（建目录→起CDP→抓ORCID→Crossref→消歧→OA→下载→列表）
 ├── subagent-driven-review/SKILL.md       # 子流程：阶段 H/H2 并行 subagent 解读手册（含综述网络版）
-├── ppt-integration/SKILL.md              # 子流程：阶段 P 整合 ppt-master（简化 Strategist）
+├── ppt-integration/SKILL.md              # 子流程：阶段 P 整合 ppt-master（含两阶段设计确认）
 ├── scripts/
 │   ├── ── 基础设施 ──────────────────────
 │   ├── logutil.py                        #   统一日志（控制台+文件双写，UTF-8 安全）
@@ -285,7 +329,7 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 │   ├── refs_curate.py                    #   阶段 H2①：去重 + 方向相关性整理 → 最终列表
 │   ├── refs_prepare.py                   #   阶段 H2②：组装自包含综述任务包（不联网）
 │   ├── refs_build.py                     #   阶段 H2③：回收综述卡 → 《研究方向综述.md》
-│   ├── ppt_brief.py                      #   阶段 P：PPT 材料 + 确定性生成 spec/lock（简化 Strategist）
+│   ├── ppt_brief.py                      #   阶段 P：PPT 材料 + ppt-master 确认后生成 spec/lock
 │   ├── knowledge_graph.py                #   [**] 阶段 K：知识图谱（overview/词云/方向聚类）
 │   ├── selftest_pipeline.py              #   [**] 端到端自检（阶段 0→D2→G2→H→H2→K→P，**必跑**）
 │   └── selftest_consent.py               #   Cookie 弹窗自动关闭的离线自检（零网络）
@@ -422,7 +466,8 @@ uv run python 流程1/scripts/refs_build.py                  # → 《<作者名
 
 # ⑩ 可选 PPT（闸门：--check P）—— 材料自动取自 ⑦ 与 ⑨ 的产物
 uv run python 流程1/scripts/ppt_brief.py --pages=standard
-#     → 生成 design_spec.md / spec_lock.md（**简化 Strategist**）并初始化 ppt-master 项目
+#     → 整理材料并初始化 ppt-master 项目；随后必须完成两阶段设计确认
+#     → 确认后才生成 design_spec.md / spec_lock.md
 #     余下按 流程1/ppt-integration/SKILL.md：手写 SVG → 质检 0 error → 串行导出
 ```
 
@@ -903,8 +948,9 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 ```
 <作者名>_汇报PPT_<画布>_<日期>/
 ├── sources/<作者名>_汇报材料.md            # 由《论文解读》+《研究方向综述》汇编
-├── design_spec.md                         # 简化 Strategist 的确定性产物（I–X 全节）
-├── spec_lock.md                           # 同上（canvas/colors/typography/page_rhythm…）
+├── confirm_ui/result.json                 # ppt-master 两阶段设计确认回执
+├── design_spec.md                         # 基于确认方案生成（I–X 全节）
+├── spec_lock.md                           # 基于确认方案锁定（canvas/colors/typography/page_rhythm…）
 ├── svg_output/*.svg                       # 由主 agent **手写**（不得脚本批量生成）
 └── exports/<项目名>_<时间戳>.pptx          # **最终 PPTX 交付物**（＋ validation/*.report.json）
 ```

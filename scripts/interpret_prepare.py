@@ -59,6 +59,7 @@ import pathlib
 import sys
 
 from logutil import run_root as _run_root  # noqa: E402
+from run_status import calculate_status, write_status  # noqa: E402
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
@@ -810,6 +811,14 @@ def main() -> int:
     #   但它可能带着完整的摘要 —— 只判 text_chars 会误报一片「摘要也为空」。
     n_empty = sum(1 for m in manifest
                   if not m["text_chars"] and not m["abstract_chars"])
+    state = calculate_status(has_output=bool(manifest), expected=len(manifest),
+                             completed=n_full, blocked=n_abs, failed=n_empty)
+    write_status(
+        WD, status=state, stage="H", expected=len(manifest), completed=n_full,
+        blocked=n_abs, failed=n_empty,
+        reasons=([f"{n_abs} 篇仅有摘要"] if n_abs else [])
+                + ([f"{n_empty} 篇没有正文或摘要"] if n_empty else []),
+    )
     print(f"\n已生成 {len(manifest)} 个任务包 → {TASKDIR}")
     print(f"   解读档位：{tier}（{TIER_LABEL[tier]}）")
     if tier_src == "cli":
