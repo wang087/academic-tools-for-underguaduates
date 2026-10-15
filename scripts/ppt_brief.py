@@ -9,19 +9,14 @@
 # 本脚本做三件事：
 #   ① 把上面两份材料**结构化**成 ppt-master 的 source（Markdown）；
 #   ② 调 ppt-master 的 project_manager.py 初始化项目并导入 source；
-#   ③ **直接生成 `design_spec.md` 与 `spec_lock.md`** —— 这就是被简化掉的
-#      「Strategist Phase」：原流程需要 Step 3 备选模板候选 + Step 4 两阶段
-#      阻塞式确认（Confirm UI / 聊天确认）+ 人工撰写 spec/lock；
-#      在本流程里，材料已由上游流水线定型、版面走自由设计，
-#      因此候选准备与确认环节**没有可确认的内容**，可以直接确定性生成。
+#   ③ 先生成材料并进入 ppt-master 的两阶段确认；确认结果为
+#      stage=final/status=confirmed 后，才生成 `design_spec.md` 与 `spec_lock.md`。
+#      设计风格、配色、字体、图标和图片策略不得由本脚本静默决定。
 #
-# [WARN] 简化掉的和**没有**简化掉的：
-#   · 简化掉：Step 3（模板候选准备）、Step 4 的两阶段用户确认、策略师的角色切换与
-#     能力模块装载、§VII/§VIII 的图像资源规划（本流程不出图）。
-#   · **没有**简化掉：Step 5 之后的全部环节 —— 页面 SVG 仍由主 agent **手写**、
-#     仍要过 `svg_quality_checker.py`、仍需 Step 7 的串行导出。
-#     页面的视觉设计与内容编排依旧由 agent 负责，只是**决策依据从"用户确认"
-#     换成了"上游流水线的确定产物"**。
+# [WARN] 不得跳过：Step 3 候选准备与 Step 4 两阶段用户确认。
+#   用户选择制作 PPT 后，必须确认 free_design/templates、设计风格、配色、字体、
+#   图标与图片策略，再生成 design_spec/spec_lock；确认前不得写入这两份文件。
+#   Step 5 之后仍由主 agent 手写 SVG、质检并串行导出。
 #
 # 用法：
 #   uv run python 流程1/scripts/ppt_brief.py
@@ -800,7 +795,7 @@ def tagline_or(review) -> str:
 
 
 def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
-                    review, audience, graphs=None, tiers=None) -> str:
+                    review, audience, graphs=None, tiers=None, confirmed=None) -> str:
     fmt, vb = CANVAS[canvas_key]
     n_pages = sum(len(b) for _, b in parts)
     tagline = tagline_or(review)
@@ -955,7 +950,7 @@ def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
     return "\n".join(L)
 
 
-def gen_spec_lock(title, canvas_key, n_pages, audience, tiers=None) -> str:
+def gen_spec_lock(title, canvas_key, n_pages, audience, tiers=None, confirmed=None) -> str:
     fmt, vb = CANVAS[canvas_key]
     t = tiers or dict(TIER_DEFAULTS)
     L = []
@@ -1295,7 +1290,7 @@ def main() -> int:
             "用法：python 流程1/scripts/ppt_brief.py [选项]\n"
             "\n"
             "阶段 P：把阶段 H 的解读卡与阶段 H2 的综述结果汇编成 ppt-master 的\n"
-            "source，并**确定性生成** design_spec.md / spec_lock.md（简化 Strategist）。\n"
+            "source，并在 ppt-master 两阶段确认完成后生成 design_spec.md / spec_lock.md。\n"
             "素材档位（interpret_tier / review_interpret_tier）读自阶段 0 的\n"
             "  <PAPER_WORKDIR>/.work_cdp/prepare_plan.json；缺失或非法时回退\n"
             "  L2 / L3 并在 stderr 提示，不报错退出。\n"
@@ -1391,11 +1386,7 @@ def main() -> int:
     parts = build_slides(highlights, review, PAGE_BUDGET[pages], title=title,
                          graphs=graphs, dirmap=dirmap, tiers=tiers)
     n_pages = sum(len(b) for _, b in parts)
-    spec = gen_design_spec(title, canvas, parts,
-                           f"sources/{AUTHOR}_汇报材料.md",
-                           highlights, review, audience, graphs=graphs,
-                           tiers=tiers)
-    lock = gen_spec_lock(title, canvas, n_pages, audience, tiers=tiers)
+    # design_spec/spec_lock 延迟到项目初始化且确认回执存在后生成。
     if n_pages < n_low:
         print(f"[INFO] 素材只支撑 {n_pages} 页（{pages} 档预算 {n_low}–{n_high} 页）—— "
               f"**按实际页数写 Spec**，不补内容凑页数。"
@@ -1408,9 +1399,9 @@ def main() -> int:
               f"Spec 里写实际 {n_pages} 页）")
         print(f"  输出根：{outdir}（≠ vendor/ppt-master/projects/，与流程输出目录统一）")
         print(f"  sources/{AUTHOR}_汇报材料.md  （{len(source_md)} 字符）")
-        print(f"  design_spec.md                （{len(spec)} 字符）")
-        print(f"  spec_lock.md                  （{len(lock)} 字符）")
-        print("  + 调 project_manager.py init / import-sources")
+        print("  confirm_ui/recommendations.stage1.json / stage2.json（由 ppt-master 确认流程生成）")
+        print("  design_spec.md / spec_lock.md（仅在最终确认后生成）")
+        print("  + 调 project_manager.py init，然后进入两阶段设计确认")
         return 0
 
     # ── ① 初始化 ppt-master 项目 ──────────────────────────────
@@ -1437,6 +1428,22 @@ def main() -> int:
         return 1
     print(f"[OK] ppt-master 项目：{proj_path}")
 
+    # 初始化项目后进入 ppt-master 两阶段确认；确认前不生成 Spec。
+    confirmation_file = proj_path / "confirm_ui" / "result.json"
+    confirmed = load_json(confirmation_file, {}) or {}
+    if confirmed.get("stage") != "final" or confirmed.get("status") != "confirmed":
+        print("[STOP] 已初始化项目，但尚未完成 ppt-master 两阶段确认。")
+        print("       请先确认自由设计/模板、设计风格、配色、字体、图标与图片策略，")
+        print("       再重新运行本命令生成 design_spec.md / spec_lock.md。")
+        return 3
+    spec = gen_design_spec(title, canvas, parts,
+                           f"sources/{AUTHOR}_汇报材料.md",
+                           highlights, review, audience, graphs=graphs,
+                           tiers=tiers, confirmed=confirmed)
+    lock = gen_spec_lock(title, canvas, n_pages, audience, tiers=tiers,
+                         confirmed=confirmed)
+    print("[OK] 已读取 ppt-master 最终确认设计方案")
+
     # ── ② 写入 source 与 spec/lock ────────────────────────────
     (proj_path / "sources").mkdir(exist_ok=True)
     # 图谱复制进项目 images/：ppt-master 的 `<image href>` 从项目内取图，
@@ -1452,7 +1459,7 @@ def main() -> int:
     src.write_text(source_md, encoding="utf-8")
     (proj_path / "design_spec.md").write_text(spec, encoding="utf-8")
     (proj_path / "spec_lock.md").write_text(lock, encoding="utf-8")
-    print(f"已写入 sources/{src.name} / design_spec.md / spec_lock.md")
+    print(f"已写入 sources/{src.name} / design_spec.md / spec_lock.md（基于已确认设计方案）")
 
     # ── ③ 导入 source（让 ppt-master 的 intake 也认账）──────────
     imp = run([sys.executable, str(pm), "import-sources", str(proj_path), str(src)],

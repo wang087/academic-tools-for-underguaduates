@@ -89,6 +89,7 @@ if str(_HERE) not in sys.path:
 
 try:
     from logutil import get, journal  # type: ignore
+    from run_status import write_status  # type: ignore
 except Exception:                      # 单文件运行时也要能用
     def get(name):                     # noqa: D103
         class _L:
@@ -101,6 +102,9 @@ except Exception:                      # 单文件运行时也要能用
 
     def journal(*a, **k):               # noqa: D103
         pass
+
+    def write_status(*a, **k):          # noqa: D103
+        return None
 
 WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 CDPDIR = WD / ".work_cdp"
@@ -182,6 +186,15 @@ OPTIONS = [
                  "只有 `make_ppt` 或 `make_graphs` 至少一个开启时才需要跑本阶段。"),
     },
     {
+        "key": "kw_model_filter",
+        "question": "是否启用 kw 小模型对知识图谱中文候选词做精筛（只删不加，增加 GPU/CPU 推理成本）？",
+        "kind": "bool",
+        "default": False,
+        "gates": [],
+        "gate_rule": {},
+        "note": "仅在阶段 0 明确确认后允许在阶段 K 使用 --kw-model；未确认时不得临时启用。",
+    },
+    {
         "key": "graph_recent_years",
         "question": "方向聚类看最近几年（默认 3 年）？",
         "kind": "enum",
@@ -236,6 +249,15 @@ OPTIONS = [
                  "才需要再接阶段 0 之后的原有链路。"
                  "默认开启：这是 v8 起为本科生设定的默认入口。"
                  "关掉它并不会关闭原有链路（A→…→I）；两条链路相互独立。"),
+    },
+    {
+        "key": "deai_model_review",
+        "question": "是否启用 deai 小模型对论文解读做二审（只产生 warning，不改变确定性质量门，并增加推理成本）？",
+        "kind": "bool",
+        "default": False,
+        "gates": [],
+        "gate_rule": {},
+        "note": "仅在阶段 0 明确确认后允许在阶段 H 使用 --model；未确认时不得临时启用。",
     },
     {
         "key": "interpret_tier",
@@ -502,6 +524,21 @@ def build_plan(sets: dict, defaults: bool = False) -> dict:
             raise KeyError(f"未知选项 {k!r}；可用：{', '.join(BY_KEY)}")
         plan[k] = coerce(k, v)
 
+    # 未明确回答的“增加类操作”按不新增处理：不允许仅展示 unconfirmed
+    # 却仍按默认值打开分支/阶段。既定基线参数保留默认值；所有带闸门的
+    # 未确认布尔项关闭，副链路/引擎/模型等新增路径也回到最保守值。
+    for o in OPTIONS:
+        if o["key"] in sets:
+            continue
+        if o["kind"] == "bool" and o["gates"]:
+            plan[o["key"]] = False
+        elif o["key"] == "fulltext_fallback":
+            plan[o["key"]] = "off"
+        elif o["key"] == "interpret_engine":
+            plan[o["key"]] = "legacy"
+        elif o["key"] in ("deai_model_review", "kw_model_filter"):
+            plan[o["key"]] = False
+
     # 输出格式对阶段 F 的隐含约束（写进计划，让阶段 F 有据可依）
     if plan["output_format"] == "markdown" and plan["translate"]:
         plan["_translate_output"] = "markdown"
@@ -514,7 +551,18 @@ def build_plan(sets: dict, defaults: bool = False) -> dict:
     plan["_gates"] = gate
     plan["_gate_reasons"] = hard_off
     plan["_stages_order"] = VALID_STAGES
-    plan["_schema"] = 1
+    # 逐项确认台账：默认值仍可用于常规基线执行，但绝不伪称为用户确认。
+    # 这使阶段 N/0 的“增加类操作”能够被审计：未明确传入的项标为
+    # unconfirmed，并由调用方按保守规则处理/如实申报。
+    plan["_confirmations"] = {
+        o["key"]: {
+            "confirmed": o["key"] in sets,
+            "source": "explicit" if o["key"] in sets else "unconfirmed_default",
+            "value": plan[o["key"]],
+        }
+        for o in OPTIONS
+    }
+    plan["_schema"] = 2
     return plan
 
 
@@ -621,11 +669,14 @@ def render(plan: dict) -> str:
     L = []
     L.append("准备阶段计划（.work_cdp/prepare_plan.json）")
     L.append("─" * 66)
+    confirmations = plan.get("_confirmations") or {}
     for o in OPTIONS:
         v = plan.get(o["key"], o["default"])
         shown = {True: "是", False: "否"}.get(v, str(v))
+        c = confirmations.get(o["key"]) or {}
+        suffix = "（已明确确认）" if c.get("confirmed") else "（未明确确认，保守按默认值；增加类操作不得执行）"
         L.append(f"  · {o['question']}")
-        L.append(f"      → {shown}")
+        L.append(f"      → {shown} {suffix}")
     L.append("")
     L.append("阶段闸门（run = 执行 / skip = 跳过）")
     L.append("─" * 66)
@@ -674,6 +725,7 @@ def render(plan: dict) -> str:
 
 
 def main() -> int:
+    # 查询模式保持纯 stdout；只有真正生成计划时才写运行状态。
     # --tier 必须**在 get("prepare") 之前**处理：logutil.get() 会往 stdout
     #   打一行「=== prepare 启动 … ===」，而 --tier 的约定是 stdout 只有档位本身
     #   （调用方写 `T=$(… --tier H)`）。日志行混进去会让捕获到 "INFO … L2"，
@@ -802,15 +854,27 @@ def main() -> int:
             sets.setdefault(k, v)
 
     defaults = bool(_arg("defaults")) or not sets
+    write_status(WD, status="RUNNING", stage="0",
+                 reasons=["准备阶段正在生成计划"])
     try:
         plan = build_plan(sets, defaults=defaults)
     except (KeyError, ValueError) as e:
+        write_status(WD, status="FAILED_CONTRACT", stage="0",
+                     failed=1, reasons=[str(e)])
         print(f"[X] {e}", file=sys.stderr)
         return 2
 
     save(plan)
+    write_status(WD, status="READY", stage="0",
+                 reasons=["准备计划已生成；后续阶段尚未纳入全局计数"])
     log.info(f"准备阶段计划已写入 {PLAN}")
-    journal("0", "prepare.plan", **{o["key"]: plan[o["key"]] for o in OPTIONS})
+    journal("0", "prepare.plan", **{
+        o["key"]: plan[o["key"]] for o in OPTIONS
+    }, confirmations=plan.get("_confirmations"))
+    for key, item in (plan.get("_confirmations") or {}).items():
+        journal("0", "prepare.confirmation", option=key,
+                confirmed=bool(item.get("confirmed")), value=item.get("value"),
+                source=item.get("source"))
     print(render(plan))
     print()
     print(f"→ 计划文件：{PLAN}")

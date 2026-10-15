@@ -1,6 +1,6 @@
 ---
 name: author-paper-ppt-integration
-description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的演示文稿工作流嵌入作者论文分析流程，并对它的 Strategist Phase 做简化：材料固定取自《<作者名>_论文解读.md》的文献亮点与《<作者名>_研究方向综述.md》的 review 结果，design_spec.md 与 spec_lock.md 由 ppt_brief.py 确定性生成，跳过模板候选准备与两阶段阻塞式确认，直接进入 SVG 手写与导出。当需要把作者文献分析结果做成 PPT 时使用。
+description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的演示文稿工作流嵌入作者论文分析流程。材料固定取自《<作者名>_论文解读.md》的文献亮点与《<作者名>_研究方向综述.md》的 review 结果；选择制作 PPT 后，必须进入 ppt-master 的两阶段确认，在其中选择自由设计/模板及具体设计风格，再生成 design_spec.md 与 spec_lock.md。当需要把作者文献分析结果做成 PPT 时使用。
 ---
 
 # 阶段 P · PPT 生成（ppt-master 整合）
@@ -11,7 +11,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 >
 > - 冲突时**一律以 `流程1/SKILL.md` 为准**；
 > - 本文件**不重新定义** ppt-master 的任何内部步骤，只定义**如何进入**它、
->   **哪些环节被简化**、以及**简化后仍必须遵守哪些质量门**；
+>   **哪些环节与主流程衔接**、以及**各环节必须遵守哪些质量门**；
 > - ppt-master 自己的执行纪律（`skills/ppt-master/SKILL.md` 的
 >   Global Execution Discipline）在进入后**完全适用**。
 
@@ -21,13 +21,13 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 > |---|---|---|
 > | 顶层路由 | Generate / Create Template / Fill / Enhance 四条 | **不改**。本流程只用 Generate |
 > | Step 1–2（source 转换、项目初始化） | 原样 | **不改**，由 `ppt_brief.py` 代为调用 |
-> | Step 3（模板候选准备） | 准备四个注册库的候选 | **跳过** —— 本流程不选模板，走自由设计 |
-> | Step 4（Strategist Phase，两阶段阻塞式确认） | Confirm UI 或聊天确认 → 撰写 `design_spec.md` / `spec_lock.md` | **跳过确认交互，保留产物** —— 两份文件由 `ppt_brief.py` **确定性生成**。新增 profile [`scientific-brief.md`](../../ppt-master/skills/ppt-master/workflows/profiles/scientific-brief.md) 把这一形态写成正式契约 |
+> | Step 3（模板候选准备） | 准备四个注册库的候选 | **保留** —— Stage 1 展示自由设计/模板选择 |
+> | Step 4（Strategist Phase，两阶段阻塞式确认） | Confirm UI 或聊天确认 → 撰写 `design_spec.md` / `spec_lock.md` | **保留确认** —— Stage 2 展示至少三个完整设计方向，用户确认设计风格后才生成两份 Spec |
 > | Step 5（图像获取） | 按 §VIII 触发 | **通常跳过** —— 阶段 K 的图谱是 `Acquire Via: user` / `Status: Existing`（已在项目 `images/` 内），不需要"获取"；值为空时也不触发 |
 > | Step 6（Executor 手写 SVG） | 原样 | **不改**。仍由主 agent **手写**每一页，不得用生成器批量产出 |
 > | Step 7（后处理与导出） | 原样 | **不改**。串行执行，逐条成功再进下一条 |
 >
-> **一句话**：只简化了**决策交互**，没有简化任何**能力**或**质量门**。
+> **一句话**：本流程不再跳过设计决策确认；选择制作 PPT 后必须进入 ppt-master 的确认环节，至少确认设计模式、视觉风格、配色、字体与图标方案。确认完成后才生成 `design_spec.md` / `spec_lock.md` 并进入 SVG 手写与导出。
 
 ---
 
@@ -109,37 +109,35 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 
 ---
 
-## 3. 简化的 Strategist Phase —— 为什么可以简化
+## 3. Strategist Phase —— 选择并确认设计风格
 
-原 Step 4 存在的意义是**收集只有用户能定的选择**。在本流程里，这些选择
-**在阶段 0 就已经收齐、之后由上游流水线确定性地固定下来**：
+原 Step 4 的作用是**让用户确认只有用户能定的演示设计选择**。阶段 0 只确认“是否制作 PPT”及页数预算，不替用户决定视觉方案。选择制作 PPT 后，必须按 ppt-master 的 Step 3–4 进入候选准备与两阶段确认：
 
-| Step 4 要确认什么 | 本流程里它在哪里被定死 |
+| Step 4 要确认什么 | 本流程的处理 |
 |---|---|
-| 沟通契约（受众 / 意图 / 期望结果 / 核心信息） | `ppt_brief.py` 的参数与《解读》《综述》两报告的实测内容 |
-| 自由设计还是套模板 | **自由设计** —— 这套内容不存在可复用的模板工作区 |
-| 画布 / 配色 / 字体 / 页面节奏 | 由 `ppt_brief.py` 确定性推导，写进 `spec_lock.md` |
-| 讲者备注 / 动画 / 旁白 | 取工作流默认值（备注开、动画与旁白关），写进 `design_spec.md §I` |
-| 页面清单与每页内容 | 由两报告的结构化内容逐条生成，写进 `design_spec.md §IX` |
+| 沟通契约（受众 / 意图 / 期望结果 / 核心信息） | 由流程材料提出建议，用户在 Stage 1 确认或修改 |
+| 自由设计还是套模板 | 在 Stage 1 明确选择 `free_design` 或 `templates` |
+| 设计模式与视觉风格 | 在 Stage 2 从 ppt-master 候选中选择或调整；必须记录最终值 |
+| 配色、字体、图标、图片策略 | 在 Stage 2 确认；不得由 `ppt_brief.py` 静默替用户决定 |
+| 画布、页数、页面节奏 | Stage 1/Stage 2 确认，页数再结合材料形成最终页面清单 |
+| 讲者备注、动画、旁白 | Stage 2 按默认值呈现，用户可单独修改 |
+| 页面清单与每页内容 | 依据确认后的设计方案与两份结构化材料生成 |
 
-因此，原地的两阶段确认**已经没有可确认的内容**。此时再弹一个确认页，
-不是"守流程"，而是**虚假交互** —— 用户只能对着一屏自己无法影响的默认值点确定。
+**必须遵守的顺序**：
 
-**简化后的等价保证**（一个都不能少）：
+1. `ppt_brief.py` 只负责整理材料、初始化项目和生成 Stage 1 推荐，不得先写 `design_spec.md` / `spec_lock.md`。
+2. 运行 ppt-master 的 Stage 1 确认：用户确认沟通契约及 `free_design` / `templates`。
+3. 如选择模板，先完成模板安装与校验；如选择自由设计，记录 `free_design` 状态。
+4. 运行 ppt-master 的 Stage 2 确认：展示至少三个完整设计方向，用户选择一种设计风格并确认配色、字体、图标和图片策略。
+5. 仅在最终 `result.json` 为 `stage: final` 且 `status: confirmed` 后，生成并校验 `design_spec.md` / `spec_lock.md`。
 
-- [OK] `design_spec.md` 与 `spec_lock.md` **仍然存在**，且必须过
-  `project_manager.py validate`；
-- [OK] 决策**有据可查** —— 两份文件本身就是上游流水线的决策证据；
-- [OK] **不得伪造确认** —— 不启动 Confirm UI、不写 `confirm_ui/` 回执、
-  不生成"Stage 1/Stage 2 已确认"的假状态。
+不得伪造确认回执；没有明确确认时必须停在对应闸门。
 
-> [WARN] **反例（明确禁止）**：为了"对齐原流程"而生成一个空的
-> `confirm_ui/template_options.json` 或伪造 `result.json`。
-> 那会让后续任何审计都无法区分"用户确认过"与"没人确认过"。
+> [WARN] 不得用默认“学术简报”风格替代用户确认；默认值只能作为推荐，不能视为确认。
 
 ---
 
-## 4. 质量门（简化后**仍然**必须通过）
+## 4. 质量门（各阶段均必须通过）
 
 | 门 | 判据 | 不通过的处置 |
 |---|---|---|
@@ -168,7 +166,11 @@ uv run python ppt-master/skills/ppt-master/scripts/svg_to_pptx.py <project>
 
 - [ ] 阶段 0 的 `make_ppt` 为 `yes`（否则本阶段整体跳过）
 - [ ] 阶段 H 与/或阶段 H2 已产出解读卡；两边都空时已拒绝启动并说明原因
-- [ ] 已跑 `ppt_brief.py`，且 `project_manager.py validate` 通过
+- [ ] 已跑 `ppt_brief.py`，且只生成材料与 Stage 1 推荐；未在确认前写入 `design_spec.md` / `spec_lock.md`
+- [ ] 已完成 ppt-master Stage 1：确认沟通契约及自由设计/模板模式
+- [ ] 已完成 ppt-master Stage 2：从至少三个完整设计方向中选择并确认设计风格、配色、字体、图标与图片策略
+- [ ] 最终 `result.json` 为 `stage: final` 且 `status: confirmed`
+- [ ] 确认后生成 `design_spec.md` / `spec_lock.md`，且 `project_manager.py validate` 通过
 - [ ] `design_spec.md` 的 §I `Page Count` 与 §IX 实际页数一致
 - [ ] `spec_lock.md` 的 `page_rhythm` 覆盖 P01 到最后一页，无缺号
 - [ ] **未伪造任何 Confirm UI 回执**，未启动确认服务器

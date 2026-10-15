@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/fulltext-state",
+  "title": "流程1全文状态",
+  "type": "object",
+  "additionalProperties": {
+    "anyOf": [
+      {"$ref": "#/$defs/article"},
+      {"$ref": "#/$defs/site"}
+    ]
+  },
+  "$defs": {
+    "article": {
+      "type": "object",
+      "required": ["doi", "state"],
+      "properties": {
+        "doi": {"type": "string", "minLength": 3},
+        "state": {"type": "string"},
+        "title": {"type": ["string", "null"]},
+        "year": {"type": ["string", "integer", "null"]},
+        "journal": {"type": ["string", "null"]},
+        "url": {"type": ["string", "null"]},
+        "textlen": {"type": ["integer", "null"], "minimum": 0},
+        "fulltext_chars": {"type": ["integer", "null"], "minimum": 0},
+        "pdf_ok": {"type": ["boolean", "null"]},
+        "pdf_size": {"type": ["integer", "null"], "minimum": 0},
+        "attempts": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "site": {
+      "type": "object",
+      "properties": {
+        "state": {"type": "string"},
+        "site": {"type": "string"},
+        "failures": {"type": ["integer", "null"], "minimum": 0},
+        "updated_at": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

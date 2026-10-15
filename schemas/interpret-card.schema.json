@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/interpret-card",
+  "title": "流程1作者论文解读卡",
+  "type": "object",
+  "required": ["doi"],
+  "properties": {
+    "doi": {"type": "string", "minLength": 3},
+    "title": {"type": "string"},
+    "journal": {"type": "string"},
+    "year": {"type": ["string", "integer", "null"]},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "one_sentence": {"type": "string"},
+    "one_line": {"type": "string"},
+    "problem_addressed": {"type": "string"},
+    "problem_solved": {"type": "string"},
+    "methods": {"type": ["string", "array", "null"], "items": {"type": "string"}},
+    "key_findings": {"type": "array", "items": {"type": "string"}},
+    "verified_conclusions": {"type": "array", "items": {"type": "string"}},
+    "key_20": {"type": "array", "items": {"type": "string"}},
+    "quantified_gains": {"type": "array", "items": {"$ref": "#/$defs/quantified-gain"}},
+    "significance": {"type": "string"},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {"type": "array", "items": {"type": "string"}},
+    "key_concepts": {"type": "array", "items": {"$ref": "#/$defs/key-concept"}},
+    "direction_tags": {"type": "array", "items": {"type": "string"}},
+    "paradigm_tags": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {"type": "string"},
+        "text_chars": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "key-concept": {
+      "type": "object",
+      "properties": {
+        "cn": {"type": "string"},
+        "en": {"type": "string"},
+        "plain": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "quantified-gain": {
+      "type": "object",
+      "properties": {
+        "metric": {"type": "string"},
+        "value": {"type": "string"},
+        "context": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/disambiguation-result",
+  "title": "流程1消歧结果",
+  "type": "object",
+  "required": ["confirmed", "review", "dropped", "params"],
+  "properties": {
+    "confirmed": {"type": "array", "items": {"$ref": "#/$defs/record"}},
+    "review": {"type": "array", "items": {"$ref": "#/$defs/record"}},
+    "dropped": {"type": "array", "items": {"$ref": "#/$defs/dropped"}},
+    "params": {
+      "type": "object",
+      "required": ["surname", "given", "affil", "anchor_doi"],
+      "properties": {
+        "surname": {"type": "string"},
+        "given": {"type": "string"},
+        "affil": {"type": "array", "items": {"type": "string"}},
+        "anchor_doi": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": ["doi", "title"],
+      "properties": {
+        "doi": {"type": ["string", "null"]},
+        "title": {"type": ["string", "null"]},
+        "year": {"type": ["string", "integer", "null"]},
+        "pubYear": {"type": ["string", "integer", "null"]},
+        "_verdict": {"type": "string"},
+        "_reason": {"type": "string"},
+        "_why": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "dropped": {
+      "type": "object",
+      "required": ["doi", "title", "code", "why"],
+      "properties": {
+        "doi": {"type": ["string", "null"]},
+        "title": {"type": ["string", "null"]},
+        "year": {"type": ["string", "integer", "null"]},
+        "code": {"type": "string"},
+        "why": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

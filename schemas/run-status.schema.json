@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/run-status",
+  "title": "流程1统一运行状态",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "updated_at",
+    "status",
+    "stage",
+    "expected",
+    "completed",
+    "blocked",
+    "failed",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "minLength": 1},
+    "status": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "PARTIAL",
+        "BLOCKED",
+        "NO_OUTPUT",
+        "RUNNING",
+        "READY",
+        "FAILED_CONTRACT",
+        "UNKNOWN"
+      ]
+    },
+    "stage": {"type": "string"},
+    "expected": {"type": "integer", "minimum": 0},
+    "completed": {"type": "integer", "minimum": 0},
+    "blocked": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0},
+    "reasons": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

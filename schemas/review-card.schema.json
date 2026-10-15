@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/review-card",
+  "title": "流程1综述解读卡",
+  "type": "object",
+  "required": ["doi", "title", "evidence"],
+  "properties": {
+    "doi": {"type": "string", "minLength": 3},
+    "title": {"type": "string", "minLength": 1},
+    "journal": {"type": "string"},
+    "year": {"type": ["string", "integer", "null"]},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "field_role": {"type": "string"},
+    "one_sentence": {"type": "string"},
+    "problem_addressed": {"type": "string"},
+    "main_directions": {"type": "array", "items": {"$ref": "#/$defs/main-direction"}},
+    "consensus": {"type": "array", "items": {"type": "string"}},
+    "controversies": {"type": "array", "items": {"type": "string"}},
+    "open_questions": {"type": "array", "items": {"type": "string"}},
+    "key_concepts": {"type": "array", "items": {"$ref": "#/$defs/key-concept"}}
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "main-direction": {
+      "type": "object",
+      "required": ["name", "idea", "conclusion"],
+      "properties": {
+        "name": {"type": "string"},
+        "idea": {"type": "string"},
+        "conclusion": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "key-concept": {
+      "type": "object",
+      "properties": {
+        "cn": {"type": "string"},
+        "en": {"type": "string"},
+        "plain": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

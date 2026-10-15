@@ -58,7 +58,8 @@ def _fix_streams() -> None:
         if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
             continue
         try:
-            setattr(sys, name, io.TextIOWrapper(buf, encoding="utf-8", errors="replace"))
+            if hasattr(s, "reconfigure"):
+                s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
         except Exception:
             pass
 
