@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720"
+     data-pptx-page-role="content"
+     font-family="Microsoft YaHei, Arial, sans-serif">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#D6DEE3" stroke-width="1" stroke-opacity="0.4">
+    <line x1="212" y1="0" x2="212" y2="720"/>
+    <line x1="572" y1="0" x2="572" y2="720"/>
+    <line x1="932" y1="0" x2="932" y2="720"/>
+  </g>
+
+  <g id="page-furniture" data-pptx-role="header" data-pptx-bounds="0 0 1280 126">
+    <line x1="0" y1="112" x2="1280" y2="112" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="66" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">P14 · 出口 / OUTPUT</text>
+    <text x="72" y="102" font-size="56" font-weight="bold" fill="#0F4C5C">链路的出口：一份能直接用的领域材料</text>
+    <text x="1020" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">G2 H2 K</text>
+    <text x="1150" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">14 / 19</text>
+  </g>
+
+  <g id="output-columns" data-pptx-bounds="0 132 1280 348">
+    <text x="72" y="166" font-size="24" fill="#1B2A32">三份产物共用同一份数据：图谱与方向综述口径同源，不会互相打架</text>
+    <g fill="#FFFFFF" stroke="#5A6B73" stroke-width="1.2">
+      <rect x="72" y="192" width="356" height="272" rx="4"/>
+      <rect x="462" y="192" width="356" height="272" rx="4"/>
+      <rect x="852" y="192" width="356" height="272" rx="4"/>
+    </g>
+    <g font-size="36" font-weight="bold" fill="#0F4C5C">
+      <text x="100" y="252">最终列表</text>
+      <text x="490" y="252">方向综述</text>
+      <text x="880" y="252">知识图谱</text>
+    </g>
+    <line x1="100" y1="278" x2="400" y2="278" stroke="#D6DEE3" stroke-width="1"/>
+    <line x1="490" y1="278" x2="790" y2="278" stroke="#D6DEE3" stroke-width="1"/>
+    <line x1="880" y1="278" x2="1180" y2="278" stroke="#D6DEE3" stroke-width="1"/>
+    <g font-size="24" fill="#1B2A32">
+      <text x="100" y="322">去重 + 相关性整理</text>
+      <text x="100" y="360">剔除项逐条留档</text>
+      <text x="100" y="416" font-size="20" fill="#5A6B73">为什么：宁可多留，</text>
+      <text x="100" y="444" font-size="20" fill="#5A6B73">也不静默丢掉线索</text>
+      <text x="490" y="322">每个方向给最紧密综述</text>
+      <text x="490" y="360">已确认结论 + 未解决问题</text>
+      <text x="490" y="416" font-size="20" fill="#5A6B73">术语都做解释，</text>
+      <text x="490" y="444" font-size="20" fill="#5A6B73">面向没有科研经验的读者</text>
+      <text x="880" y="322">总览：按主题聚类上色</text>
+      <text x="880" y="360">词云：聚焦研究方法</text>
+      <text x="880" y="396">方向聚类：近 N 年热点</text>
+      <text x="880" y="444" font-size="20" fill="#5A6B73">剔除模型生物与泛化词</text>
+    </g>
+  </g>
+
+  <g id="qc-note" data-pptx-bounds="0 492 1280 228">
+    <line x1="72" y1="512" x2="1208" y2="512" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="556" font-size="36" font-weight="bold" fill="#1B2A32">图谱自己会说明「这一簇在讲什么」</text>
+    <text x="72" y="604" font-size="24" fill="#5A6B73">同一方向里，一篇的「待验证问题」与另一篇的「已验证结论」高度重合 → 输出待复核线索</text>
+    <text x="72" y="646" font-size="24" fill="#5A6B73">输出的是<tspan fill="#B33A2B" font-weight="bold">待复核线索</tspan>，不是已确认的矛盾——措辞严格区分</text>
+    <text x="72" y="690" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">挂不上方向的综述、放不下的低频词、样本不足的方向：都显式报出数量，不静默丢弃</text>
+  </g>
+</svg>

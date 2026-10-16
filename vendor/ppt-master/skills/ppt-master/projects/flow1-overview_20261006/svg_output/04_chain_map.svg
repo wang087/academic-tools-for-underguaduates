@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720"
+     data-pptx-page-role="section"
+     font-family="Microsoft YaHei, Arial, sans-serif">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#D6DEE3" stroke-width="1" stroke-opacity="0.4">
+    <line x1="212" y1="0" x2="212" y2="720"/>
+    <line x1="572" y1="0" x2="572" y2="720"/>
+    <line x1="932" y1="0" x2="932" y2="720"/>
+  </g>
+
+  <g id="page-furniture" data-pptx-role="header" data-pptx-bounds="0 0 1280 126">
+    <line x1="0" y1="112" x2="1280" y2="112" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="66" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">P04 · 链路 / MAP</text>
+    <text x="72" y="102" font-size="56" font-weight="bold" fill="#0F4C5C">全链路地图：两条链路，按需接入</text>
+    <text x="1020" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">总览</text>
+    <text x="1150" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">04 / 19</text>
+  </g>
+
+  <g id="lane-undergrad" data-pptx-bounds="0 132 1280 128">
+    <text x="72" y="160" font-size="24" font-weight="bold" fill="#1B2A32">前置链路 · 本科科研辅助（默认走这条）</text>
+    <g id="p04-stage-n1" data-pptx-authoring="preset" data-pptx-object="shape" data-pptx-prst="chevron" data-pptx-frame="72 178 210 64" fill="#FFFFFF" stroke="#0F4C5C" stroke-width="1.5">
+      <path d="M 72 178 L 250 178 L 282 210 L 250 242 L 72 242 L 104 210 Z"/>
+    </g>
+    <g id="p04-stage-n2" data-pptx-authoring="preset" data-pptx-object="shape" data-pptx-prst="chevron" data-pptx-frame="278 178 210 64" fill="#FFFFFF" stroke="#0F4C5C" stroke-width="1.5">
+      <path d="M 278 178 L 456 178 L 488 210 L 456 242 L 278 242 L 310 210 Z"/>
+    </g>
+    <g id="p04-stage-n3" data-pptx-authoring="preset" data-pptx-object="shape" data-pptx-prst="chevron" data-pptx-frame="484 178 210 64" fill="#FFFFFF" stroke="#0F4C5C" stroke-width="1.5">
+      <path d="M 484 178 L 662 178 L 694 210 L 662 242 L 484 242 L 516 210 Z"/>
+    </g>
+    <g id="p04-stage-n4" data-pptx-authoring="preset" data-pptx-object="shape" data-pptx-prst="chevron" data-pptx-frame="690 178 210 64" fill="#FFFFFF" stroke="#0F4C5C" stroke-width="1.5">
+      <path d="M 690 178 L 868 178 L 900 210 L 868 242 L 690 242 L 722 210 Z"/>
+    </g>
+    <g font-weight="bold">
+      <text x="116" y="222" font-size="36" fill="#0F4C5C">N 定方向</text>
+      <text x="322" y="222" font-size="36" fill="#0F4C5C">S 找导师</text>
+      <text x="528" y="222" font-size="36" fill="#0F4C5C">R 找综述</text>
+      <text x="734" y="222" font-size="36" fill="#0F4C5C">R2 读概貌</text>
+    </g>
+    <g font-family="Consolas, monospace" font-size="20" fill="#5A6B73">
+      <text x="944" y="200">产出：方向与关键词</text>
+      <text x="944" y="232">导师名单 / 综述清单 / 领域概貌</text>
+    </g>
+  </g>
+
+  <g id="lane-divider" data-pptx-bounds="0 260 1280 104">
+    <line x1="72" y1="284" x2="1208" y2="284" stroke="#F09A00" stroke-width="3"/>
+    <text x="72" y="330" font-size="36" font-weight="bold" fill="#0F4C5C">锁定某位导师后，从阶段 0 接上原有链路</text>
+    <text x="880" y="330" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">深挖：一位作者的完整成果</text>
+  </g>
+
+  <g id="lane-deep" data-pptx-bounds="0 364 1280 348">
+    <line x1="72" y1="364" x2="1208" y2="364" stroke="#D6DEE3" stroke-width="1"/>
+    <g fill="none" stroke="#5A6B73" stroke-width="1.5">
+      <rect x="72" y="392" width="340" height="104" rx="4"/>
+      <rect x="436" y="392" width="340" height="104" rx="4"/>
+      <rect x="800" y="392" width="340" height="104" rx="4"/>
+      <rect x="72" y="524" width="340" height="104" rx="4"/>
+      <rect x="436" y="524" width="340" height="104" rx="4"/>
+      <rect x="800" y="524" width="340" height="104" rx="4"/>
+    </g>
+    <g font-family="Consolas, monospace" font-size="22" fill="#5A6B73">
+      <text x="96" y="422">0 · 准备</text>
+      <text x="460" y="422">A–C · 定位与抓取</text>
+      <text x="824" y="422">D–D2 · 核实与消歧</text>
+      <text x="96" y="554">E–F · 获取与转化</text>
+      <text x="460" y="554">G–H2 · 列表与解读</text>
+      <text x="824" y="554">K–P–I · 图谱与交付</text>
+    </g>
+    <g font-size="24" fill="#1B2A32">
+      <text x="96" y="462">把选择一次问清</text>
+      <text x="460" y="462">确认身份与成果集</text>
+      <text x="824" y="462">剔除同名他人</text>
+      <text x="96" y="594">全文获取与中译</text>
+      <text x="460" y="594">规范著录与逐篇解读</text>
+      <text x="824" y="594">图谱、PPT、收尾</text>
+    </g>
+    <text x="72" y="686" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">每个阶段都有独立闸门：未开启的环节不会执行，依赖上游的环节自动跳过</text>
+  </g>
+</svg>

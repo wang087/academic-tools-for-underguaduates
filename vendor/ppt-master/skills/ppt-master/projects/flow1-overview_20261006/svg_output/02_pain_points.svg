@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720"
+     data-pptx-page-role="content"
+     font-family="Microsoft YaHei, Arial, sans-serif">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#D6DEE3" stroke-width="1" stroke-opacity="0.4">
+    <line x1="212" y1="0" x2="212" y2="720"/>
+    <line x1="572" y1="0" x2="572" y2="720"/>
+    <line x1="932" y1="0" x2="932" y2="720"/>
+    <line x1="0" y1="596" x2="1280" y2="596"/>
+  </g>
+
+  <g id="page-furniture" data-pptx-role="header" data-pptx-bounds="0 0 1280 126">
+    <line x1="0" y1="112" x2="1280" y2="112" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="66" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">P02 · 痛点 / PROBLEM</text>
+    <text x="72" y="102" font-size="56" font-weight="bold" fill="#0F4C5C">本科生做科研，真正卡在哪三步</text>
+    <text x="1020" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">问题定义</text>
+    <text x="1150" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">02 / 19</text>
+  </g>
+
+  <g id="card-scenario-1" data-pptx-bounds="60 130 380 450">
+    <rect x="72" y="150" width="356" height="416" rx="4" fill="#FFFFFF" stroke="#D6DEE3" stroke-width="1.2"/>
+    <use data-icon="tabler-outline/map-pin" x="100" y="180" width="40" height="40" fill="#0F4C5C" stroke-width="2"/>
+    <text x="156" y="210" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">01 选题</text>
+    <text x="100" y="276" font-size="36" font-weight="bold" fill="#1B2A32">大学生研究计划<tspan x="100" dy="46">不知从哪下手</tspan></text>
+    <line x1="100" y1="350" x2="400" y2="350" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="100" y="394" font-size="24" fill="#5A6B73">用户会说：</text>
+    <text x="100" y="428" font-size="24" fill="#0F4C5C">「想做个跟阿尔茨海默<tspan x="100" dy="32">有关的项目」</tspan></text>
+    <text x="100" y="528" font-size="24" fill="#B33A2B">缺：可检索的方向</text>
+  </g>
+
+  <g id="card-scenario-2" data-pptx-bounds="460 130 380 450">
+    <rect x="472" y="150" width="356" height="416" rx="4" fill="#FFFFFF" stroke="#D6DEE3" stroke-width="1.2"/>
+    <use data-icon="tabler-outline/users" x="500" y="180" width="40" height="40" fill="#0F4C5C" stroke-width="2"/>
+    <text x="556" y="210" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">02 找导师</text>
+    <text x="500" y="276" font-size="36" font-weight="bold" fill="#1B2A32">进实验室，不知道<tspan x="500" dy="46">谁在做这个方向</tspan></text>
+    <line x1="500" y1="350" x2="800" y2="350" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="500" y="394" font-size="24" fill="#5A6B73">用户会说：</text>
+    <text x="500" y="428" font-size="24" fill="#0F4C5C">「我是科大生医部的，<tspan x="500" dy="32">想找做免疫的老师」</tspan></text>
+    <text x="500" y="528" font-size="24" fill="#B33A2B">缺：按方向归类的名单</text>
+  </g>
+
+  <g id="card-scenario-3" data-pptx-bounds="860 130 380 450">
+    <rect x="872" y="150" width="356" height="416" rx="4" fill="#FFFFFF" stroke="#D6DEE3" stroke-width="1.2"/>
+    <use data-icon="tabler-outline/file-search" x="900" y="180" width="40" height="40" fill="#0F4C5C" stroke-width="2"/>
+    <text x="956" y="210" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">03 写综述</text>
+    <text x="900" y="276" font-size="36" font-weight="bold" fill="#1B2A32">课程作业要综述<tspan x="900" dy="46">拿不到权威文献</tspan></text>
+    <line x1="900" y1="350" x2="1200" y2="350" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="900" y="394" font-size="24" fill="#5A6B73">用户会说：</text>
+    <text x="900" y="428" font-size="24" fill="#0F4C5C">「写基因编辑伦理的<tspan x="900" dy="32">综述，找几篇权威的」</tspan></text>
+    <text x="900" y="528" font-size="24" fill="#B33A2B">缺：可引用的综述清单</text>
+  </g>
+
+  <g id="root-cause" data-pptx-bounds="0 596 1280 124">
+    <line x1="0" y1="596" x2="1280" y2="596" stroke="#D6DEE3" stroke-width="1"/>
+    <line x1="72" y1="622" x2="72" y2="666" stroke="#F09A00" stroke-width="4"/>
+    <text x="100" y="642" font-size="32" fill="#1B2A32">同一个根因：用户说的是<tspan fill="#0F4C5C" font-weight="bold">「想做什么」</tspan><tspan x="100" dy="26">检索要的却是<tspan fill="#0F4C5C" font-weight="bold">「去哪个领域、用哪些词找」</tspan></tspan></text>
+    <text x="1044" y="642" font-family="Consolas, monospace" font-size="22" fill="#F09A00">坐标不对</text>
+  </g>
+</svg>

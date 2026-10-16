@@ -1,0 +1,106 @@
+{
+  "roles": {
+    "body": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 32.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 2.9,
+      "latin_chars_per_100px": 6.1,
+      "caps_chars_per_100px": 5.6,
+      "digits_chars_per_100px": 5.4,
+      "citation_chars_per_100px": 5.6,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": {
+        "px": 5763.5,
+        "slide": "P14",
+        "text": "知识图谱三张：总览（以作者为中心，按主题聚类上色）、词云（按研究方向分色，剔除…"
+      }
+    },
+    "title": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 56.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 1.7,
+      "latin_chars_per_100px": 3.5,
+      "caps_chars_per_100px": 3.2,
+      "digits_chars_per_100px": 3.1,
+      "citation_chars_per_100px": 3.2,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": {
+        "px": 1187.2,
+        "slide": "P16",
+        "text": "为什么可以信：每一次「取不到」都要说出来"
+      }
+    },
+    "subtitle": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 44.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 2.1,
+      "latin_chars_per_100px": 4.4,
+      "caps_chars_per_100px": 4.1,
+      "digits_chars_per_100px": 3.9,
+      "citation_chars_per_100px": 4.1,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": {
+        "px": 3129.5,
+        "slide": "P12",
+        "text": "判定分界只有一句话——这次请求要不要拿「论文正文」：要正文一律走真实浏览器，不…"
+      }
+    },
+    "annotation": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 24.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 3.9,
+      "latin_chars_per_100px": 8.1,
+      "caps_chars_per_100px": 7.5,
+      "digits_chars_per_100px": 7.1,
+      "citation_chars_per_100px": 7.5,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": null
+    },
+    "code": {
+      "family": "Consolas, monospace",
+      "size": 22.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 4.3,
+      "latin_chars_per_100px": 7.7,
+      "caps_chars_per_100px": 7.4,
+      "digits_chars_per_100px": 7.8,
+      "citation_chars_per_100px": 7.7,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": null
+    },
+    "footnote": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 20.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 4.7,
+      "latin_chars_per_100px": 9.7,
+      "caps_chars_per_100px": 9.0,
+      "digits_chars_per_100px": 8.6,
+      "citation_chars_per_100px": 9.0,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": null
+    },
+    "lead": {
+      "family": "Microsoft YaHei, Arial, sans-serif",
+      "size": 36.0,
+      "weight": "normal",
+      "cjk_chars_per_100px": 2.6,
+      "latin_chars_per_100px": 5.4,
+      "caps_chars_per_100px": 5.0,
+      "digits_chars_per_100px": 4.8,
+      "citation_chars_per_100px": 5.0,
+      "script_clusters_per_100px": {},
+      "longest_planned_line": null
+    }
+  },
+  "script_samples": {},
+  "source": "spec_lock.md",
+  "generated_at": "2026-10-06T09:01:30Z",
+  "notes": [
+    "every role is measured at normal weight; recalibrate a role realized as bold deck-wide with --role NAME:FAMILY:SIZE:bold: bold widens Latin and digits about 7%, while the bundled advance table gives CJK one width for both weights"
+  ]
+}
