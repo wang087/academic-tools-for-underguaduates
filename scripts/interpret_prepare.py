@@ -743,6 +743,12 @@ def main() -> int:
             "figure_dir": figure_dir,
             "figures_manifest": figures_manifest,
             "figure_count": len(figures_manifest),
+            "execution": {
+                "read_only": True,
+                "network": False,
+                "allowed_input": "this task package and referenced local fulltext sidecar",
+                "forbidden": ["scan tasks/results directories", "read other task packages", "write other result files"],
+            },
             "text": text,
             # 受控标签词表（§6.5）：direction_tags / paradigm_tags 必须从这里取词，
             #   确无合适词才自造并加 `自定义:` 前缀 —— 否则并行 subagent 各造各的，

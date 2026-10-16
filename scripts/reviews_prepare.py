@@ -308,6 +308,12 @@ def build(input_records: list[dict], outdir: pathlib.Path,
             "platform": rec["platform"],
             "why_selected": rec["why_selected"],
             "text": "",                     # 本阶段不注入全文
+            "execution": {
+                "read_only": True,
+                "network": False,
+                "allowed_input": "this task package only",
+                "forbidden": ["scan tasks/results directories", "read other task packages", "write other result files"],
+            },
             "result_path": str(resp),
         }
         taskp.write_text(json.dumps(packet, ensure_ascii=False, indent=1),

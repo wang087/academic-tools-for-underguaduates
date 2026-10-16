@@ -353,6 +353,12 @@ def main() -> int:
                 "direction_tags_vocabulary": vocab.get("direction_tags_vocabulary") or [],
                 "paradigm_tags_vocabulary": vocab.get("paradigm_tags_vocabulary") or [],
             },
+            "execution": {
+                "read_only": True,
+                "network": False,
+                "allowed_input": "this task package only",
+                "forbidden": ["scan tasks/results directories", "read other task packages", "write other result files"],
+            },
             "output_schema": OUTPUT_SCHEMA,
         }
         p = TASKDIR / f"{slug}.json"

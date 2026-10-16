@@ -368,15 +368,7 @@ def _card_l1(L: list, c: dict) -> None:
 
 
 def eff_evidence(t: dict) -> str:
-    """本篇**实际**的证据等级：以解读卡自述为准，任务包标注只作回退。
-
-    [WARN] 为什么不能只信任务包：任务包的 `evidence_source` 来自下载与抽取记录，
-      落地页残页（`text_extraction_backend = "landing-page-text"`）也会被标成
-      `fulltext` —— 实测有 34,926 字符的「摘要 + 93 条参考文献」被这样标上去。
-      subagent 读了实际文本会如实降级为 `abstract`，若本脚本仍按任务包统计，
-      报告就会高报覆盖面、逐篇也会印成「解读依据：全文」
-      （取证见 `流程1/实测结果汇总.md#h-2`）。
-    """
+    """本篇**实际**的证据等级：以解读卡自述为准，任务包标注只作回退。"""
     ev = (t.get("card") or {}).get("evidence") if isinstance(t.get("card"), dict) else None
     src = ""
     if isinstance(ev, dict):
@@ -386,6 +378,20 @@ def eff_evidence(t: dict) -> str:
     if src in ("fulltext", "abstract", "metadata-only"):
         return src
     return str(t["meta"].get("evidence_source") or "abstract").strip().lower()
+
+
+def evidence_kind(t: dict) -> str:
+    """返回报告使用的来源分类，不把结构化落地页写成 PDF 全文。"""
+    src = eff_evidence(t)
+    packet = t.get("packet") or {}
+    backend = str(packet.get("text_extraction_backend") or "").strip().lower()
+    if src == "fulltext" and backend == "landing-page-text":
+        return "structured-text"
+    if src == "fulltext":
+        return "pdf-fulltext"
+    if src == "metadata-only":
+        return "metadata-only"
+    return "abstract"
 
 
 def _strength_line(c: dict, m: dict) -> str:
@@ -436,6 +442,11 @@ def main() -> int:
         print("[X] 找不到 .work_cdp/interpret/manifest.json")
         print("  请先运行：uv run --with pypdf python 流程1/scripts/interpret_prepare.py")
         return 2
+    gate = load_json(INDIR / "gate_report.json")
+    if isinstance(gate, dict) and gate.get("verdict") != "complete":
+        print(f"[X] 统一质量门未通过：{gate.get('verdict', 'unknown')}")
+        print("  请先运行：uv run python scripts/subagent_gate.py --stage H")
+        return int(gate.get("exit_code") or 4)
 
     tasks = []
     for t in man.get("tasks") or []:
@@ -528,11 +539,11 @@ def main() -> int:
 
     # ══ 组装报告 ═══════════════════════════════════════════════
     n_all, n_card = len(tasks), len(cards)
-    # 证据等级**以卡片自述为准**（见 eff_evidence）：任务包会把落地页残页标成 fulltext。
-    n_full = len([t for t in tasks if eff_evidence(t) == "fulltext"])
-    n_landing = len([t for t in tasks
-                     if eff_evidence(t) != "fulltext"
-                     and t["packet"].get("text_extraction_backend") == "landing-page-text"])
+    kinds = Counter(evidence_kind(t) for t in tasks)
+    n_pdf = kinds.get("pdf-fulltext", 0)
+    n_structured = kinds.get("structured-text", 0)
+    n_abstract = kinds.get("abstract", 0)
+    n_metadata = kinds.get("metadata-only", 0)
     L = []
     L.append(f"# {AUTHOR} 论文解读\n")
     L.append(f"> 作者：{AUTHOR}" + (f"（{AFFIL}）" if AFFIL else ""))
@@ -540,28 +551,29 @@ def main() -> int:
              f" ｜ 共 **{n_all}** 篇 ｜ 已解读 **{n_card}** 篇")
     L.append("> 解读方式：并行 subagent 逐篇精读（流程见 "
              "`流程1/subagent-driven-review/SKILL.md`）；"
-             + ("全文取自主流程经 CDP 下载的本地 PDF，**全程无网络抓取**。"
-                if n_full == n_all else
-                f"其中 {n_full} 篇的全文取自主流程经 CDP 下载的本地 PDF，"
-                f"其余 {n_all - n_full} 篇**无全文**，按摘要级解读；"
-                "**全程无网络抓取**。") + "\n")
+             f"证据来源分布：PDF 全文 **{n_pdf}** 篇、结构化落地页正文 **{n_structured}** 篇、"
+             f"摘要/残页 **{n_abstract}** 篇、仅题录 **{n_metadata}** 篇；**全程无网络抓取**。\n")
     L.append(f"> 解读引擎：**{engine}**（{ENGINE_LABEL[engine]}，来源：{engine_src}）"
              + ("；16 节 Paper Card 的产出与审计状态见文末「缺卡清单与后续处理」"
                 if engine == "paper-card" else "") + "\n")
 
     # ── 数据来源与限制（先说清楚，避免读者高估覆盖度）──────────
     L.append("## 〇、数据来源与限制\n")
-    L.append(f"- 有全文可精读：**{n_full}** 篇；仅摘要级解读：**{n_all - n_full}** 篇"
-             f"（以各卡 `evidence.source` 为准，非任务包标注）")
-    if n_landing:
-        # 落地页残页：字符数看着像全文，实际只有摘要 + 参考文献 + 页面导航。
-        #   单独列一行，别让读者以为「有几千字符就是读到了正文」。
+    L.append(f"- 可利用正文：**{n_pdf + n_structured}** 篇（PDF 全文 {n_pdf} 篇；"
+             f"结构化落地页正文 {n_structured} 篇）；摘要/残页级：**{n_abstract}** 篇；"
+             f"仅题录：**{n_metadata}** 篇（以各卡 `evidence.source` 为准，非任务包标注）")
+    if n_structured:
+        _st = "、".join(str(t["meta"].get("seq")) for t in tasks
+                       if evidence_kind(t) == "structured-text")
+        L.append(f"- [WARN] 其中 **{n_structured}** 篇（编号 {_st}）取到的是**结构化落地页正文**："
+                 "可按章节、图注和正文数字解读，但没有 PDF 页码/版式；不得写成 PDF 全文。")
+    if n_abstract:
         _ld = "、".join(str(t["meta"].get("seq")) for t in tasks
-                       if eff_evidence(t) != "fulltext"
+                       if evidence_kind(t) == "abstract"
                        and t["packet"].get("text_extraction_backend") == "landing-page-text")
-        L.append(f"- [WARN] 其中 **{n_landing}** 篇（编号 {_ld}）取到的是**出版社落地页文本**"
-                 f"（摘要 + 参考文献 + 页面导航，非正文；无 `[p.N]` 页标记与图号），"
-                 f"按**摘要级**计入，不得当作全文结论")
+        if _ld:
+            L.append(f"- [WARN] 编号 {_ld} 的落地页文本仍属**摘要/残页级**："
+                     "摘要、参考文献或页面导航占主导，不得当作正文结论。")
     trunc = [t for t in tasks if t["meta"].get("text_truncated")]
     if trunc:
         # 措辞要与机制一致：任务包**保留开头 60% + 结尾 40%**（结论/局限在结尾），
@@ -591,9 +603,9 @@ def main() -> int:
         if n_pc < n_all or n_audited < n_all:
             L.append("- [WARN] **未验证 ≠ 已验证**：缺深读卡或审计报告的篇目，"
                      "其结论只由 11 字段卡支撑，未经过数字回查原文。逐篇状态见第六节。")
-    if not (missing or bad or trunc or (n_all - n_full)
+    if not (missing or bad or trunc or n_abstract or n_metadata
             or (engine == "paper-card" and (n_pc < n_all or n_audited < n_all))):
-        L.append("- 全部篇目均基于全文完整解读，无缺项。")
+        L.append("- 全部篇目均基于可利用正文完整解读，无缺项。")
     L.append("")
 
     # ── ① 时间线要点串联 ─────────────────────────────────────
@@ -721,7 +733,8 @@ def main() -> int:
         L.append("|---|---|---|---|---|")
         for t in missing:
             m = t["meta"]
-            why = ("缺全文（仅摘要）" if m.get("evidence_source") != "fulltext"
+            why = ("缺少可利用正文（仅摘要/题录）"
+                   if evidence_kind(t) in ("abstract", "metadata-only")
                    else "subagent 未产出结果文件")
             L.append(f"| {m.get('seq')} | {m.get('year')} | "
                      f"{one_line(m.get('title'))[:60]} | `{m.get('doi')}` | {why} |")
@@ -756,8 +769,8 @@ def main() -> int:
                  "`uv run python 流程1/scripts/nature_bridge.py check …`。\n")
 
     L.append("---\n")
-    L.append("*本报告由并行 subagent 逐篇解读后汇总；全文取自经 CDP 下载的本地 PDF，"
-             "解读过程未发起任何网络抓取。数值与结论以原文为准。*\n")
+    L.append("*本报告由并行 subagent 逐篇解读后汇总；正文来源按报告头分为 PDF 全文与结构化落地页正文，"
+             "摘要/残页不作为正文结论依据。解读过程未发起任何网络抓取，数值与结论以可核原文为准。*\n")
 
     body = "\n".join(L)
     # 单一交付文件。本报告本身就是完整版（含缺卡清单与限制申报，无删减），
@@ -777,7 +790,8 @@ def main() -> int:
         blocked=max(0, n_all - n_card - len(missing)), failed=len(missing),
         reasons=([f"{len(missing)} 篇缺少解读卡"] if missing else []),
     )
-    print(f"已解读 {n_card}/{n_all} 篇 ｜ 全文级 {n_full} 篇 ｜ 缺卡 {len(missing)} 篇")
+    print(f"已解读 {n_card}/{n_all} 篇 ｜ PDF 全文 {n_pdf} 篇 ｜ 结构化落地页正文 {n_structured} 篇"
+          f" ｜ 摘要/残页 {n_abstract} 篇 ｜ 缺卡 {len(missing)} 篇")
     if engine == "paper-card":
         n_pc = len([r for r in pc_rows if r["card"]])
         n_audited = len([r for r in pc_rows if r["audit"]])

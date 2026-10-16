@@ -32,9 +32,9 @@
 #
 # 可移植配置：
 #   PAPER_CARD_DIR                    覆盖 paper-card 技能目录
-#   NATURE_SKILLS_DIR                 覆盖上游技能**包**根（自动拼 skills/nature-paper-card）
+#   NATURE_SKILLS_DIR                 覆盖上游技能包根（自动拼 skills/nature-paper-card）
 #   PAPER_INTERPRETATION_SKILL_DIR    覆盖解读写作模块根
-# 解析顺序一律是「流程内 → 上游单技能目录」，**永不**把某个人的本地检出写死。
+# 解析顺序一律是「流程内 → 上游单技能目录」，永不把某个人的本地检出写死。
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
