@@ -1,14 +1,11 @@
 # ── 流程1 版本控制忽略规则（2026-10-02 建立）───────────────────
 #
-# vendor 中的大型第三方快照不入库；模型发行目录例外保留训练后的 adapter 权重。
-# 完整性核验仍靠 PACKAGE_MANIFEST.json 的逐文件 sha256。
-
-# 流程1 随包模型只允许提交训练后的 safetensors；基座、tokenizer、运行时不提交。
-!vendor/
-!vendor/small-model-assets/
-!vendor/small-model-assets/outputs/
-!vendor/small-model-assets/outputs/*/
-!vendor/small-model-assets/outputs/*/adapter_model.safetensors
+# [STOP] 本文件**后写的规则优先**（last match wins），且
+#   **被忽略目录里的文件无法用 `!` 单独救回来** —— 想放行某类文件时，
+#   必须同时 negate 它的每一级父目录，并且把 negate 放在忽略规则**之后**。
+#   实测（2026-10-16）：把「放行 adapter 权重」的 negate 写在文件开头时，
+#   两个 adapter_model.safetensors 仍被下面的 `outputs/` 命中、无法 git add；
+#   用 `git check-ignore -v <路径>` 可复现。
 
 # ── 运行副产物（流程跑起来才会生成，不应入库）─────────────────
 # [STOP] 注释必须**独占一行**。git 只在行首认 `#`；写成
@@ -37,6 +34,19 @@ nature_bridge_*/
 20*/
 outputs/
 projects/
+
+# ── 例外：随包只放行「训练后的 adapter 权重」（必须写在 outputs/ 之后）──
+# 背景：流程1 的 vendor/small-model-assets/outputs/ 是**发行资产**（不是运行产物），
+#   但上面的 `outputs/` 会连带忽略它。这里逐级放行目录，再只放行
+#   adapter_model.safetensors；基座/tokenizer/运行环境一律不入库
+#   （改由 small_model.py 首次启动下载到 .model-cache/）。
+!vendor/small-model-assets/outputs/
+!vendor/small-model-assets/outputs/*/
+vendor/small-model-assets/outputs/*/*
+!vendor/small-model-assets/outputs/*/adapter_model.safetensors
+
+# 首次启动的模型缓存（Qwen 基座 ~1.5 GB + 运行时生成的 PEFT 配置）：只在本机存在
+.model-cache/
 
 # ── Python ────────────────────────────────────────────────
 __pycache__/

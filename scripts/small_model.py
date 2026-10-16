@@ -16,10 +16,18 @@
 # 路径与首次启动（权重不随流程分发）：
 #   ① SMALL_MODEL_ROOT 可指定缓存根；默认使用流程目录下的 .model-cache/。
 #   ② 首次真正启用 --model / --kw-model 或 selftest 时，ensure_model_assets()
-#      自动安装缺少的 Python 依赖，并从 Hugging Face 下载 Qwen/Qwen3-0.6B 基座。
+#      自动安装缺少的 Python 依赖，并下载 Qwen/Qwen3-0.6B 基座。
 #   ③ vendor/small-model-assets/ 只保存训练后的 adapter_model.safetensors；
 #      adapter_config.json 在首次启动时根据训练配置生成到缓存目录。
 #   ④ 可用 SMALL_MODEL_OFFLINE=1 禁止联网；缺资源时给出明确的下载命令。
+#   ⑤ 下载源：显式 HF_ENDPOINT → 官方站 → hf-mirror.com → **ModelScope（魔搭）**
+#      依次回退。实测本机 huggingface.co 被 hosts 指到 127.0.0.1，直连必失败；
+#      HF 全线不通时自动改走 ModelScope（同版本同文件，实测 1.5 GB 下载 + 推理通过）。
+#      走 HF 镜像时会关掉 Xet（镜像不代理 CAS，不关会在大文件上拿到 401）；
+#      可用 SMALL_MODEL_NO_MODELSCOPE=1 关掉最后的兜底源。
+#   ⑥ 包索引：SMALL_MODEL_TORCH_INDEX（只给 torch）/ SMALL_MODEL_PIP_INDEX
+#      （其余包，国内可设清华源）；uv 缓存落 .model-cache/.uv-cache，
+#      避免机器上的全局 uv 缓存不可写时连装都装不上。
 #
 # 依赖（只在调用方显式开启模型层时才 import）：
 #   uv run --with torch --with transformers --with peft python …
@@ -102,7 +110,14 @@ def _asset_lock():
 # ══════════════════════════════════════════════════════════════
 
 MODEL_REPO_ID = "Qwen/Qwen3-0.6B"
+HF_OFFICIAL = "https://huggingface.co"
+HF_MIRROR = "https://hf-mirror.com"
+MODELSCOPE_API = "https://www.modelscope.cn"
+MODELSCOPE_REVISION = "master"
 CACHE_DIR_NAME = ".model-cache"
+#: 基座只需要这些文件（权重 + 分词器 + 生成配置）；其余（README/LICENSE/.gitattributes）不取。
+BASE_PATTERNS = ["config.json", "generation_config.json", "tokenizer_config.json",
+                 "tokenizer.json", "vocab.json", "merges.txt", "model*.safetensors"]
 ADAPTER_CONFIG = {
     "peft_type": "LORA",
     "task_type": "CAUSAL_LM",
@@ -200,14 +215,20 @@ def _offline() -> bool:
     return (os.environ.get("SMALL_MODEL_OFFLINE") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _run_install(packages: list[str]) -> None:
+def _run_install(packages: list[str], index: str | None = None) -> None:
     uv = shutil.which("uv")
+    args = (["--index-url", index] if index else []) + packages
+    env = dict(os.environ)
     if uv:
-        cmd = [uv, "pip", "install", "--python", sys.executable, *packages]
+        # uv 默认把缓存放 ~/AppData/Local/uv —— 受限环境（沙箱/只读用户目录/多用户共用）
+        # 下会在启动时就 "Access is denied"，连包都还没开始下。缓存落到流程自己的
+        # 缓存根里，既不依赖外部可写目录，也不污染机器上的全局缓存。
+        env.setdefault("UV_CACHE_DIR", str(_cache_root() / ".uv-cache"))
+        cmd = [uv, "pip", "install", "--python", sys.executable, *args]
     else:
-        cmd = [sys.executable, "-m", "pip", "install", *packages]
+        cmd = [sys.executable, "-m", "pip", "install", *args]
     print("[small_model] 首次启动安装运行环境：" + " ".join(cmd), file=sys.stderr)
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=env)
 
 
 def _ensure_dependencies() -> None:
@@ -222,14 +243,186 @@ def _ensure_dependencies() -> None:
         return
     if _offline():
         raise SmallModelError("离线模式下缺少运行依赖：" + ", ".join(missing))
-    # 可用环境变量精确指定 CUDA/CPU 索引；只给 torch 使用该索引，
-    # 其余包仍从 PyPI 获取，避免 transformers/peft 在 PyTorch 索引中找不到。
-    index = (os.environ.get("SMALL_MODEL_TORCH_INDEX") or "").strip()
-    if "torch" in missing and index:
-        _run_install(["--index-url", index, "torch"])
+    # 索引可用环境变量精确指定：torch 与其余包分开（PyTorch 索引里没有
+    # transformers/peft；反之 CUDA 轮子只在 PyTorch 索引里）。
+    torch_index = (os.environ.get("SMALL_MODEL_TORCH_INDEX") or "").strip() or None
+    pip_index = (os.environ.get("SMALL_MODEL_PIP_INDEX") or "").strip() or None
+    if "torch" in missing:
+        _run_install(["torch"], torch_index)
         missing = [p for p in missing if p != "torch"]
     if missing:
-        _run_install(missing)
+        _run_install(missing, pip_index)
+
+
+def _endpoint_reachable(endpoint: str, timeout: float = 6.0) -> bool:
+    """探测下载源是否可用 —— 必须用**与 huggingface_hub 同一套 HTTP 栈**（httpx）。
+
+    [STOP] 别改成裸 `ssl.create_default_context()` 探测：本机代理/沙箱的 CA 装在
+    **Windows 证书库**里，系统默认上下文认它、httpx（走 certifi）不认 ——
+    裸探测会得出"官方站可达"的**错误**结论，于是白试一次再报一个看不懂的证书错。
+    实测（2026-10-16）：裸探测 True，真实下载 CERTIFICATE_VERIFY_FAILED。
+    """
+    try:
+        import httpx
+    except Exception:                                             # noqa: BLE001
+        return True          # 探测不了就不拦，交给真正的下载去试
+    try:
+        r = httpx.get(f"{endpoint}/api/models/{MODEL_REPO_ID}", timeout=timeout)
+        return r.status_code < 500        # 200/401/403 都说明"这个源是通的"
+    except Exception:                                             # noqa: BLE001
+        return False
+
+
+def _endpoint_order() -> list[str]:
+    """下载源顺序：显式 HF_ENDPOINT → 官方（可达时）→ hf-mirror.com。"""
+    explicit = (os.environ.get("HF_ENDPOINT") or "").strip()
+    if explicit:
+        return [explicit]
+    if _endpoint_reachable(HF_OFFICIAL):
+        return [HF_OFFICIAL]
+    return [HF_MIRROR, HF_OFFICIAL]
+
+
+def _apply_xet_policy(endpoint: str, hub_constants) -> None:
+    """走镜像时必须关掉 Xet。
+
+    实测：hf-mirror 会照抄 HF 的 Xet 头，但 CAS（cas-server.xethub.hf.co）不认这个
+    令牌 —— 大文件下到一半报 `401 Unauthorized File reconstruction error`，
+    看起来像"权限问题/账号问题"，其实只要回退到传统 HTTP 就好。
+    `is_xet_available()` **每次调用都读** `constants.HF_HUB_DISABLE_XET`，
+    所以运行期改常量立即生效（无需重开进程）。
+    """
+    if endpoint.rstrip("/") == HF_OFFICIAL:
+        return
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    hub_constants.HF_HUB_DISABLE_XET = True
+
+
+def _fnmatch_any(path: str, patterns: list[str]) -> bool:
+    """按 HF `allow_patterns` 的口径匹配：整路径与文件名各试一次 fnmatch。"""
+    import fnmatch
+
+    name = path.rsplit("/", 1)[-1]
+    return any(fnmatch.fnmatch(path, p) or fnmatch.fnmatch(name, p) for p in patterns)
+
+
+def _download_file(url: str, params: dict, dest: Path, size_hint: int = 0) -> None:
+    """流式下载到 `<dest>.part` 再改名 —— 中断只留残片，不会留在目标路径上冒充成品。"""
+    import httpx
+
+    tmp = dest.with_name(dest.name + ".part")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with httpx.stream("GET", url, params=params, timeout=None, follow_redirects=True) as resp:
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length") or 0) or size_hint
+        done = 0
+        next_mark = 0.0
+        with open(tmp, "wb") as fh:
+            for chunk in resp.iter_bytes(1 << 20):
+                fh.write(chunk)
+                done += len(chunk)
+                mb = done / 1048576
+                if mb >= next_mark:
+                    pct = f"{done * 100 / total:.0f}%" if total else "?"
+                    print(f"[small_model]   {dest.name} {pct}（{mb:.0f} MB）", file=sys.stderr)
+                    next_mark = mb + 200
+    tmp.replace(dest)
+
+
+def _download_base_modelscope(base: Path) -> None:
+    """从 ModelScope（魔搭）取同一份基座 —— Hugging Face 全线不可达时的兜底源。
+
+    为什么用 HTTP API 而不是 modelscope 包：官方 SDK 会拖进一大票依赖，而这里只需要
+    "列文件 + 按路径取文件" 两个接口，httpx（huggingface_hub 的硬依赖，装依赖时已有）
+    就够。已实测两个接口（2026-10-16）：`/repo/files` 列目录、`/repo?FilePath=` 取文件。
+    已存在的文件按大小校验后跳过 —— 从 HF 那边下到一半再转过来，不必重下。
+    """
+    import httpx
+
+    repo = MODEL_REPO_ID
+    r = httpx.get(f"{MODELSCOPE_API}/api/v1/models/{repo}/repo/files",
+                  params={"Revision": MODELSCOPE_REVISION, "Recursive": "true"}, timeout=60)
+    r.raise_for_status()
+    entries = ((r.json().get("Data") or {}).get("Files")) or []
+    wanted = [(str(f.get("Path") or ""), int(f.get("Size") or 0)) for f in entries
+              if f.get("Path") and f.get("Type") != "tree"]
+    picked = [(p, s) for p, s in wanted if _fnmatch_any(p, BASE_PATTERNS)]
+    if not picked:
+        raise SmallModelError(
+            f"ModelScope 上 {repo} 没有匹配 {BASE_PATTERNS} 的文件（该仓库共 {len(wanted)} 个）")
+
+    print(f"[small_model] ModelScope 源：命中 {len(picked)}/{len(wanted)} 个文件", file=sys.stderr)
+    url = f"{MODELSCOPE_API}/api/v1/models/{repo}/repo"
+    for path, size in picked:
+        dest = base / path
+        if dest.is_file() and (not size or dest.stat().st_size == size):
+            print(f"[small_model]   跳过已存在：{path}", file=sys.stderr)
+            continue
+        _download_file(url, {"Revision": MODELSCOPE_REVISION, "FilePath": path}, dest, size)
+
+
+def _download_base(base: Path) -> None:
+    """首次下载 Qwen 基座：Hugging Face（官方 → 镜像）不可达时退回 ModelScope。
+
+    四个坑（都实测过，别再踩）：
+      ① 本机 `huggingface.co` 被 hosts 指到 127.0.0.1（国内直连常见处理），
+         直连只会拿到 `CERTIFICATE_VERIFY_FAILED`，报错完全看不出真实原因。
+      ② huggingface_hub ≥1.x 把 `HF_ENDPOINT` 读成**模块级常量**：import 之后再
+         `os.environ["HF_ENDPOINT"] = ...` 是**无效**的（表现为"换了镜像仍报同一个错"）。
+         必须走 `snapshot_download(endpoint=...)` 传参。
+      ③ 镜像不代理 Xet CAS：不关 Xet 就会在大文件上拿到 401（见 _apply_xet_policy）。
+      ④ HF 全线不通时不能就此失败 —— 还有 ModelScope（国内可达，实测同版本同文件）。
+    顺序 = 显式 `HF_ENDPOINT` → 官方 → hf-mirror.com → ModelScope，任一成功即停。
+    可用 `SMALL_MODEL_NO_MODELSCOPE=1` 关掉最后的兜底源。
+    """
+    cache = _cache_root()
+    # [STOP] HF_HOME 也必须在 import 之前设：hub 读成模块级常量，
+    #   否则会去写工作区外的 ~/.cache/huggingface（沙箱下被拒，只留一行警告）。
+    os.environ.setdefault("HF_HOME", str(cache / ".hf-hub"))
+    import inspect
+
+    import huggingface_hub.constants as hub_constants
+    from huggingface_hub import snapshot_download
+
+    endpoints = _endpoint_order()
+    takes_endpoint = "endpoint" in inspect.signature(snapshot_download).parameters
+    no_modelscope = (os.environ.get("SMALL_MODEL_NO_MODELSCOPE") or "").strip().lower() \
+        in {"1", "true", "yes", "on"}
+
+    errors = []
+    for endpoint in endpoints:
+        _apply_xet_policy(endpoint, hub_constants)
+        print(f"[small_model] 首次启动下载基座 {MODEL_REPO_ID} ← {endpoint}", file=sys.stderr)
+        try:
+            if takes_endpoint:
+                snapshot_download(repo_id=MODEL_REPO_ID, local_dir=str(base),
+                                  allow_patterns=BASE_PATTERNS, endpoint=endpoint)
+            else:                                   # 老版本 hub：只能靠环境变量
+                os.environ["HF_ENDPOINT"] = endpoint
+                snapshot_download(repo_id=MODEL_REPO_ID, local_dir=str(base),
+                                  allow_patterns=BASE_PATTERNS)
+            os.environ["HF_ENDPOINT"] = endpoint    # 成功源记下，供后续调用复用
+            return
+        except Exception as e:                                    # noqa: BLE001
+            errors.append(f"{endpoint}: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
+            print(f"[small_model] 该源不可用，换下一个：{errors[-1]}", file=sys.stderr)
+
+    if not no_modelscope:
+        print(f"[small_model] Hugging Face 全线不可达，改试 ModelScope ← {MODELSCOPE_API}",
+              file=sys.stderr)
+        try:
+            _download_base_modelscope(base)
+            return
+        except Exception as e:                                    # noqa: BLE001
+            errors.append(f"modelscope: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
+            print(f"[small_model] ModelScope 也不可用：{errors[-1]}", file=sys.stderr)
+
+    tried = "、".join(endpoints + ([] if no_modelscope else ["ModelScope"]))
+    raise SmallModelError(
+        f"下载 {MODEL_REPO_ID} 失败（已试：{tried}）：\n  " + "\n  ".join(errors)
+        + "\n可显式设 HF_ENDPOINT（如 https://hf-mirror.com）、SMALL_MODEL_OFFLINE=1，"
+          "或设 SMALL_MODEL_BASE 指向已有的完整基座目录。"
+    )
 
 
 def _copy_adapter_weights() -> dict[str, Path]:
@@ -262,20 +455,7 @@ def ensure_model_assets() -> dict:
         base.mkdir(parents=True, exist_ok=True)
         if _offline():
             raise SmallModelError(f"离线模式下找不到模型基座：{base}；请先联网运行一次，或手动下载 {MODEL_REPO_ID}")
-        try:
-            from huggingface_hub import snapshot_download
-            print(f"[small_model] 首次启动下载基座 {MODEL_REPO_ID} → {base}", file=sys.stderr)
-            snapshot_download(
-                repo_id=MODEL_REPO_ID,
-                local_dir=str(base),
-                allow_patterns=["config.json", "generation_config.json", "tokenizer_config.json",
-                                "tokenizer.json", "vocab.json", "merges.txt", "model*.safetensors"],
-            )
-        except Exception as e:
-            raise SmallModelError(
-                f"下载 {MODEL_REPO_ID} 失败：{e}\n可设置 HF_ENDPOINT、SMALL_MODEL_OFFLINE=1，"
-                "或手动设 SMALL_MODEL_BASE 指向完整基座目录。"
-            ) from e
+        _download_base(base)
     _copy_adapter_weights()
     paths = resolve_paths()
     if paths["base"] is None or not all(paths["adapters"].values()):
