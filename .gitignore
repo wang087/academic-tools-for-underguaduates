@@ -5,7 +5,7 @@
 #   还是生成物（vendor/ppt-master/projects/ 的 pptx 导出）。
 #   完整性核验靠 PACKAGE_MANIFEST.json 的逐文件 sha256。
 #   若日后要自包含，删掉下面这行再 git add 即可。
-vendor/
+
 
 # ── 运行副产物（流程跑起来才会生成，不应入库）─────────────────
 # [STOP] 注释必须**独占一行**。git 只在行首认 `#`；写成

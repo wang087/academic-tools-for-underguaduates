@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720"
+     data-pptx-page-role="content"
+     font-family="Microsoft YaHei, Arial, sans-serif">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#D6DEE3" stroke-width="1" stroke-opacity="0.4">
+    <line x1="212" y1="0" x2="212" y2="720"/>
+    <line x1="572" y1="0" x2="572" y2="720"/>
+    <line x1="932" y1="0" x2="932" y2="720"/>
+  </g>
+
+  <g id="page-furniture" data-pptx-role="header" data-pptx-bounds="0 0 1280 126">
+    <line x1="0" y1="112" x2="1280" y2="112" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="66" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">P03 · 机制 / MECHANISM</text>
+    <text x="72" y="102" font-size="56" font-weight="bold" fill="#0F4C5C">核心转译：把口语意向变成检索靶子</text>
+    <text x="1020" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">阶段 N</text>
+    <text x="1150" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">03 / 19</text>
+  </g>
+
+  <g id="input-box" data-pptx-bounds="0 132 500 236">
+    <rect x="72" y="180" width="400" height="160" rx="4" fill="#F3F6F8" stroke="#0F4C5C" stroke-width="1.2"/>
+    <text x="72" y="162" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">01 输入 / INPUT</text>
+    <text x="100" y="226" font-size="36" font-weight="bold" fill="#1B2A32">一句话意向</text>
+    <text x="100" y="272" font-size="24" fill="#1B2A32">学校 / 学部 / 主题 / 层次</text>
+    <text x="100" y="310" font-size="24" fill="#5A6B73">例：科大生医部 · 阿尔茨海默</text>
+  </g>
+
+  <g id="split-band" data-pptx-bounds="500 132 226 320">
+    <line x1="516" y1="222" x2="716" y2="222" stroke="#5A6B73" stroke-width="0.8" stroke-dasharray="4,4"/>
+    <text x="540" y="162" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">02 拆解</text>
+    <text x="540" y="222" font-size="36" font-weight="bold" fill="#0F4C5C">主题词</text>
+    <text x="540" y="270" font-size="24" fill="#1B2A32">拆主题词</text>
+    <text x="540" y="306" font-size="24" fill="#1B2A32">做同义扩展</text>
+    <line x1="540" y1="336" x2="716" y2="336" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="540" y="384" font-size="36" font-weight="bold" fill="#3E8E7E">方法词</text>
+    <text x="540" y="428" font-size="24" fill="#1B2A32">查方法总表</text>
+  </g>
+
+  <g id="terms-box" data-pptx-bounds="990 132 270 236">
+    <rect x="1002" y="180" width="206" height="160" rx="4" fill="#FFFFFF" stroke="#D6DEE3" stroke-width="1.2"/>
+    <text x="1002" y="162" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">词族表 / TERMS</text>
+    <text x="1026" y="222" font-size="24" fill="#5A6B73">24 个方法领域</text>
+    <text x="1026" y="260" font-size="24" fill="#5A6B73">关键词群</text>
+    <text x="1026" y="298" font-size="24" fill="#5A6B73">供机器匹配</text>
+  </g>
+
+  <g id="keyword-result" data-pptx-bounds="0 452 700 268">
+    <rect x="72" y="482" width="600" height="190" rx="4" fill="#FFFFFF" stroke="#0F4C5C" stroke-width="1.5"/>
+    <text x="72" y="464" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">03 输出 / QUERY</text>
+    <text x="100" y="530" font-size="24" fill="#1B2A32">阿尔茨海默病 / 老年痴呆 / AD / dementia</text>
+    <text x="100" y="574" font-size="24" fill="#1B2A32">biomarker / imaging / PET / MRI</text>
+    <line x1="100" y1="600" x2="644" y2="600" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="100" y="642" font-size="24" fill="#0F4C5C">(主题词 OR …) AND (方法词 OR …)</text>
+  </g>
+
+  <g id="query-note" data-pptx-bounds="730 452 550 268">
+    <line x1="700" y1="500" x2="748" y2="500" stroke="#5A6B73" stroke-width="0.8" stroke-dasharray="4,4"/>
+    <text x="764" y="500" font-size="36" font-weight="bold" fill="#1B2A32">两段合起来<tspan x="764" dy="46" fill="#0F4C5C">才是完整的检索词</tspan></text>
+    <text x="764" y="596" font-size="24" fill="#5A6B73">主题词负责找对领域</text>
+    <text x="764" y="630" font-size="24" fill="#5A6B73">方法词负责过滤到方法匹配的文献</text>
+    <text x="764" y="678" font-family="Consolas, monospace" font-size="22" fill="#F09A00">中英双语 · 直接喂给检索阶段</text>
+  </g>
+</svg>

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720"
+     data-pptx-page-role="content"
+     font-family="Microsoft YaHei, Arial, sans-serif">
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#D6DEE3" stroke-width="1" stroke-opacity="0.4">
+    <line x1="212" y1="0" x2="212" y2="720"/>
+    <line x1="572" y1="0" x2="572" y2="720"/>
+    <line x1="932" y1="0" x2="932" y2="720"/>
+  </g>
+
+  <g id="page-furniture" data-pptx-role="header" data-pptx-bounds="0 0 1280 126">
+    <line x1="0" y1="112" x2="1280" y2="112" stroke="#D6DEE3" stroke-width="1"/>
+    <text x="72" y="66" font-family="Consolas, monospace" font-size="22" fill="#5A6B73">P16 · 可信 / TRUST</text>
+    <text x="72" y="102" font-size="56" font-weight="bold" fill="#0F4C5C">每一次「取不到」都要说出来</text>
+    <text x="1020" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">红线</text>
+    <text x="1150" y="66" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">16 / 19</text>
+  </g>
+
+  <g id="trust-grid" data-pptx-bounds="0 132 1280 392">
+    <g fill="#FFFFFF" stroke="#5A6B73" stroke-width="1.2">
+      <rect x="72" y="164" width="548" height="164" rx="4"/>
+      <rect x="660" y="164" width="548" height="164" rx="4"/>
+      <rect x="72" y="352" width="548" height="164" rx="4"/>
+      <rect x="660" y="352" width="548" height="164" rx="4"/>
+    </g>
+    <g font-size="36" font-weight="bold" fill="#0F4C5C">
+      <text x="100" y="222">分层获取策略</text>
+      <text x="688" y="222">人机验证一律转人工</text>
+      <text x="100" y="410">站点级封禁的应急</text>
+      <text x="688" y="410">数据缺失不臆造</text>
+    </g>
+    <g font-size="24" fill="#1B2A32">
+      <text x="100" y="266">正文走真实浏览器；摘要与题录</text>
+      <text x="100" y="300">可直连，取不到再转浏览器</text>
+      <text x="688" y="266">不用自动化手段尝试通过验证</text>
+      <text x="688" y="300">—— 实测既无效，又会升级为封禁</text>
+      <text x="100" y="454">立即停止该站点、永久跳过、</text>
+      <text x="100" y="488">如实报告、转人工或机构渠道</text>
+      <text x="688" y="454">页面没有该栏位就标注「无此栏位」</text>
+      <text x="688" y="488">读不到全文就标注证据层级</text>
+    </g>
+  </g>
+
+  <g id="trust-close" data-pptx-bounds="0 536 1280 184">
+    <line x1="72" y1="560" x2="1208" y2="560" stroke="#F09A00" stroke-width="3"/>
+    <text x="72" y="606" font-size="36" font-weight="bold" fill="#1B2A32">可信不是因为模型更聪明</text>
+    <text x="72" y="652" font-size="36" font-weight="bold" fill="#0F4C5C">而是因为流程规定了失败怎么处置</text>
+    <text x="72" y="694" font-family="Consolas, monospace" font-size="20" fill="#5A6B73">限制被如实写出，而不是被补齐成看起来完整的结果</text>
+  </g>
+</svg>
