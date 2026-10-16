@@ -2066,18 +2066,25 @@ uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总�
 > 不先跑这一步，任务包会「正文与摘要双空」—— subagent 无米下锅。
 > `interpret_prepare.py` 会在结尾**显式告警**这种篇目。
 
-> [WARN] **`evidence_source` 的判据是「抽到了正文」，不是「下载到了 PDF」**。
-> 出版社**落地页残页**（`text_extraction_backend = "landing-page-text"`）会带几千到
-> 三万多字符 —— 申勇实测 **34,926 字符**那篇其实是「摘要 + 93 条参考文献 + 页面导航」，
-> 一个 `[p.N]` 页标记、一个 Fig./Table 编号都没有。这类任务包按 **`abstract`** 记，
-> 文本照旧下发（它确实含摘要）。
-> `interpret_build.py` 的覆盖度统计与逐篇「解读依据」**一律以卡片自己的
-> `evidence.source` 为准**，任务包标注只在卡片缺该字段时回退 ——
+> [WARN] **证据等级必须区分来源类型与正文可用性**，不能只按抽取后端一刀切：
+>
+> - **PDF 全文**（`text_extraction_backend` 不是 `landing-page-text`）：有 PDF 版式，
+>   可使用页码、图表与正文定位。
+> - **结构化落地页正文**（`landing-page-text`）：只有在文本足够完整并命中正文章节，
+>   如 `INTRODUCTION`、`RESULTS AND DISCUSSION`、`MATERIALS AND METHODS`，且不是
+>   参考文献/页面导航占主导时，才可按可利用正文处理。它可以支持方法、结果和正文数字抽取，
+>   但没有 PDF 页码/版式，必须使用章节、图注或正文短语定位，报告不得写成 PDF 全文。
+> - **摘要/残页**：若落地页主要是摘要、参考文献和页面导航，即使文本达到数万字符，仍按
+>   `abstract` 处理，不得把字符数当成全文证据。申勇实测 **34,926 字符**的反例正属于这一类。
+>
+> `interpret_build.py` 的覆盖度统计与逐篇「解读依据」**一律以卡片自己的 `evidence.source`
+> 为准**，任务包标注只在卡片缺该字段时回退。卡片若声明 `fulltext` 且任务包后端是
+> `landing-page-text`，报告头将其单列为「结构化落地页正文」，不能表述为 PDF 全文。
 > 报告不能比 subagent 读到的东西更自信（取证见 [实测结果汇总.md](实测结果汇总.md#h-2)）。
 
-`interpret_prepare.py` 把「题录 + 摘要 + **已抽取的正文文本**（带 `[p.N]` 页标记）」
-固化成任务包，因此 subagent **不需要**联网、也**不需要**解析 PDF ——
-这是为了从机制上杜绝「顺手 curl 一篇」这种违反 §5.1 禁令的行为。
+`interpret_prepare.py` 把「题录 + 摘要 + **已抽取的正文文本**」固化成任务包，因此 subagent
+**不需要**联网、也**不需要**解析 PDF —— 这是为了从机制上杜绝「顺手 curl 一篇」这种违反 §5.1 禁令的行为。
+对于没有 `[p.N]` 页标记的结构化落地页正文，必须保留 `structure-grounded` 定位，不得伪造页码。
 
 > **任务包命名与截断**
 >

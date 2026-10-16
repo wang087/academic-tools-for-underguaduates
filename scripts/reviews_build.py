@@ -535,6 +535,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[X] 目录不存在：{d}；先跑 reviews_prepare.py", file=sys.stderr)
         return 2
 
+    gate = None
+    gate_path = d / "gate_report.json"
+    if gate_path.exists():
+        try:
+            gate = json.loads(gate_path.read_text(encoding="utf-8"))
+        except Exception:
+            gate = {"verdict": "invalid", "exit_code": 4}
+    if isinstance(gate, dict) and gate.get("verdict") != "complete":
+        print(f"[X] 统一质量门未通过：{gate.get('verdict', 'unknown')}", file=sys.stderr)
+        print("  请先运行：uv run python scripts/subagent_gate.py --stage R2", file=sys.stderr)
+        return int(gate.get("exit_code") or 4)
+
     tasks = sorted((d / "tasks").glob("*.json")) if (d / "tasks").is_dir() else []
     cards, bad, rejected = load_cards(d, strict=not args.allow_placeholder)
 

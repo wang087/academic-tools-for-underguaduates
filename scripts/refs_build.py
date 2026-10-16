@@ -253,6 +253,11 @@ def main() -> int:
         print("[X] 找不到 .work_cdp/refs/manifest.json")
         print("  请先运行：uv run python 流程1/scripts/refs_prepare.py")
         return 2
+    gate = load_json(REFDIR / "gate_report.json")
+    if isinstance(gate, dict) and gate.get("verdict") != "complete":
+        print(f"[X] 统一质量门未通过：{gate.get('verdict', 'unknown')}")
+        print("  请先运行：uv run python scripts/subagent_gate.py --stage H2")
+        return int(gate.get("exit_code") or 4)
 
     tasks = []
     for t in man.get("tasks") or []:
