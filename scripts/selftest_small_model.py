@@ -6,12 +6,14 @@
 #   python scripts/selftest_small_model.py
 #
 # 检查项（自上而下，全部通过退出码 0；任一项硬失败退出码 1）：
+#   0 首次准备  自动安装缺少依赖、下载 Qwen/Qwen3-0.6B、生成 PEFT 配置
 #   1 依赖      torch / transformers / peft 可 import 且报版本
 #   2 设备      不写死、任何受支持设备都可推理（cuda/cuda:N/mps/cpu，默认 auto）；
 #               落 CPU 或 sm_120 配非 CUDA13 torch 时给出**速度警告**（不算失败）
-#   3 路径      基座 .hf-home/qwen3-06b-hf 与 outputs/{deai,kw}_qwen3_06b 齐备
+#   3 路径      .model-cache 基座与 vendor 中的 adapter_model.safetensors 齐备
 #   4 冒烟      deai 4 句、kw 4 词，标签须命中已知答案（评测口径同款判据）
 #
+# 首次启动会按 SMALL_MODEL_* / HF_ENDPOINT 配置联网下载；离线重跑前必须已准备缓存。
 # 依赖安装（CUDA 13 索引，本机 sm_120 必需；旧 cu121/cu124 轮子不含该架构）：
 #   uv run --with torch --with transformers --with peft \
 #       --index-url https://download.pytorch.org/whl/cu130 python scripts/selftest_small_model.py
@@ -53,6 +55,17 @@ def main() -> int:
     print("=" * 64)
     print("  小模型层自检（deai / kw @ Qwen3-0.6B）")
     print("=" * 64)
+
+    import small_model as sm
+
+    # ── 0 首次启动准备 ───────────────────────────────────────
+    print("[0] 首次启动准备（依赖、基座下载、适配器配置）")
+    try:
+        sm.ensure_model_assets()
+        _ok("模型资产已就绪")
+    except sm.SmallModelError as e:
+        _bad(str(e))
+        return 1
 
     # ── 1 依赖 ──────────────────────────────────────────────
     print("[1] 依赖")
@@ -98,7 +111,6 @@ def main() -> int:
 
     # ── 3 路径 ──────────────────────────────────────────────
     print("[3] 路径")
-    import small_model as sm
     p = sm.resolve_paths()
     if p["base"]:
         _ok(f"基座 {p['base']}")

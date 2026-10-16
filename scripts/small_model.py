@@ -13,16 +13,13 @@
 #   · `小模型/eval_2to4b/build_keyword_data4.py`—— kw 指令串与输入格式
 # 任何一处改动都会使实测数字失效，**不要"顺手优化"提示词**。
 #
-# 路径解析（迁移到其他机器时的可用性保证，按优先级）：
-#   ⓪ 包内资产根 `vendor/small-model-assets/`（pack_release.py --assets 打入时存在，
-#      与开发机布局同构：<root>/.hf-home/qwen3-06b-hf、<root>/outputs/…、
-#      <root>/llamacpp/…）—— **发行包换机器后开箱即用，不需要外部 小模型/ 目录**
-#   ① 环境变量 SMALL_MODEL_ROOT          —— 模型仓库根（含 .hf-home 与 outputs）
-#   ② 环境变量 SMALL_MODEL_BASE / SMALL_MODEL_ADAPTER_DIR —— 分别覆盖基座/适配器目录
-#   ③ 仓库根的候选位置自动探测：
-#        <本脚本>/../../../            （流程1 在 小模型/2/流程1 时命中 小模型/）
-#        <本脚本>/../../.. 的父目录     （流程1 直接放在 小模型/ 下时）
-#   判据：候选目录下同时存在 .hf-home/qwen3-06b-hf 与 outputs/deai_qwen3_06b。
+# 路径与首次启动（权重不随流程分发）：
+#   ① SMALL_MODEL_ROOT 可指定缓存根；默认使用流程目录下的 .model-cache/。
+#   ② 首次真正启用 --model / --kw-model 或 selftest 时，ensure_model_assets()
+#      自动安装缺少的 Python 依赖，并从 Hugging Face 下载 Qwen/Qwen3-0.6B 基座。
+#   ③ vendor/small-model-assets/ 只保存训练后的 adapter_model.safetensors；
+#      adapter_config.json 在首次启动时根据训练配置生成到缓存目录。
+#   ④ 可用 SMALL_MODEL_OFFLINE=1 禁止联网；缺资源时给出明确的下载命令。
 #
 # 依赖（只在调用方显式开启模型层时才 import）：
 #   uv run --with torch --with transformers --with peft python …
@@ -38,9 +35,13 @@
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
+import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -67,28 +68,107 @@ DEAI_LABELS = ("EMPTY_FILLER", "SPECULATION_LEAK", "STRONG_VERB_OVERREACH",
 
 
 class SmallModelError(RuntimeError):
-    """模型层不可用（缺依赖 / 找不到基座或适配器 / 推理失败）。"""
+    """模型层不可用（缺依赖 / 下载失败 / 找不到基座或适配器 / 推理失败）。"""
+
+
+@contextmanager
+def _asset_lock():
+    """Serialize first-use installs/downloads without adding a lock dependency."""
+    lock = _cache_root() / ".ensure.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = None
+    deadline = time.monotonic() + float(os.environ.get("SMALL_MODEL_LOCK_TIMEOUT", "1800"))
+    try:
+        while fd is None:
+            try:
+                fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, f"pid={os.getpid()}\n".encode())
+            except FileExistsError:
+                if time.monotonic() >= deadline:
+                    raise SmallModelError(f"等待模型首次启动锁超时：{lock}")
+                time.sleep(1.0)
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+            try:
+                lock.unlink()
+            except FileNotFoundError:
+                pass
 
 
 # ══════════════════════════════════════════════════════════════
 # 路径解析
 # ══════════════════════════════════════════════════════════════
 
+MODEL_REPO_ID = "Qwen/Qwen3-0.6B"
+CACHE_DIR_NAME = ".model-cache"
+ADAPTER_CONFIG = {
+    "peft_type": "LORA",
+    "task_type": "CAUSAL_LM",
+    "inference_mode": True,
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "bias": "none",
+    "target_modules": ["gate_proj", "up_proj", "q_proj", "k_proj", "o_proj", "v_proj", "down_proj"],
+}
+
+
+def _cache_root() -> Path:
+    raw = (os.environ.get("SMALL_MODEL_ROOT") or "").strip()
+    return Path(raw).expanduser() if raw else _HERE.parent / CACHE_DIR_NAME
+
+
+def _packaged_adapter_root() -> Path:
+    return _HERE.parent / "vendor" / "small-model-assets" / "outputs"
+
+
 def _root_candidates() -> list[Path]:
-    cands = []
-    # ⓪ 包内资产根优先：发行包自带权重时，它就是这台机器上的"模型仓库根"
-    #    （llm_session 的 workspace 同样落到这里 —— gguf/llama-server 一并可达）
-    #    _HERE = <包>/scripts，故包根是 _HERE.parent（不是 parents[1]，那是包的上一级）
-    packaged = _HERE.parent / "vendor" / "small-model-assets"
-    if (packaged / BASE_REL).is_dir():
-        cands.append(packaged)
+    """Return cache and legacy roots, without downloading or importing heavy deps."""
+    cands = [_cache_root()]
     env_root = (os.environ.get("SMALL_MODEL_ROOT") or "").strip()
     if env_root:
-        cands.append(Path(env_root))
-    # 流程1/scripts → 流程1 → 2 → 小模型
-    cands.append(_HERE.parents[2])
-    # 流程1/scripts → 流程1 → 小模型（流程1 直接放在模型仓库根时）
-    cands.append(_HERE.parents[1])
+        cands.append(Path(env_root).expanduser())
+    cands.extend([_HERE.parents[2], _HERE.parents[1]])
+    out, seen = [], set()
+    for c in cands:
+        try:
+            r = c.resolve()
+        except OSError:
+            continue
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _adapter_candidates(task: str) -> list[Path]:
+    name = ADAPTER_NAMES[task]
+    cands = []
+    explicit = (os.environ.get("SMALL_MODEL_ADAPTER_DIR") or "").strip()
+    if explicit:
+        cands.append(Path(explicit).expanduser() / name)
+    cands.append(_cache_root() / "outputs" / name)
+    cands.append(_packaged_adapter_root() / name)
+    # 适配器可来自显式目录、缓存或包内 vendor；不自动读取外部开发仓库。
+    out, seen = [], set()
+    for c in cands:
+        try:
+            r = c.resolve()
+        except OSError:
+            continue
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _base_candidates() -> list[Path]:
+    explicit = (os.environ.get("SMALL_MODEL_BASE") or "").strip()
+    cands = [Path(explicit).expanduser()] if explicit else []
+    # 不再自动回退到开发机父目录；发行包必须首次自行下载到 .model-cache。
+    cands.append(_cache_root() / BASE_REL)
     out, seen = [], set()
     for c in cands:
         try:
@@ -102,33 +182,112 @@ def _root_candidates() -> list[Path]:
 
 
 def resolve_paths() -> dict:
-    """→ {"root": Path|None, "base": Path|None, "adapters": {task: Path|None}}。
-
-    只查路径不 import 重依赖，可在无 torch 环境下安全调用（自检/报错提示用）。
-    """
-    base = (os.environ.get("SMALL_MODEL_BASE") or "").strip() or None
-    adir = (os.environ.get("SMALL_MODEL_ADAPTER_DIR") or "").strip() or None
-    root = None
-    if base is None or adir is None:
-        for c in _root_candidates():
-            if (c / BASE_REL).is_dir() and (c / "outputs" / ADAPTER_NAMES["deai"]).is_dir():
-                root = c
-                break
-    base_p = Path(base) if base else (root / BASE_REL if root else None)
-    adir_p = Path(adir) if adir else (root / "outputs" if root else None)
+    """Return local base and adapter paths; never downloads or installs anything."""
+    base_p = next((p for p in _base_candidates() if (p / "config.json").is_file()), None)
     adapters = {}
+    for task in ADAPTER_NAMES:
+        adapters[task] = next(
+            (p for p in _adapter_candidates(task)
+             if (p / "adapter_model.safetensors").is_file() and (p / "adapter_config.json").is_file()),
+            None,
+        )
+    roots = [p.parent.parent for p in adapters.values() if p is not None]
+    root = base_p.parent.parent if base_p and all(adapters.values()) else (roots[0] if roots else None)
+    return {"root": root, "base": base_p, "adapters": adapters}
+
+
+def _offline() -> bool:
+    return (os.environ.get("SMALL_MODEL_OFFLINE") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _run_install(packages: list[str]) -> None:
+    uv = shutil.which("uv")
+    if uv:
+        cmd = [uv, "pip", "install", "--python", sys.executable, *packages]
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", *packages]
+    print("[small_model] 首次启动安装运行环境：" + " ".join(cmd), file=sys.stderr)
+    subprocess.run(cmd, check=True)
+
+
+def _ensure_dependencies() -> None:
+    missing = []
+    for mod, pkg in (("torch", "torch"), ("transformers", "transformers"),
+                     ("peft", "peft"), ("huggingface_hub", "huggingface_hub")):
+        try:
+            __import__(mod)
+        except Exception:
+            missing.append(pkg)
+    if not missing:
+        return
+    if _offline():
+        raise SmallModelError("离线模式下缺少运行依赖：" + ", ".join(missing))
+    # 可用环境变量精确指定 CUDA/CPU 索引；只给 torch 使用该索引，
+    # 其余包仍从 PyPI 获取，避免 transformers/peft 在 PyTorch 索引中找不到。
+    index = (os.environ.get("SMALL_MODEL_TORCH_INDEX") or "").strip()
+    if "torch" in missing and index:
+        _run_install(["--index-url", index, "torch"])
+        missing = [p for p in missing if p != "torch"]
+    if missing:
+        _run_install(missing)
+
+
+def _copy_adapter_weights() -> dict[str, Path]:
+    cache = _cache_root()
+    result = {}
     for task, name in ADAPTER_NAMES.items():
-        p = (adir_p / name) if adir_p else None
-        adapters[task] = p if (p and (p / "adapter_model.safetensors").is_file()) else None
-    ok_base = bool(base_p and (base_p / "config.json").is_file())
-    return {"root": root, "base": base_p if ok_base else None, "adapters": adapters}
+        src = next((p / "adapter_model.safetensors" for p in _adapter_candidates(task)
+                    if (p / "adapter_model.safetensors").is_file()), None)
+        if src is None:
+            continue
+        dst = cache / "outputs" / name
+        dst.mkdir(parents=True, exist_ok=True)
+        target = dst / "adapter_model.safetensors"
+        if not target.is_file() or target.stat().st_size != src.stat().st_size:
+            shutil.copy2(src, target)
+        cfg = dict(ADAPTER_CONFIG)
+        cfg["base_model_name_or_path"] = MODEL_REPO_ID
+        (dst / "adapter_config.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        result[task] = dst
+    return result
+
+
+def ensure_model_assets() -> dict:
+    """Install missing runtime pieces, download the base once, and materialize adapter configs."""
+    _ensure_dependencies()
+    cache = _cache_root()
+    base = next((p for p in _base_candidates() if (p / "config.json").is_file()), None)
+    if base is None:
+        base = cache / BASE_REL
+        base.mkdir(parents=True, exist_ok=True)
+        if _offline():
+            raise SmallModelError(f"离线模式下找不到模型基座：{base}；请先联网运行一次，或手动下载 {MODEL_REPO_ID}")
+        try:
+            from huggingface_hub import snapshot_download
+            print(f"[small_model] 首次启动下载基座 {MODEL_REPO_ID} → {base}", file=sys.stderr)
+            snapshot_download(
+                repo_id=MODEL_REPO_ID,
+                local_dir=str(base),
+                allow_patterns=["config.json", "generation_config.json", "tokenizer_config.json",
+                                "tokenizer.json", "vocab.json", "merges.txt", "model*.safetensors"],
+            )
+        except Exception as e:
+            raise SmallModelError(
+                f"下载 {MODEL_REPO_ID} 失败：{e}\n可设置 HF_ENDPOINT、SMALL_MODEL_OFFLINE=1，"
+                "或手动设 SMALL_MODEL_BASE 指向完整基座目录。"
+            ) from e
+    _copy_adapter_weights()
+    paths = resolve_paths()
+    if paths["base"] is None or not all(paths["adapters"].values()):
+        raise SmallModelError("模型资产准备后仍不完整：\n" + missing_hint())
+    return paths
 
 
 def availability() -> dict:
     """轻量探测：依赖是否可 import、路径是否齐。不加载任何权重。"""
     paths = resolve_paths()
     deps = {}
-    for mod in ("torch", "transformers", "peft"):
+    for mod in ("torch", "transformers", "peft", "huggingface_hub"):
         try:
             __import__(mod)
             deps[mod] = True
@@ -145,19 +304,20 @@ def missing_hint() -> str:
     lines = []
     lack = [m for m, ok in av["deps"].items() if not ok]
     if lack:
-        lines.append(f"缺 Python 依赖：{'、'.join(lack)}。安装（CUDA 13 索引，本机 sm_120 必需）：")
-        lines.append("  uv run --with torch --with transformers --with peft "
-                     "--index-url https://download.pytorch.org/whl/cu130 python …")
-        lines.append("  或直接用 小模型/.venv/Scripts/python.exe（已装好）。")
+        lines.append(f"缺 Python 依赖：{'、'.join(lack)}。首次启动会自动安装；也可手动运行：")
+        lines.append("  uv pip install --python <当前python> torch transformers peft huggingface_hub")
+        lines.append("  Blackwell/sm_120 可设置 SMALL_MODEL_TORCH_INDEX=https://download.pytorch.org/whl/cu130")
     p = av["paths"]
     if p["base"] is None:
-        lines.append("找不到 Qwen3-0.6B 基座（.hf-home/qwen3-06b-hf）。"
-                     "设 SMALL_MODEL_ROOT 指向模型仓库根，或 SMALL_MODEL_BASE 直指基座目录。")
+        lines.append(f"找不到 Qwen3-0.6B 基座。首次启动会下载 {MODEL_REPO_ID}；"
+                     "离线时请先联网运行一次，或设 SMALL_MODEL_BASE 指向完整基座目录。")
     for task, ap in p["adapters"].items():
         if ap is None:
-            lines.append(f"找不到 {task} 适配器（outputs/{ADAPTER_NAMES[task]}）。"
-                         "设 SMALL_MODEL_ADAPTER_DIR 直指适配器父目录。")
-    lines.append("已探测的仓库根候选：" + "；".join(str(c) for c in _root_candidates()))
+            lines.append(f"找不到 {task} 训练权重（adapter_model.safetensors）。"
+                         "请确认 vendor/small-model-assets/outputs/ 中包含该文件，"
+                         "或设 SMALL_MODEL_ADAPTER_DIR 指向适配器父目录。")
+    lines.append("模型缓存根：" + str(_cache_root()))
+    lines.append("可设 SMALL_MODEL_OFFLINE=1 禁止联网；首次下载需要 Hugging Face 网络访问。")
     return "\n".join(lines)
 
 
@@ -175,9 +335,13 @@ class SmallModel:
     """
 
     def __init__(self, device: str | None = None, verbose: bool = False):
-        paths = resolve_paths()
-        if paths["base"] is None or not all(paths["adapters"].values()):
-            raise SmallModelError("模型路径不全：\n" + missing_hint())
+        try:
+            with _asset_lock():
+                paths = ensure_model_assets()
+        except SmallModelError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise SmallModelError(f"首次启动准备模型失败：{e}") from e
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -323,58 +487,6 @@ class SmallModel:
         return labels
 
 
-# ══════════════════════════════════════════════════════════════
-# llama.cpp 服务生命周期（**复用** vendor/llm_lifecycle，不另写启动脚本）
-#
-# 来源：`小模型/eval_2to4b/llm_lifecycle/`（pin 登记 + 四重校验精准释放、
-# 自动挑端口、/props 身份核实、孤儿 sweep —— 能力与用法见其 README）。
-# 用途差别：deai/kw 适配器走本模块的 transformers 路径；**基座 gguf**
-# （Qwen3-0.6B-Q8_0 零样本抽关键词等）走这里 —— 由 llm_session 负责
-# 「启动 → 跑任务 → 只释放本次」，绝不触碰别的进程/服务。
-# 命令行入口同样用现成的：vendor/llm_lifecycle/llm.ps1（或 bash 的 ./llm）。
-# ══════════════════════════════════════════════════════════════
-
-_LIFECYCLE_DIR = _HERE.parent / "vendor" / "llm_lifecycle"
-
-
-@contextmanager
-def llm_session(model: str = "Qwen3-0.6B", **kw):
-    """包一层 vendor/llm_lifecycle.run_with_llm.llm_session，只补默认路径。
-
-    workspace 缺省取**模型仓库根**（resolve_paths 探测到的、含 llamacpp/
-    与 gguf 的那一级；LLM_WORKSPACE 环境变量可覆盖）。**刻意不跟随
-    PAPER_WORKDIR** —— 那是案例数据目录，llm_lifecycle 虽也认它，但把
-    pin/日志与模型检索锚在案例目录上是错的，这里统一注入仓库根。
-    其余参数（port/ctx/ngl/slots/tag/keep_on_failure…）原样透传。
-    → yield 会话信息：`api_url`（chat/completions 全址）、`base_url`
-      （**已含 /v1**，别再拼一次）、`api_key`、`port`、`model_path`、`env`。
-    """
-    if not _LIFECYCLE_DIR.is_dir():
-        raise SmallModelError(
-            f"找不到 vendor/llm_lifecycle/（{str(_LIFECYCLE_DIR)}）—— "
-            "llama.cpp 服务启停脚本未随流程部署。")
-    kw.setdefault("model", model)
-    if not kw.get("workspace"):
-        env_ws = (os.environ.get("LLM_WORKSPACE") or "").strip()
-        root = resolve_paths()["root"]
-        kw["workspace"] = env_ws or (str(root) if root else None)
-        if not root and not env_ws:
-            raise SmallModelError(
-                "无法确定模型仓库根（llamacpp/gguf 所在目录）。"
-                "设 LLM_WORKSPACE 或 SMALL_MODEL_ROOT 后重试。")
-    if str(_LIFECYCLE_DIR) not in sys.path:
-        sys.path.insert(0, str(_LIFECYCLE_DIR))
-    from run_with_llm import llm_session as _upstream_session
-    with _upstream_session(**{k: v for k, v in kw.items() if v is not None}) as s:
-        yield s
-
-
 if __name__ == "__main__":
-    # 本模块**不提供自写 CLI** —— 命令行入口用现成的：
-    #   · llama.cpp 服务：vendor/llm_lifecycle/llm.ps1（doctor/serve/status/release/
-    #     sweep/run），或 bash 侧 ./llm
-    #   · deai/kw 冒烟与迁移检查：scripts/selftest_small_model.py
-    # 库式调用：from small_model import SmallModel, llm_session
     print(__doc__)
-    print("命令行入口请使用 vendor/llm_lifecycle/llm.ps1 或 "
-          "scripts/selftest_small_model.py（本模块不自写 CLI）。")
+    print("首次准备与自检请运行：scripts/selftest_small_model.py")
