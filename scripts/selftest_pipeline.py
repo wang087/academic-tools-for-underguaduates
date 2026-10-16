@@ -703,7 +703,9 @@ def main() -> int:
                       verbose=verbose)
         after = set(sorted(PROJ.glob(f"{AUTHOR}*")))
         new = sorted(after - before)
-        check("阶段 P 执行成功", rc == 0, (out.strip().splitlines() or [""])[-1][:90])
+        gate_blocked = rc == 3
+        check("阶段 P 执行成功或被确认门阻断", rc in (0, 3),
+              (out.strip().splitlines() or [""])[-1][:90])
         if new:
             proj = new[-1]
             # 断言项目确实落在**本流程输出根**下（v17.19 起不再落 ppt-master/projects）。
@@ -711,46 +713,51 @@ def main() -> int:
             inside = PROJ.resolve() in proj.resolve().parents
             check("阶段 P 写入了流程输出根（非 ppt-master/projects）", inside,
                   f"输出根：{PROJ}")
-            check("design_spec.md / spec_lock.md 已生成",
-                  (proj / "design_spec.md").exists() and (proj / "spec_lock.md").exists())
-            pm = ppt_root / "skills" / "ppt-master" / "scripts" / "project_manager.py"
-            p = subprocess.run([sys.executable, str(pm), "validate", str(proj)],
-                               capture_output=True, text=True, encoding="utf-8",
-                               errors="replace")
-            check("ppt-master 自己的 validate 通过", p.returncode == 0,
-                  (p.stdout or "").strip().splitlines()[-1][:80])
-            check("Spec 的 Page Count 与 §IX 页数一致", _spec_consistent(proj))
-            spec_txt = (proj / "design_spec.md").read_text(encoding="utf-8")
-            check("阶段 K 图谱已写入 §VIII（Acquire Via: user）",
-                  "知识图谱" in spec_txt and "| user | Existing |" in spec_txt)
-            n_img = len(list((proj / "images").glob("*知识图谱*")))
-            check("图谱已复制进项目 images/", n_img >= 1, f"{n_img} 张")
+            if gate_blocked:
+                check("阶段 P 确认门正常阻断", "尚未完成 ppt-master 两阶段确认" in out)
+                check("确认门阻断时不伪造 Spec", not (proj / "design_spec.md").exists()
+                      and not (proj / "spec_lock.md").exists())
+            else:
+                check("design_spec.md / spec_lock.md 已生成",
+                      (proj / "design_spec.md").exists() and (proj / "spec_lock.md").exists())
+                pm = ppt_root / "skills" / "ppt-master" / "scripts" / "project_manager.py"
+                p = subprocess.run([sys.executable, str(pm), "validate", str(proj)],
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace")
+                check("ppt-master 自己的 validate 通过", p.returncode == 0,
+                      (p.stdout or "").strip().splitlines()[-1][:80])
+                check("Spec 的 Page Count 与 §IX 页数一致", _spec_consistent(proj))
+                spec_txt = (proj / "design_spec.md").read_text(encoding="utf-8")
+                check("阶段 K 图谱已写入 §VIII（Acquire Via: user）",
+                      "知识图谱" in spec_txt and "| user | Existing |" in spec_txt)
+                n_img = len(list((proj / "images").glob("*知识图谱*")))
+                check("图谱已复制进项目 images/", n_img >= 1, f"{n_img} 张")
 
-            # 档位必须落到**三份产物**上：source md / design_spec.md /
-            #   spec_lock.md。否则读材料的人无从知道"写浅了"是档位约定
-            #   还是漏写，而 spec_lock.md 的档位行还必须是合法 `- ` 数据行
-            #   （它是严格 schema，多一个 `##` 段就会被判 unknown section）。
-            plan_p = json.loads((wd / ".work_cdp" / "prepare_plan.json")
-                                .read_text(encoding="utf-8"))
-            wa = plan_p.get("interpret_tier") or "L2"
-            wr = plan_p.get("review_interpret_tier") or "L3"
-            lock_txt = (proj / "spec_lock.md").read_text(encoding="utf-8")
-            sdir = proj / "sources"
-            src_txt = ""
-            if sdir.is_dir():
-                cands = sorted(sdir.glob("*.md"))
-                if cands:
-                    src_txt = cands[0].read_text(encoding="utf-8")
-            marks = {"design_spec.md": f"作者论文解读 {wa}" in spec_txt
-                     and f"研究方向综述 {wr}" in spec_txt,
-                     "spec_lock.md": f"作者论文解读 {wa}" in lock_txt
-                     and f"研究方向综述 {wr}" in lock_txt,
-                     "source md": f"作者论文解读 {wa}" in src_txt
-                     and f"研究方向综述 {wr}" in src_txt}
-            check("档位记录进 source md / design_spec.md / spec_lock.md",
-                  all(marks.values()),
-                  f"阶段 0 档位 H={wa} H2={wr}；"
-                  + "、".join(f"{k}={'[OK]' if v else '[X]'}" for k, v in marks.items()))
+                # 档位必须落到**三份产物**上：source md / design_spec.md /
+                #   spec_lock.md。否则读材料的人无从知道"写浅了"是档位约定
+                #   还是漏写，而 spec_lock.md 的档位行还必须是合法 `- ` 数据行
+                #   （它是严格 schema，多一个 `##` 段就会被判 unknown section）。
+                plan_p = json.loads((wd / ".work_cdp" / "prepare_plan.json")
+                                    .read_text(encoding="utf-8"))
+                wa = plan_p.get("interpret_tier") or "L2"
+                wr = plan_p.get("review_interpret_tier") or "L3"
+                lock_txt = (proj / "spec_lock.md").read_text(encoding="utf-8")
+                sdir = proj / "sources"
+                src_txt = ""
+                if sdir.is_dir():
+                    cands = sorted(sdir.glob("*.md"))
+                    if cands:
+                        src_txt = cands[0].read_text(encoding="utf-8")
+                marks = {"design_spec.md": f"作者论文解读 {wa}" in spec_txt
+                         and f"研究方向综述 {wr}" in spec_txt,
+                         "spec_lock.md": f"作者论文解读 {wa}" in lock_txt
+                         and f"研究方向综述 {wr}" in lock_txt,
+                         "source md": f"作者论文解读 {wa}" in src_txt
+                         and f"研究方向综述 {wr}" in src_txt}
+                check("档位记录进 source md / design_spec.md / spec_lock.md",
+                      all(marks.values()),
+                      f"阶段 0 档位 H={wa} H2={wr}；"
+                      + "、".join(f"{k}={'[OK]' if v else '[X]'}" for k, v in marks.items()))
             if not keep:
                 shutil.rmtree(proj, ignore_errors=True)
         else:
