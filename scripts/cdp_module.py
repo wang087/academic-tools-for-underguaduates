@@ -59,14 +59,23 @@ FALLBACK = {
 
 
 def _fix_streams() -> None:
-    for name in ("stdout", "stderr"):
+    for name, original_name in (("stdout", "__stdout__"), ("stderr", "__stderr__")):
         st = getattr(sys, name, None)
-        if st is not None and hasattr(st, "buffer"):
-            try:
-                setattr(sys, name, io.TextIOWrapper(st.buffer, encoding="utf-8",
-                                                    errors="replace", line_buffering=True))
-            except Exception:
-                pass
+        if st is None or not hasattr(st, "buffer"):
+            continue
+        enc = (getattr(st, "encoding", None) or "").lower()
+        if enc.replace("-", "") in ("utf8", "utf8mb4", "cp65001"):
+            continue
+        # A caller may already own a wrapper around the original stream.  Do not
+        # create another TextIOWrapper over its shared buffer.
+        if st is not getattr(sys, original_name, None):
+            continue
+        try:
+            st.flush()
+            setattr(sys, name, io.TextIOWrapper(st.buffer, encoding="utf-8",
+                                                errors="replace", line_buffering=True))
+        except Exception:
+            pass
 
 
 _fix_streams()
