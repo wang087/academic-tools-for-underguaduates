@@ -803,7 +803,9 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
                  "CPU 可用但会在 stderr 提示低吞吐。")
         L.append("- 本包不含 Qwen 基座、Python 依赖或 llama.cpp；首次启用 --model/--kw-model 或运行 doctor 时，"
                  "small_model.py 会自动安装缺失依赖、下载 `Qwen/Qwen3-0.6B` 并写入 `.model-cache/`。"
-                 "可设 `SMALL_MODEL_OFFLINE=1` 禁止联网。")
+                 "下载源按 `HF_ENDPOINT` → 官方站 → `hf-mirror.com` → **ModelScope（魔搭）** 依次回退"
+                 "（HF 全线不可达时自动改走 ModelScope）。"
+                 "可设 `SMALL_MODEL_OFFLINE=1` 禁止联网、`SMALL_MODEL_NO_MODELSCOPE=1` 关掉兜底源。")
         L.append("")
 
     L.append("## 抓取策略（v7.1 分层）\n")

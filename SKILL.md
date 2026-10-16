@@ -2312,13 +2312,17 @@ uv run --with matplotlib --with networkx --with python-igraph --with adjustText 
 > `scripts/small_model.py`，迁移自检入口是 `scripts/selftest_small_model.py`。
 > 首次启用时会自动：
 > ① 安装缺少的 `torch` / `transformers` / `peft` / `huggingface_hub`；
-> ② 从 Hugging Face 下载 `Qwen/Qwen3-0.6B` 基座到流程目录 `.model-cache/`；
+> ② 下载 `Qwen/Qwen3-0.6B` 基座到流程目录 `.model-cache/`，源按
+> **显式 `HF_ENDPOINT` → 官方站 → `hf-mirror.com` → ModelScope（魔搭）** 依次回退：
+> 本机 `huggingface.co` 被 hosts 指到 127.0.0.1，直连只会报证书错误，
+> 于是自动走镜像；HF 全线不通时再自动改走 ModelScope（实测 1.5 GB 下完可直接推理）。
+> 可用 `SMALL_MODEL_NO_MODELSCOPE=1` 关掉最后的兜底源。
 > ③ 从 `vendor/small-model-assets/outputs/` 读取训练后的
 > `adapter_model.safetensors`，并在缓存中生成 PEFT 配置。
 > vendor 不携带基座、Python 运行环境或 `llama.cpp`。可设
-> `SMALL_MODEL_ROOT` 指定缓存根，`HF_ENDPOINT` 指定镜像，
-> `SMALL_MODEL_TORCH_INDEX` 指定 torch 索引，`SMALL_MODEL_OFFLINE=1`
-> 禁止联网（离线前必须已完成一次下载）。
+> `SMALL_MODEL_ROOT` 指定缓存根，`HF_ENDPOINT` 指定下载源，
+> `SMALL_MODEL_TORCH_INDEX` / `SMALL_MODEL_PIP_INDEX` 指定包索引，
+> `SMALL_MODEL_OFFLINE=1` 禁止联网（离线前必须已完成一次下载）。
 #    --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
 #                         词的来源权重：文章关键词 > 题名 > 摘要 > 卡片方法描述
 ```
