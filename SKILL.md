@@ -2307,21 +2307,18 @@ uv run --with matplotlib --with networkx --with python-igraph --with adjustText 
 #                         python 流程1/scripts/selftest_small_model.py
 ```
 
-> **本地小模型的两条通道**（都**不写死设备**，CPU 可跑但有速度警告）：
-> ① **适配器通道**（deai/kw，transformers+peft 直载 LoRA）——
->    `check_interpretation.py --model`、`knowledge_graph.py --kw-model`，
->    共用 `scripts/small_model.py`，迁移自检 `scripts/selftest_small_model.py`。
-> ② **基座服务通道**（Qwen3-0.6B-Q8_0.gguf 零样本，llama.cpp）——
->    启停/精准释放用随包 `vendor/llm_lifecycle/`（原样取自 `小模型/eval_2to4b/llm_lifecycle`，
->    pin 登记 + 四重校验，只关本次进程、绝不触碰他人服务）：
->    `pwsh -File vendor/llm_lifecycle/llm.ps1 doctor|serve|status|release|sweep|run`
->    （bash 侧 `./llm`；**pwsh 7**，Windows PowerShell 5.1 会按 ANSI 读坏中文脚本）。
->    Python 侧用 `scripts/small_model.py` 的 `llm_session()` —— 它只补一个默认
->    （workspace=模型仓库根，规避 `PAPER_WORKDIR` 把 pin/日志锚进案例目录），
->    其余原样透传。`base_url` **已含 /v1**，取全址用 `api_url`。
-> 两条通道都**不随流程打包权重**（`小模型/llamacpp/models/*.gguf`、
-> `.hf-home/qwen3-06b-hf`、`outputs/*`），换机器用 `SMALL_MODEL_ROOT` /
-> `LLM_WORKSPACE` 指向。
+> **本地小模型适配器通道**（不写死设备，CPU 可跑但有速度警告）：
+> `check_interpretation.py --model`、`knowledge_graph.py --kw-model` 共用
+> `scripts/small_model.py`，迁移自检入口是 `scripts/selftest_small_model.py`。
+> 首次启用时会自动：
+> ① 安装缺少的 `torch` / `transformers` / `peft` / `huggingface_hub`；
+> ② 从 Hugging Face 下载 `Qwen/Qwen3-0.6B` 基座到流程目录 `.model-cache/`；
+> ③ 从 `vendor/small-model-assets/outputs/` 读取训练后的
+> `adapter_model.safetensors`，并在缓存中生成 PEFT 配置。
+> vendor 不携带基座、Python 运行环境或 `llama.cpp`。可设
+> `SMALL_MODEL_ROOT` 指定缓存根，`HF_ENDPOINT` 指定镜像，
+> `SMALL_MODEL_TORCH_INDEX` 指定 torch 索引，`SMALL_MODEL_OFFLINE=1`
+> 禁止联网（离线前必须已完成一次下载）。
 #    --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
 #                         词的来源权重：文章关键词 > 题名 > 摘要 > 卡片方法描述
 ```

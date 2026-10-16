@@ -15,8 +15,7 @@
 #   ├── 研究方法与关键词总表.md                 # 词表的来源文档（附）
 #   ├── vendor/ppt-master/                     # 依赖：ppt-master 运行时（去 .git/projects/docs）
 #   ├── vendor/nature-paper-card/               # 依赖：已并入的 nature-paper-card（Apache-2.0）
-#   ├── vendor/llm_lifecycle/                   # 依赖：llama.cpp 服务启停+精准释放（随 scripts 无关，走 ③c）
-#   ├── vendor/small-model-assets/              # 可选（--assets=…）：模型权重资产，见 ③d
+#   ├── vendor/small-model-assets/              # 可选：训练后的 adapter_model.safetensors
 #   ├── README-PACKAGE.md                      # 打包说明（与原目录的差异）
 #   └── PACKAGE_MANIFEST.json                  # 逐文件 sha256 + 重写记录
 #
@@ -47,16 +46,10 @@
 #     --force             目标已存在时先清空再打包
 #     --dry-run           只打印将要做什么
 #     --self-test         纯逻辑自检（不落盘）
-#     --assets=list       模型资产打包（默认 none —— 只打代码；收包机器上
-#                         模型层会**明确报错指路**，不会静默）。可选值逗号分隔：
-#                           adapters  outputs/{deai,kw}_qwen3_06b（去 checkpoint/runs，~80 MB）
-#                           hf        .hf-home/qwen3-06b-hf 基座（~1.45 GB，adapters 的前提）
-#                           gguf      llamacpp/models/Qwen3-0.6B-Q8_0.gguf（~610 MB）
-#                           llama-bin llamacpp 的 exe/dll 运行时（**Windows/CUDA-13 专用**）
-#                           all       以上全部
-#                         资产源默认取本仓库上级的 小模型/（可用 --model-root= 覆盖）。
-#                         **缺资产 = 硬失败**（显式要求了却打不进去，不静默出空包）。
-#     --model-root=路径   模型仓库根（含 .hf-home/、outputs/、llamacpp/）
+#     --assets=list       模型资产打包（默认 none —— 只打代码）。可选：
+#                           adapters 只复制 outputs/{deai,kw}_qwen3_06b/adapter_model.safetensors
+#                         其余基座与运行环境首次启用模型时从 Hugging Face / PyPI 下载。
+#     --model-root=路径   模型仓库根（用于读取训练后的 adapter_model.safetensors）
 #     --runtime=<python 目录>  内嵌独立解释器到 <dest>/runtime/（照 GPT-SoVITS 范式；
 #                         **只带解释器与标准库，不含 torch/CUDA** —— 那些装机时按
 #                         设备装）。给出后额外生成 install.ps1 与 start.ps1。
@@ -160,28 +153,23 @@ SLIM_PATHS = ("skills/ppt-master/references/ai-image-comparison",
               "skills/ppt-master/templates/sounds")
 EXCLUDE_FILE_PATTERNS = [r".*\.pyc$", r".*\.log$", r"latest_.*\.log$"]
 
-# ── 模型资产打包（v17.19，--assets=…）─────────────────────────
-#   落点与开发机 小模型/ **同构**（.hf-home/qwen3-06b-hf、outputs/…、llamacpp/…），
-#   因此 small_model.py 把 vendor/small-model-assets 列为**根候选⓪**即可直接命中，
-#   llm_session 的 workspace 也随同一根可达 gguf —— 换机器开箱即用，无需外部目录。
+# ── 训练后适配器资产（v18，--assets=adapters）──────────────────
+# 发行包只保存 adapter_model.safetensors；Qwen 基座、PEFT 配置与 Python 运行环境
+# 首次启用模型时由 scripts/small_model.py 下载/生成到 .model-cache/。
 ASSETS_DST = "vendor/small-model-assets"
-ASSET_KINDS = ("adapters", "hf", "gguf", "llama-bin")
+ASSET_KINDS = ("adapters",)
 ADAPTER_DIRS = ("deai_qwen3_06b", "kw_qwen3_06b")
-ADAPTER_SKIP_DIRS = {"checkpoint", "runs", "__pycache__"}      # 按**前缀**判 checkpoint-*
-ADAPTER_SKIP_FILES = {"training_args.bin"}                     # 训练态，推理不读
-HF_REL = pathlib.Path(".hf-home") / "qwen3-06b-hf"
-GGUF_REL = pathlib.Path("llamacpp") / "models" / "Qwen3-0.6B-Q8_0.gguf"
-LLAMA_EXTS = {".exe", ".dll"}
+ADAPTER_WEIGHT = "adapter_model.safetensors"
 
 
 def default_model_root() -> pathlib.Path | None:
-    """模型仓库根：SMALL_MODEL_ROOT 环境变量 → 仓库根的各级父目录探测。"""
+    """训练权重源：SMALL_MODEL_ROOT 或仓库根的各级父目录。"""
     env = (os.environ.get("SMALL_MODEL_ROOT") or "").strip()
     if env:
         p = pathlib.Path(env)
-        return p if (p / HF_REL).is_dir() else None
+        return p if (p / "outputs").is_dir() else None
     for base in (REPO, *REPO.parents):
-        if (base / HF_REL).is_dir() and (base / "outputs").is_dir():
+        if (base / "outputs").is_dir():
             return base
     return None
 
@@ -198,24 +186,21 @@ def parse_assets(argval) -> set:
     if bad:
         raise ValueError(f"--assets 含未知取值 {'、'.join(sorted(bad))}"
                          f"（可用：{('、'.join(ASSET_KINDS))} 或 all/none）")
-    if "adapters" in got:
-        got.add("hf")          # 适配器**必须**配基座才能加载（TRAINED_MODELS.md §六）
     return got
 
 
 # ── 发行版随包脚本（--runtime 时生成到目标根）──────────────────
 #   两个都按 **pwsh 7** 写：Windows PowerShell 5.1 会按 ANSI 读无 BOM 的中文脚本，
-#   把中文注释读坏导致解析失败（llm.ps1 同此坑，见 v17.18）。
-#   ★ install.ps1 **只装依赖、不下权重**（权重随包在 vendor/small-model-assets/）；
-#   ★ torch 按 **-Device 选索引**装进随包 runtime —— 这正是"不打包 CUDA 执行环境"
-#     的落点：轮子随设备与驱动变化，装了也别处不可用。
+#   把中文注释读坏导致解析失败。
+#   ★ install.ps1 安装可执行环境；模型基座由首次启动的 small_model.py 下载；
+#   ★ vendor 只带训练后的 adapter_model.safetensors，不带基座或 llama.cpp。
 _INSTALL_PS1 = r"""# ─────────────────────────────────────────────────────────────
 # 流程1 发行版 · 依赖安装（在**目标机器**上跑一次；pwsh 7）
 #   .\install.ps1 -Device cuda130 -Source default
 #   .\install.ps1 -Device cpu                 # 无 NVIDIA 显卡
 # Device：torch 轮子索引（Blackwell sm_120 必须 cuda130 —— 旧轮子不含该架构）
 # Source：default | tuna(清华 PyPI 镜像) | hf-mirror(设 HF_ENDPOINT，HF 走镜像)
-# 权重已随包（流程1\vendor\small-model-assets\），本脚本**不下载模型**。
+# 仅 adapter_model.safetensors 随包；Qwen 基座首次自检/首次 --model 时自动下载。
 # ─────────────────────────────────────────────────────────────
 param(
   [ValidateSet("cuda130","cuda128","cuda126","cpu")][string]$Device = "cuda130",
@@ -242,7 +227,7 @@ Write-Host "[1/3] torch（$Device -> $idx）" -ForegroundColor Cyan
 
 Write-Host "[2/3] 流程与小模型层依赖" -ForegroundColor Cyan
 & $py -m pip install @pypi pypdf websocket-client pymupdf pillow networkx matplotlib `
-    wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft
+    wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft huggingface_hub
 
 Write-Host "[3/3] ppt-master 依赖" -ForegroundColor Cyan
 $req = Join-Path $here "流程1\vendor\ppt-master\requirements.txt"
@@ -270,9 +255,9 @@ $flow = Join-Path $here "流程1"
 if (-not (Test-Path $py)) { Write-Host "[X] 缺 runtime\python.exe —— 先跑 .\install.ps1" -ForegroundColor Red; exit 2 }
 $env:PATH = "$(Split-Path $py);$env:PATH"
 if (-not $env:HF_ENDPOINT) { $env:HF_ENDPOINT = "https://hf-mirror.com" }
-# 权重随包 -> 让 small_model / llm_lifecycle 指向包内资产根（换机器开箱即用）
+# 适配器权重随包；small_model.py 会把基座下载到流程目录 .model-cache\。
 $assets = Join-Path $flow "vendor\small-model-assets"
-if (Test-Path $assets) { $env:SMALL_MODEL_ROOT = $assets; $env:LLM_WORKSPACE = $assets }
+if (Test-Path $assets) { $env:SMALL_MODEL_ADAPTER_DIR = (Join-Path $assets "outputs") }
 
 switch ($Action) {
   "doctor" {
@@ -411,8 +396,8 @@ def _run(log) -> int:
     print(" 取全文 CDP 模块：" + ("**已排除**（--exclude-optional-cdp-fulltext："
           "发行版不含出版商正文自动化；流程改走备用链路）" if no_cdp_mod
           else "包含（optional-cdp-fulltext/；合规发行请加 --exclude-optional-cdp-fulltext）"))
-    print(" 模型资产：" + ("none（只打代码；模型层会在运行时报错指路）" if not assets
-          else "、".join(sorted(assets)) + f"（源 {default_model_root() or '未找到'}）"))
+    print(" 模型资产：" + ("none（只打代码；首次模型启动会下载基座）" if not assets
+          else "、".join(sorted(assets)) + f"（只复制训练 safetensors，源 {default_model_root() or '未找到'}）"))
     print(" 内嵌运行时：" + (runtime_src if runtime_src
           else "无（不内嵌解释器）"))
     print("═" * 68)
@@ -569,53 +554,24 @@ def _run(log) -> int:
             print(f"  · vendor/nature-paper-card：{ns_files} 个文件"
                   f"（单技能并入，Apache-2.0；补丁登记见其 UPSTREAM.md）")
 
-    # ── ③c vendor/llm_lifecycle：llama.cpp 服务启停+精准释放（v17.18 并入）──
-    #   与 ppt-master / nature-paper-card 平级：**运行/调试期要用的随包脚本**，
-    #   不带的话零样本基座通道（llm_session）在这台机器上就跑不了。
-    lc_src = SRC / "vendor" / "llm_lifecycle"
-    if lc_src.is_dir():
-        lc_dst = dest / "vendor" / "llm_lifecycle"
-        lc_n = 0
-        for f in iter_files(lc_src):
-            rel = f.relative_to(lc_src)
-            data = f.read_bytes()
-            out = lc_dst / rel
-            if not dry:
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_bytes(data)
-            lc_n += 1
-            manifest["files"].append(
-                {"path": f"vendor/llm_lifecycle/{rel}", "bytes": len(data),
-                 "sha256": hashlib.sha256(data).hexdigest()})
-        n_copy += lc_n
-        print(f"  · vendor/llm_lifecycle：{lc_n} 个文件（随包，零样本通道启停/释放）")
-    else:
-        manifest["skipped"].append("vendor/llm_lifecycle（源缺失）")
-
-    # ── ③d 模型资产：vendor/small-model-assets（--assets=…，默认 none）──
-    #   落点与开发机 小模型/ **同构**，small_model.py 把它列为根候选⓪，直接命中。
-    #   **只打权重与最小运行件**：torch/CUDA 轮子、nvidia dll、.venv 一律不打
-    #   （随设备变化，安装时装 —— 见 install.ps1）。
+    # ③c 不再打包 llama.cpp 生命周期：deai/kw 只使用 Transformers + PEFT。
+    # ── ③d 训练后适配器：vendor/small-model-assets（--assets=adapters）──
+    #   只复制 adapter_model.safetensors；基座/PEFT 配置/运行环境首次启用时获取。
     if assets:
         mr = pathlib.Path(argval("model-root") or "") if argval("model-root") else default_model_root()
         if mr is None:
-            print("[X] --assets 已指定，但找不到模型仓库根（含 .hf-home/qwen3-06b-hf）。")
+            print("[X] --assets=adapters 已指定，但找不到训练权重源（含 outputs/）。")
             print("  用 --model-root=<路径> 指定，或设 SMALL_MODEL_ROOT 环境变量。")
             return 2
         print(f"  · 模型资产源：{mr}｜范围：{', '.join(sorted(assets))}")
         adst = dest / ASSETS_DST
         got = {}
-        for kind in ("hf", "adapters", "gguf"):
+        for kind in ("adapters",):
             if kind not in assets:
                 continue
-            if kind == "hf":
-                srcs = [(mr / HF_REL, adst / HF_REL, set(), set())]
-            elif kind == "adapters":
-                srcs = [(mr / "outputs" / d, adst / "outputs" / d,
-                         ADAPTER_SKIP_DIRS, ADAPTER_SKIP_FILES)
-                        for d in ADAPTER_DIRS]
-            else:
-                srcs = [(mr / GGUF_REL, adst / GGUF_REL, set(), set())]
+            srcs = [(mr / "outputs" / d / ADAPTER_WEIGHT,
+                     adst / "outputs" / d / ADAPTER_WEIGHT,
+                     set(), set()) for d in ADAPTER_DIRS]
             nn = 0
             for s, d, skip_dirs, skip_files in srcs:
                 if not s.exists():
@@ -828,11 +784,11 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
         if manifest.get("assets"):
             a = manifest["assets"]
             got = "、".join(f"{k} {v} 文件" for k, v in (a.get("files") or {}).items())
-            L.append(f"- **权重随包**：`{ASSETS_DST}/`（{got}）—— 与开发机 `小模型/` 同构，"
-                     "`scripts/small_model.py` 把它列为根候选⓪，换机器开箱即用。")
+            L.append(f"- **训练权重随包**：`{ASSETS_DST}/outputs/`（{got}），只含 adapter_model.safetensors。"
+                     "首次启用模型时会把 Qwen/Qwen3-0.6B 基座下载到 `.model-cache/`，并生成 PEFT 配置。")
         else:
-            L.append("- **未随包权重**：装好依赖后设 `SMALL_MODEL_ROOT` 指向模型仓库根"
-                     "（含 `.hf-home/qwen3-06b-hf`、`outputs/`）。")
+            L.append("- **未随包训练权重**：需把 adapter_model.safetensors 放到"
+                     " `vendor/small-model-assets/outputs/{deai_qwen3_06b,kw_qwen3_06b}/`。")
         if manifest.get("runtime"):
             r = manifest["runtime"]
             L.append(f"- **内嵌运行时**：`runtime/`（{r['files']} 文件 / {r['mb']} MB，"
@@ -845,8 +801,9 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
             L.append("```")
         L.append("- 设备不写死：`SMALL_MODEL_DEVICE=cuda|cuda:N|cpu`（默认 auto）；"
                  "CPU 可用但会在 stderr 提示低吞吐。")
-        L.append("- 零样本基座通道（llama.cpp）需目标机自备 `llama-server`"
-                 "（本包**未含**该二进制；装了设为 `LLAMA_SERVER` 或放进 `llamacpp/`）。")
+        L.append("- 本包不含 Qwen 基座、Python 依赖或 llama.cpp；首次启用 --model/--kw-model 或运行 doctor 时，"
+                 "small_model.py 会自动安装缺失依赖、下载 `Qwen/Qwen3-0.6B` 并写入 `.model-cache/`。"
+                 "可设 `SMALL_MODEL_OFFLINE=1` 禁止联网。")
         L.append("")
 
     L.append("## 抓取策略（v7.1 分层）\n")

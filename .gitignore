@@ -1,11 +1,14 @@
 # ── 流程1 版本控制忽略规则（2026-10-02 建立）───────────────────
 #
-# 决策：vendor/ **不入库**。
-#   理由：它是**拷贝进来的第三方快照**（无 .git），共 88.8 MB，其中 9.1 MB
-#   还是生成物（vendor/ppt-master/projects/ 的 pptx 导出）。
-#   完整性核验靠 PACKAGE_MANIFEST.json 的逐文件 sha256。
-#   若日后要自包含，删掉下面这行再 git add 即可。
+# vendor 中的大型第三方快照不入库；模型发行目录例外保留训练后的 adapter 权重。
+# 完整性核验仍靠 PACKAGE_MANIFEST.json 的逐文件 sha256。
 
+# 流程1 随包模型只允许提交训练后的 safetensors；基座、tokenizer、运行时不提交。
+!vendor/
+!vendor/small-model-assets/
+!vendor/small-model-assets/outputs/
+!vendor/small-model-assets/outputs/*/
+!vendor/small-model-assets/outputs/*/adapter_model.safetensors
 
 # ── 运行副产物（流程跑起来才会生成，不应入库）─────────────────
 # [STOP] 注释必须**独占一行**。git 只在行首认 `#`；写成
