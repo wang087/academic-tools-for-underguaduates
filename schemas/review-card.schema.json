@@ -3,47 +3,245 @@
   "$id": "flow1/review-card",
   "title": "流程1综述解读卡",
   "type": "object",
-  "required": ["doi", "title", "evidence"],
+  "required": [
+    "doi",
+    "title",
+    "evidence"
+  ],
   "properties": {
-    "doi": {"type": "string", "minLength": 3},
-    "title": {"type": "string", "minLength": 1},
-    "journal": {"type": "string"},
-    "year": {"type": ["string", "integer", "null"]},
-    "evidence": {"$ref": "#/$defs/evidence"},
-    "field_role": {"type": "string"},
-    "one_sentence": {"type": "string"},
-    "problem_addressed": {"type": "string"},
-    "main_directions": {"type": "array", "items": {"$ref": "#/$defs/main-direction"}},
-    "consensus": {"type": "array", "items": {"type": "string"}},
-    "controversies": {"type": "array", "items": {"type": "string"}},
-    "open_questions": {"type": "array", "items": {"type": "string"}},
-    "key_concepts": {"type": "array", "items": {"$ref": "#/$defs/key-concept"}}
+    "doi": {
+      "type": "string",
+      "minLength": 3
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "journal": {
+      "type": "string"
+    },
+    "year": {
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ]
+    },
+    "evidence": {
+      "$ref": "#/$defs/evidence"
+    },
+    "field_role": {
+      "type": "string"
+    },
+    "one_sentence": {
+      "type": "string"
+    },
+    "problem_addressed": {
+      "type": "string"
+    },
+    "main_directions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/main-direction"
+      }
+    },
+    "consensus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "controversies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "key_concepts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/key-concept"
+      }
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "keywords_core": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "keywords_method": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "keywords_reagent": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "keyword_evidence": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "required": [
+              "term",
+              "category",
+              "rule",
+              "evidence",
+              "confidence"
+            ],
+            "properties": {
+              "term": {
+                "type": "string",
+                "minLength": 1
+              },
+              "category": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rule": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confidence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "required": [
+              "term",
+              "surface",
+              "source_field",
+              "quote"
+            ],
+            "properties": {
+              "term": {
+                "type": "string",
+                "minLength": 1
+              },
+              "surface": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        ]
+      }
+    },
+    "keyword_source_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "term",
+          "surface",
+          "source_field",
+          "quote"
+        ],
+        "properties": {
+          "term": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_field": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    }
   },
   "$defs": {
     "evidence": {
       "type": "object",
-      "required": ["source"],
+      "required": [
+        "source"
+      ],
       "properties": {
-        "source": {"type": "string"}
+        "source": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "main-direction": {
       "type": "object",
-      "required": ["name", "idea", "conclusion"],
+      "required": [
+        "name",
+        "idea",
+        "conclusion"
+      ],
       "properties": {
-        "name": {"type": "string"},
-        "idea": {"type": "string"},
-        "conclusion": {"type": "string"}
+        "name": {
+          "type": "string"
+        },
+        "idea": {
+          "type": "string"
+        },
+        "conclusion": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "key-concept": {
       "type": "object",
       "properties": {
-        "cn": {"type": "string"},
-        "en": {"type": "string"},
-        "plain": {"type": "string"}
+        "cn": {
+          "type": "string"
+        },
+        "en": {
+          "type": "string"
+        },
+        "plain": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     }

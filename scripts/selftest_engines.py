@@ -247,6 +247,38 @@ def main() -> int:
     check(ppl3 and "计算生物学" in ppl3[0]["directions"],
           "wp_teacher_card 取到方向（含 · 分隔）")
 
+    # ── 4b. 语义表格（无 class 依赖，合肥大学官网表格型） ──
+    print("\\n[4b] 语义表格解析（无站点 class 依赖）")
+    FIX_SEMANTIC_TABLE = """
+    <table><tr><th>姓名</th><th>最高学位</th><th>职称</th><th>研究方向</th></tr>
+    <tr><td>王晓峰</td><td>博士</td><td>教授</td><td>模式识别与智能系统</td></tr>
+    <tr><td>胡萍</td><td>硕士</td><td>副教授</td><td>管理科学与工程</td></tr>
+    <tr><td>学院简介</td><td></td><td></td><td>栏目介绍</td></tr></table>
+    """
+    tab = parse_with("semantic_table", FIX_SEMANTIC_TABLE, "https://x.edu.cn",
+                     "师资队伍", CFG)
+    check([p["name"] for p in tab] == ["王晓峰", "胡萍"],
+          "不依赖 CSS class 抽取语义表格姓名并过滤导航文字",
+          str([p["name"] for p in tab]))
+    check(tab and tab[0]["directions"] == ["模式识别与智能系统"],
+          "语义表格方向列正确映射", str(tab[0].get("directions") if tab else []))
+    check(not parse_with("semantic_table", "<table><tr><td>课程</td></tr></table>",
+                         "https://x.edu.cn", "普通表格", CFG),
+          "无师资语义表头的普通表格不产生人名")
+
+    # ── 4c. 无 class 的 CMS 个人卡片（四川农业大学风格） ──
+    print("\\n[4c] CMS 个人卡片解析")
+    FIX_PROFILE_CARDS = """
+    <div><a href="../info/1062/43901.htm"><img alt="陈其兵">陈其兵，二级教授，博士生导师。</a></div>
+    <div><a href="../info/1062/42341.htm"><img alt="姜贝贝">姜贝贝，教授。主要研究方向：菊花分枝发育分子生物学及百合耐热性。</a></div>
+    <div><a href="../info/1062/99999.htm">学院简介</a></div>
+    """
+    cards = parse_with("profile_cards", FIX_PROFILE_CARDS, "https://x.edu.cn", "教授", CFG)
+    check([p["name"] for p in cards] == ["陈其兵", "姜贝贝"],
+          "CMS 卡片抽取详情链接前的人名并过滤栏目名", str([p["name"] for p in cards]))
+    check(cards[1]["directions"] == ["菊花分枝发育分子生物学及百合耐热性"],
+          "CMS 卡片抽取研究方向摘要", str(cards[1].get("directions")))
+
     # ── 5. 形态聚类 + 无主页者补充（关键回归） ──
     print("\n[5] 形态聚类 / 无个人主页者不漏")
     cl = parse_with("generic_cluster", FIX_CLUSTER, "https://life.sjtu.edu.cn",
@@ -361,8 +393,9 @@ def main() -> int:
           "faculty_render 找到 robot/crawl_site.py")
     check(isinstance(fi.CdpUnavailable("x"), RuntimeError),
           "CdpUnavailable 可被捕获（调用方据此优雅降级）")
-    check(str(fi._prestart_command(9222)).count("remote-allow-origins") == 1,
-          "预启动命令含 --remote-allow-origins（否则 WS 握手 403）")
+    import inspect
+    check('suppress_origin=True' in inspect.getsource(fi._Session._connect),
+          "WebSocket连接不发送Origin，不依赖允许所有来源开关")
     check("remote-debugging-port" in fi._prestart_command(9222),
           "预启动命令含 --remote-debugging-port")
 

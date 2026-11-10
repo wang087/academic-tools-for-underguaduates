@@ -1,102 +1,34 @@
 # -*- coding: utf-8 -*-
-# ─────────────────────────────────────────────────────────────
-# Edge CDP 实例池 —— 并行多实例启动 / 探活 / 调度 / 回收
-#
-# 设计原则（按用户要求）：
-#   1) **优先最少启动参数**：默认只用 3 个必需参数
-#        --remote-debugging-port / --remote-allow-origins=* / --user-data-dir
-#      已知教训：--disable-blink-features=AutomationControlled、
-#      --excludeSwitches、--headless 等非默认参数本身就是可被检测的特征，
-#      反而更容易被 Cloudflare 拦。参数越少越接近真实用户浏览器。
-#   2) **不同实例用不同启动参数档位**（LEVELS），可在同一轮任务中并行对比
-#      哪一档能通过某出版社的风控，而不必反复重启。
-#   3) **一实例一 profile**：Edge 同 profile 无法起第二个调试端口，且
-#      profile 隔离天然实现「Cookie 池」——一个实例被挑战时，其余不受影响。
-#   4) 实例互相独立 → 单实例崩溃不影响整批任务（旧版单实例一崩全崩，
-#      batch2.log 里 8 篇全部 WinError 10061 就是这个原因）。
-#
-# 用法：
-#   python cdp_pool.py up --n=3              # 启动 3 个实例（9222-9224）
-#   python cdp_pool.py status                # 查看实例状态
-#   python cdp_pool.py down                  # 关闭本工作目录下的所有实例
-#   python cdp_pool.py renew --port=9223     # 换全新 profile 重建单个实例
-#
-# 可移植配置：PAPER_WORKDIR（默认当前目录）
-# ─────────────────────────────────────────────────────────────
+"""Browser CDP pool with workdir-scoped, verified process ownership.
+
+Use `up --browser PATH` for custom builds. Existing endpoints are inspected and
+attached without claiming ownership. No lifecycle operation deletes profiles.
+"""
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shlex
+import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
+import uuid
 
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+from cdp import is_alive, list_tabs, resolve_port, version
+from logutil import get as get_log, workdir as _wd
+from browser_runtime import (find_browser, find_edge, browser_brand, normalize_path,
+                             probe_endpoint, process_info, process_matches, listener_pids)
 
-from cdp import is_alive, list_tabs, resolve_port, version  # noqa: E402
-from logutil import get as get_log, workdir as _wd          # noqa: E402
-
-EDGE_CANDIDATES = tuple(
-    p for p in (
-        # 环境变量优先（PAPER_BROWSER 通用覆盖点；EDGE_PATH 兼容旧习惯），
-        #   换机器/换系统不必改代码。
-        os.environ.get("PAPER_BROWSER"),
-        os.environ.get("EDGE_PATH"),
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
-        # 非 Windows 候选（CDP 只需 Chromium 内核，不认 Edge 品牌）
-        "/usr/bin/microsoft-edge", "/usr/bin/google-chrome",
-        "/usr/bin/chromium", "/usr/bin/chromium-browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    )
-    # 空值必须剔除：未设 PAPER_BROWSER/EDGE_PATH 时它们是 None/""，而
-    #   Path("").exists() 指向当前目录、恒为真 —— 留着会让 find_edge()
-    #   返回空串，Popen([""]) 直接抛 WinError 87（整站浏览器起不来）。
-    if p
-)
-
-# ── 启动参数档位 ────────────────────────────────────────────
-#
-# 档位是**并列**的（不是叠加），由 build_args 按 level 选一套。
-#
-#   L0 日常档（默认）—— 「像正常打开的浏览器」，参数仍然克制：
-#       必需 3 个：port / allow-origins / user-data-dir
-#       正常窗口尺寸：--window-size=1280,900（不用 --start-minimized）
-#       跳过开箱即用体验：--no-first-run --no-default-browser-check
-#       屏蔽权限弹窗：--deny-permission-prompts（自动拒绝地理位置/摄像头/通知等）
-#       屏蔽通知弹窗：--disable-notifications
-#       弹窗抑制 6 个：见下方 _DIALOG_ARGS（崩溃恢复气泡 / 错误对话框 /
-#         重发表单 / 搜索引擎选择页 / 翻译气泡）
-#       ※ cookie/同意书弹窗没有对应的命令行开关，改由 cdp.py 的
-#         CONSENT_JS 在页内保守关闭（见该文件说明）。
-#
-#   L1 极简档 —— 仅 3 个必需参数。作为 A/B 对照：
-#       当某站点在 L0 下表现异常时，用它判断是否参数本身引起的。
-#       （刻意不含弹窗抑制 —— 否则无法判断异常是否由参数引起）
-#
-#   L2 扩展档 —— L0 + 语言设置，仅在需要中文界面时使用。
-#
-# 三档都**不含**：--headless（无头最易被识别）、
-#   --disable-blink-features=AutomationControlled、--excludeSwitches
-#   —— 这些非默认参数本身就是可被检测的指纹。
-#   ※ 「弹窗抑制」6 个参数（v6 新增，L0/L2/L3 共有）—— 只关**浏览器自己的
-#     对话框**，不碰页面 DOM，也不改 navigator/screen 指纹：
-#       --noerrdialogs                       抑制「页面无响应」等错误对话框（模态、会卡住导航）
-#       --disable-session-crashed-bubble     抑制崩溃后「恢复页面」气泡
-#       --hide-crash-restore-bubble          同上（新版 Chromium 的开关名，两代都带以便兼容）
-#       --disable-prompt-on-repost           抑制「重新提交表单」模态对话框（会直接阻断导航）
-#       --disable-search-engine-choice-screen 抑制全新 profile 首次启动的搜索引擎选择页
-#       --disable-features=Translate,TranslateUI
-#                                            抑制「是否翻译此页面？」气泡（英文论文页必现）
-#     前两项尤其重要：本流程会 `taskkill /F` 强制结束实例（见 kill_port），
-#       同一 profile 下次启动**必然**弹「恢复页面」，遮挡内容并抢焦点，
-#       影响人工过验证码。
-#     未知开关会被 Chromium 静默忽略，因此「两代开关名都带」是安全的。
 _DIALOG_ARGS = [
     "--noerrdialogs",
     "--disable-session-crashed-bubble", "--hide-crash-restore-bubble",
@@ -146,47 +78,41 @@ LEVELS = [
 
 LEVEL_NAMES = {0: "日常档", 1: "极简档", 2: "扩展档", 3: "极速档"}
 
-# 默认档位：PAPER_CDP_LEVEL 可覆盖（缺省 L0）。
-# 为什么需要它：启动用 L3、中途崩溃重启却回落到 L0，会让同一轮任务里
-#   实例行为不一致；统一由该变量决定，重启沿用同一档。
-DEFAULT_LEVEL = int(os.environ.get("PAPER_CDP_LEVEL", "0") or 0)
-
-# ── 附加启动参数：PAPER_CDP_EXTRA_ARGS（缺省空）────────────────
-#
-# 为什么需要：某些环境下 Edge 的 **renderer 进程沙箱**创建失败 ——
-#   浏览器主进程能起、DevTools 端口就绪、浏览器级 CDP 命令正常，
-#   但 renderer 一个都起不来，于是**所有页面级命令永远超时**。
-#   此时唯一有效的开关是 `--no-sandbox`（逐项二分定位结论见
-#   `optional-cdp-fulltext/cdp_up_nosandbox.py` 头部说明）。
-#
-# 旧行为的问题：`cdp_up_nosandbox.py` 只在**启动时**追加 `--no-sandbox`，
-#   而 `download_all_fulltexts.py` 检测到端口失联会调用
-#   `cdp_pool.launch_one(...)` **自行重启** —— 那条路径不经过可选模块，
-#   重启回来的实例没有 `--no-sandbox` → renderer=0 → 该实例后续每篇都失败。
-#   即「启动时好好的，中途崩一次就再也起不来」。
-#
-# 本钩子让**所有**调用方（含中途重启）都能带上同一套附加参数：
-#
-#     PAPER_CDP_EXTRA_ARGS="--no-sandbox"
-#
-# [STOP] 默认**为空** —— 沙箱是有价值的防线，正常环境不要设它。
-#   只在「不加就无法起 renderer」的环境按需设置，与本流程其它可移植配置一致。
-#   参数以空格分隔；末尾的 about:blank 始终保持在最后。
-_EXTRA_ARGS = [
-    a for a in (os.environ.get("PAPER_CDP_EXTRA_ARGS", "") or "").split()
-    if a
-]
-
-# 每个工作目录的实例登记表，便于 status / down
+LEVEL_NAMES = {0: "日常档", 1: "极简档", 2: "扩展档", 3: "极速档"}
+DEFAULT_LEVEL = 0  # compatibility constant; calls use runtime default_level().
 REGISTRY = ".work_cdp/cdp_instances.json"
+_REG_LOCK = threading.RLock()
 
-# profile 的**新家**：收进中间数据目录，不再散落在交付目录（输出根）
+
+def default_level() -> int:
+    value = int(os.environ.get("PAPER_CDP_LEVEL", "0") or 0)
+    if value not in range(len(LEVELS)):
+        raise ValueError("PAPER_CDP_LEVEL must be 0, 1, 2 or 3")
+    return value
+
+
+def _port(port):
+    port = int(port)
+    if not 1 <= port <= 65535:
+        raise ValueError("port must be between 1 and 65535")
+    return port
+
+
+def _open(port):
+    with socket.socket() as sock:
+        sock.settimeout(0.3)
+        return sock.connect_ex(("127.0.0.1", _port(port))) == 0
+
+
+def _scope(wd):
+    return pathlib.Path(wd if wd is not None else _wd()).resolve()
+
+
 PROFILE_HOME = ".work_cdp/cdp_profiles"
 _LEGACY_NOTED: set[str] = set()
 
 
 def _profile_name(port: int, tag: str = "") -> str:
-    """profile 目录的**叶子名**（与历史命名逐字一致，便于登记表与迁移对齐）。"""
     if port == 9222 and not tag:
         return ".edge-cdp-profile"
     return f".edge-cdp-p{port}{('-' + tag) if tag else ''}"
@@ -212,239 +138,294 @@ def _note_legacy_profile(p: pathlib.Path) -> None:
         f"（**移动**而非删除，Cookie 一并保留）。\n")
 
 
-def find_edge() -> str:
-    for p in EDGE_CANDIDATES:
-        if pathlib.Path(p).exists():
-            return p
-    raise FileNotFoundError("未找到 msedge.exe（Microsoft Edge）")
+def _binary_key(binary):
+    return hashlib.sha256(normalize_path(binary).encode("utf-8")).hexdigest()[:10]
 
 
-def profile_for(wd: pathlib.Path, port: int, tag: str = "") -> pathlib.Path:
-    """端口 → profile 目录（**收在 `.work_cdp/cdp_profiles/` 下**）。
-
-    **为什么不再直接建在输出根**：输出根是交付目录，而每个 profile 有
-    数十至数百 MB、且含 Cookie —— 散在交付目录里既碍眼（`ls` 一屏全是
-    `.edge-cdp-*`），又是凭据泄露面。收进中间数据目录后，交付时删掉
-    整个 `.work_cdp/` 即可。
-
-    **历史兼容（不可省）**：早期版本建在输出根（`<wd>/.edge-cdp-profile`），
-    那些目录里存着**已经通过 Cloudflare 放行的 Cookie**。换路径等于把它们
-    全部作废、重新挑战风控。所以：**旧路径存在就继续沿用**（不迁移、不丢文件），
-    并提示一次；想收拢请跑 `clean --apply`（移动而非删除，Cookie 一并带走）。
-    """
-    name = _profile_name(port, tag)
-    legacy = wd / name
-    if legacy.is_dir():
-        _note_legacy_profile(legacy)
-        return legacy
-    return wd / PROFILE_HOME / name
+def profile_for(wd: pathlib.Path, port: int, tag: str = "", browser=None) -> pathlib.Path:
+    wd, port = _scope(wd), _port(port)
+    if tag and not re.fullmatch(r"[A-Za-z0-9_-]+", tag):
+        raise ValueError("profile tag must contain only letters, digits, _ or -")
+    binary = find_browser(browser)
+    brand = browser_brand(binary)
+    if brand == "edge":
+        name = _profile_name(port, tag)
+        for legacy in (wd / name, wd / PROFILE_HOME / name):
+            if legacy.is_dir():
+                if legacy.parent == wd:
+                    _note_legacy_profile(legacy)
+                return legacy
+    return wd / PROFILE_HOME / f".browser-cdp-{brand}-{_binary_key(binary)}-p{port}{('-' + tag) if tag else ''}"
 
 
-def build_args(port: int, profile: pathlib.Path, level: int) -> list[str]:
-    """按档位选一套启动参数（档位是并列的，不叠加）。默认 L0 日常档。
+def _managed(wd, profile, port, binary):
+    profile = pathlib.Path(profile).resolve()
+    brand = browser_brand(binary)
+    generic = re.fullmatch(rf"\.browser-cdp-{re.escape(brand)}-{_binary_key(binary)}-p{port}(?:-[A-Za-z0-9_-]+)?", profile.name)
+    legacy = brand == "edge" and (profile.name == _profile_name(port) or
+                re.fullmatch(rf"\.edge-cdp-p{port}-[A-Za-z0-9_-]+", profile.name))
+    return ((profile.parent == (wd / PROFILE_HOME).resolve() and bool(generic or legacy))
+            or (profile.parent == wd and bool(legacy)))
 
-    末尾统一追加 `PAPER_CDP_EXTRA_ARGS`（缺省空），使**中途重启**与
-    首次启动拿到完全一致的参数 —— 否则本机 renderer 起不来的环境里，
-    重启回来的实例会是「端口通、renderer=0」的假活状态。
-    """
-    lv = max(0, min(level, len(LEVELS) - 1))
-    args = [a.format(port=port, profile=str(profile)) for a in LEVELS[lv]]
-    args.extend(_EXTRA_ARGS)
-    args.append("about:blank")
-    return args
+
+def _extra_args(extra_args=None):
+    if extra_args is None:
+        # POSIX parsing preserves quoted spaces. On Windows quote paths with / separators.
+        extra_args = shlex.split(os.environ.get("PAPER_CDP_EXTRA_ARGS", ""))
+    return list(extra_args)
+
+
+def build_args(port: int, profile: pathlib.Path, level: int, extra_args=None) -> list[str]:
+    if level not in range(len(LEVELS)):
+        raise ValueError("level must be 0, 1, 2 or 3")
+    extras = _extra_args(extra_args)
+    forbidden = ("--remote-debugging-port", "--remote-debugging-pipe", "--user-data-dir", "--type")
+    if any(not a.startswith("--") or any(a == x or a.startswith(x + "=") for x in forbidden) for a in extras):
+        raise ValueError("extra args must be switches and cannot override port/profile/process identity")
+    return [a.format(port=_port(port), profile=str(profile)) for a in LEVELS[level]] + extras + ["about:blank"]
 
 
 def _load_registry(wd: pathlib.Path) -> dict:
-    try:
-        return json.loads((wd / REGISTRY).read_text(encoding="utf-8"))
-    except Exception:
+    path = wd / REGISTRY
+    if not path.exists():
         return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("invalid CDP registry")
+    return data
 
 
 def _save_registry(wd: pathlib.Path, reg: dict) -> None:
-    p = wd / REGISTRY
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(reg, ensure_ascii=False, indent=1), encoding="utf-8")
+    path = wd / REGISTRY
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    temp.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temp, path)
 
 
-def kill_port(port: int, log=None) -> int:
-    """结束监听指定端口的进程树（只动调试实例，不影响用户正常浏览的 Edge）。"""
-    killed = 0
-    try:
-        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
-                             timeout=25, errors="replace").stdout
-    except Exception:
+def _record(wd, port, entry):
+    with _REG_LOCK:
+        reg = _load_registry(wd)
+        reg[str(port)] = entry
+        _save_registry(wd, reg)
+
+
+def _owned_identity(wd, port, entry):
+    if not entry.get("owned") or entry.get("workdir") != str(wd) or not entry.get("pid"):
+        raise PermissionError(f"port {port}: no owned process registered for this workdir")
+    info = process_info(entry["pid"])
+    if info is not None and not process_matches(info, entry, port):
+        raise PermissionError(f"port {port}: PID/binary/profile/port identity mismatch; refusing termination")
+    if info is not None and _open(port) and entry["pid"] not in listener_pids(port):
+        raise PermissionError(f"port {port}: registered PID does not own the listener")
+    return info
+
+
+def kill_port(port: int, log=None, wd: pathlib.Path | None = None) -> int:
+    wd, port = _scope(wd), _port(port)
+    entry = _load_registry(wd).get(str(port), {})
+    info = _owned_identity(wd, port, entry)
+    if info is None:
+        if _open(port):
+            raise PermissionError(f"port {port}: registered root exited but another listener exists; refusing termination")
+        entry.update(owned=False, ok=False, state="exited")
+        _record(wd, port, entry)
         return 0
-    pids = set()
-    for line in out.splitlines():
-        if f":{port}" in line and "LISTEN" in line.upper():
-            parts = line.split()
-            if parts and parts[-1].isdigit():
-                pids.add(parts[-1])
-    for pid in pids:
-        try:
-            subprocess.run(["taskkill", "/PID", pid, "/T", "/F"],
-                           capture_output=True, timeout=25)
-            killed += 1
-            if log:
-                log.info(f"已终止端口 {port} 上的进程树 PID {pid}")
-        except Exception as e:
-            if log:
-                log.warn(f"终止 PID {pid} 失败: {e}")
-    return killed
+    # Root PID only, never image-name, listener substring or unverified process tree.
+    if os.name == "nt":
+        result = subprocess.run(["taskkill", "/PID", str(entry["pid"]), "/F"],
+                                stdin=subprocess.DEVNULL, timeout=20)
+        if result.returncode:
+            raise RuntimeError(f"taskkill failed for verified PID {entry['pid']}")
+    else:
+        os.kill(entry["pid"], signal.SIGTERM)
+    entry.update(owned=False, ok=False, state="stopped")
+    _record(wd, port, entry)
+    if log:
+        log.info(f"Stopped verified CDP root PID {entry['pid']} port={port}")
+    return 1
 
 
 def launch_one(wd: pathlib.Path, port: int, level: int | None = None,
                profile: pathlib.Path | None = None, fresh: bool = False,
-               wait: float = 30.0, log=None, tag: str = "") -> bool:
-    """启动一个 Edge CDP 实例并等待就绪。已就绪则直接返回 True。
-
-    level=None 时取 DEFAULT_LEVEL（环境变量 PAPER_CDP_LEVEL，缺省 L0），
-    保证「启动用什么档，中途崩溃重启就用什么档」。
-    """
+               wait: float = 30.0, log=None, tag: str = "", browser=None, extra_args=None) -> bool:
+    wd, port = _scope(wd), _port(port)
     log = log or get_log("cdp_pool", wd=wd)
-    if is_alive(port):
-        log.info(f"端口 {port} 已有存活实例，复用")
+    if _open(port):
+        probe = probe_endpoint(port)
+        entry = _load_registry(wd).get(str(port), {})
+        owned = False
+        if entry.get("owned"):
+            try:
+                owned = _owned_identity(wd, port, entry) is not None
+            except (PermissionError, RuntimeError, OSError):
+                pass
+        if browser is not None:
+            selected = find_browser(browser)
+            if not owned or normalize_path(selected) != normalize_path(entry["binary"]):
+                raise PermissionError(f"port {port}: existing endpoint {probe['endpoint_version']['Browser']} cannot be verified as --browser {selected}; refusing attach")
+        # Existing registry is untouched. In particular attach is never registered owned.
+        log.info(f"port={port} {'owned reuse' if owned else 'non-owned attach'} | {probe['endpoint_version']['Browser']} | DOM usable")
         return True
-
-    level = DEFAULT_LEVEL if level is None else level
-    prof = profile or profile_for(wd, port, tag=tag)
+    previous = _load_registry(wd).get(str(port), {})
+    restarting = bool(previous.get("owned"))
+    if restarting:
+        if _owned_identity(wd, port, previous) is not None:
+            raise PermissionError(f"port {port}: registered browser root still running without a ready listener; use status/renew")
+        if browser is None:
+            browser = previous.get("binary")
+            if not browser:
+                raise PermissionError("Owned restart has no registered binary; refusing fallback")
+        if level is None:
+            level = previous.get("level")
+        if extra_args is None:
+            extra_args = previous.get("extra_args", [])
+    binary = find_browser(browser)
+    level = default_level() if level is None else level
+    if restarting and profile is None and not tag and normalize_path(binary) == normalize_path(previous["binary"]):
+        profile = pathlib.Path(previous["profile"])
+    prof = pathlib.Path(profile).resolve() if profile is not None else profile_for(wd, port, tag, binary)
+    if prof.name.startswith(".edge-cdp") and browser_brand(binary) != "edge":
+        raise ValueError("Legacy Edge profile cannot be used with another browser brand")
     if fresh:
-        import shutil
-        shutil.rmtree(prof, ignore_errors=True)
+        if not _managed(wd, prof, port, binary):
+            raise PermissionError("fresh is permitted only for a managed workdir profile")
+        # Never delete profiles (including previous managed profiles).
+        prof = profile_for(wd, port, tag=f"{tag + '-' if tag else ''}{uuid.uuid4().hex[:12]}", browser=binary)
+    args = build_args(port, prof, level, extra_args)
     prof.mkdir(parents=True, exist_ok=True)
-
-    edge = find_edge()
-    args = build_args(port, prof, level)
-    log.info(f"启动 Edge L{level}({LEVEL_NAMES.get(level, '?')}) port={port} "
-             f"profile={prof.name} | 参数 {len(args) - 1} 个: "
-             f"{' '.join(a for a in args if not a.startswith('--user-data-dir'))}")
-
-    logf = (wd / ".work_cdp" / "logs")
-    logf.mkdir(parents=True, exist_ok=True)
-    fh = open(logf / f"edge_{port}.log", "a", encoding="utf-8", errors="replace")
-
+    logdir = wd / ".work_cdp/logs"
+    logdir.mkdir(parents=True, exist_ok=True)
     flags = 0
     if os.name == "nt":
-        # 脱离父进程，任务结束后继续存活
-        flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008) | \
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        flags = getattr(subprocess, "DETACHED_PROCESS", 8) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 512)
+    with (logdir / f"browser_{port}.log").open("a", encoding="utf-8", errors="replace") as output:
+        proc = subprocess.Popen([binary, *args], stdout=output, stderr=output,
+                                stdin=subprocess.DEVNULL, close_fds=True, creationflags=flags)
+    entry = {"binary": binary, "profile": str(prof), "pid": proc.pid,
+             "owned": True, "workdir": str(wd), "level": level,
+             "extra_args": _extra_args(extra_args), "args": args,
+             "endpoint": f"http://127.0.0.1:{port}", "ok": False, "state": "starting"}
+    # Record launch identity immediately; failed readiness is still an owned root.
     try:
-        subprocess.Popen([edge] + args, stdout=fh, stderr=fh,
-                         stdin=subprocess.DEVNULL, close_fds=True,
-                         creationflags=flags)
-    except Exception as e:
-        log.error(f"Edge 启动失败: {e}")
-        return False
-
-    end = time.time() + wait
-    while time.time() < end:
-        if is_alive(port):
-            v = version(port)
-            log.ok(f"CDP 就绪 port={port} | {v.get('Browser')}")
-            return True
-        time.sleep(0.25)          # 0.25s 轮询：比 1s 平均早 ~0.4s 返回
-    log.error(f"端口 {port} 启动后 {wait:.0f}s 内未就绪，见 logs/edge_{port}.log")
+        info = process_info(proc.pid)
+    except Exception:
+        info = None
+    if info:
+        entry["created"] = info.get("created")
+    _record(wd, port, entry)
+    deadline, last_error = time.monotonic() + wait, "endpoint unavailable"
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            last_error = f"browser root exited ({proc.returncode})"
+            break
+        if _open(port):
+            try:
+                info = process_info(proc.pid)
+                if not process_matches(info, entry, port) or proc.pid not in listener_pids(port):
+                    raise RuntimeError("launched root process identity cannot be verified")
+                probe = probe_endpoint(port, timeout=min(4, max(0.2, deadline - time.monotonic())))
+                entry.update(probe, ok=True, state="ready")
+                _record(wd, port, entry)
+                log.ok(f"CDP ready port={port} binary={binary} | {probe['endpoint_version']['Browser']} | DOM usable")
+                return True
+            except Exception as exc:
+                last_error = str(exc)
+        time.sleep(0.25)
+    entry.update(ok=False, state="failed", error=last_error)
+    _record(wd, port, entry)
+    log.error(f"port {port} not ready: {last_error}; see {logdir / f'browser_{port}.log'}")
     return False
 
 
 def ensure(wd: pathlib.Path | None = None, n: int = 1, base_port: int = 9222,
-           levels: list[int] | None = None, log=None, fresh: bool = False) -> list[int]:
-    """确保有 n 个可用实例；返回存活端口列表。
-
-    默认**所有实例都用 L0 日常档**（正常窗口尺寸 + 跳过开箱体验 +
-    屏蔽权限/通知弹窗）—— 这是推荐配置。
-    传入 levels=[0,1,2] 可让各实例使用不同档位，用于并行 A/B 对比。
-    """
-    wd = wd or _wd()
+           levels: list[int] | None = None, log=None, fresh: bool = False,
+           browser=None, extra_args=None) -> list[int]:
+    wd = _scope(wd)
+    if n < 1:
+        raise ValueError("n must be positive")
+    levels = levels or [None]  # Each launch inherits an owned restart's level or runtime default.
     log = log or get_log("cdp_pool", wd=wd)
-    levels = levels or [DEFAULT_LEVEL]
-    ports, reg = [], _load_registry(wd)
-
-    # 并行启动：先全部拉起（每个 launch_one 内部会等到就绪），
-    #   N 个实例的总启动时间 ≈ 最慢的 1 个，而不是 N 个之和。
-    import threading
-    results: dict[int, bool] = {}
-
-    def _boot(i: int):
-        port = base_port + i
-        lv = levels[i % len(levels)]
-        try:
-            results[port] = launch_one(wd, port, level=lv,
-                                       fresh=fresh and i == 0, log=log)
-        except Exception as e:
-            log.warn(f"实例 {port} 启动异常: {str(e)[:80]}")
-            results[port] = False
-
-    threads = [threading.Thread(target=_boot, args=(i,), daemon=True)
-               for i in range(n)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
+    ports = []
+    # Sequential registration avoids cross-thread ownership updates and keeps failures clear.
     for i in range(n):
-        port = base_port + i
-        lv = levels[i % len(levels)]
-        ok = bool(results.get(port))
-        reg[str(port)] = {"profile": profile_for(wd, port).name, "level": lv, "ok": ok}
-        if ok:
+        port = _port(base_port + i)
+        if launch_one(wd, port, levels[i % len(levels)], fresh=fresh, log=log,
+                      browser=browser, extra_args=extra_args):
             ports.append(port)
-    _save_registry(wd, reg)
-
-    if not ports:
-        log.error("没有任何可用 CDP 实例")
-    else:
-        log.info(f"可用实例 {len(ports)} 个: {ports}")
     return ports
 
 
 def alive_ports(wd: pathlib.Path | None = None, base_port: int = 9222, span: int = 8) -> list[int]:
-    """扫描端口段，返回存活的 CDP 端口。"""
     return [p for p in range(base_port, base_port + span) if is_alive(p)]
 
 
 def status(wd: pathlib.Path | None = None, base_port: int = 9222, span: int = 8) -> list[dict]:
-    wd = wd or _wd()
+    wd = _scope(wd)
     reg = _load_registry(wd)
     out = []
-    for p in range(base_port, base_port + span):
-        live = is_alive(p)
-        info = {"port": p, "alive": live,
-                "profile": (reg.get(str(p)) or {}).get("profile", profile_for(wd, p).name),
-                "level": (reg.get(str(p)) or {}).get("level")}
-        if live:
+    for port in range(base_port, base_port + span):
+        entry = dict(reg.get(str(port), {}))
+        entry.update(port=port, alive=_open(port), owned=False)
+        if reg.get(str(port), {}).get("owned"):
             try:
-                v = version(p)
-                info["browser"] = v.get("Browser", "")
-                tabs = [t for t in list_tabs(p) if t.get("type") == "page"]
-                info["tabs"] = len(tabs)
-            except Exception:
-                pass
-        out.append(info)
+                entry["owned"] = _owned_identity(wd, port, reg[str(port)]) is not None
+            except Exception as exc:
+                entry["identity_error"] = str(exc)
+        if entry["alive"]:
+            try:
+                entry.update(probe_endpoint(port))
+                entry["browser"] = entry["endpoint_version"]["Browser"]
+            except Exception as exc:
+                entry.update(dom_usable=False, error=str(exc))
+            if not entry["owned"]:
+                # Registry is historical; do not attribute it to the current listener.
+                for key in ("binary", "profile", "pid", "args", "created"):
+                    entry.pop(key, None)
+                entry["state"] = "non-owned attach"
+        out.append(entry)
     return out
 
 
 def down(wd: pathlib.Path | None = None, base_port: int = 9222, span: int = 8, log=None) -> int:
-    wd = wd or _wd()
-    log = log or get_log("cdp_pool", wd=wd)
-    n = 0
-    for p in range(base_port, base_port + span):
-        if is_alive(p):
-            n += kill_port(p, log=log)
-    log.info(f"已关闭 {n} 个实例")
-    return n
+    wd, total = _scope(wd), 0
+    reg = _load_registry(wd)
+    refused = []
+    for port in range(base_port, base_port + span):
+        entry = reg.get(str(port), {})
+        if entry.get("owned"):
+            try:
+                total += kill_port(port, log=log, wd=wd)
+            except (PermissionError, RuntimeError, OSError) as exc:
+                refused.append(str(exc))
+        elif _open(port):
+            refused.append(f"port {port}: unregistered/non-owned listener; refusing termination")
+    if refused:
+        raise PermissionError("; ".join(refused))
+    return total
 
 
 def renew(wd: pathlib.Path | None = None, port: int = 9222, level: int | None = None,
-          tag: str = "", log=None) -> bool:
-    """换全新 profile 重建单个实例（放行 cookie 失效时使用）。"""
-    wd = wd or _wd()
-    log = log or get_log("cdp_pool", wd=wd)
-    log.info(f"重建实例 port={port}（全新 profile）")
-    kill_port(port, log=log)
-    time.sleep(3)
-    return launch_one(wd, port, level=level, tag=tag, fresh=True, log=log)
+          tag: str = "", log=None, browser=None, extra_args=None) -> bool:
+    wd, port = _scope(wd), _port(port)
+    entry = _load_registry(wd).get(str(port), {})
+    _owned_identity(wd, port, entry)  # Always require a prior owned record.
+    binary = find_browser(browser if browser is not None else entry["binary"])
+    if not _managed(wd, entry["profile"], port, entry["binary"]):
+        raise PermissionError("renew requires a managed profile; user profiles are preserved")
+    level = entry.get("level", 0) if level is None else level
+    extras = entry.get("extra_args", []) if extra_args is None else extra_args
+    # Validate all replacements before touching the old process.
+    profile_for(wd, port, tag, binary)
+    build_args(port, pathlib.Path(entry["profile"]), level, extras)
+    kill_port(port, log=log, wd=wd)
+    deadline = time.monotonic() + 10
+    while _open(port) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if _open(port):
+        raise RuntimeError(f"port {port} remains occupied after owned root shutdown; refusing replacement")
+    return launch_one(wd, port, level=level, tag=tag, fresh=True, log=log,
+                      browser=binary, extra_args=extras)
 
 
 def _dir_size_bytes(p: pathlib.Path) -> int:
@@ -479,11 +460,13 @@ def clean(wd: pathlib.Path | None = None, log=None,
     |---|---|---|
     | （无） | 只列出：位置、端口、大小、是否在用 | 零 |
     | `--apply` | **移动**旧目录到 `.work_cdp/cdp_profiles/` | 低：文件与 Cookie 一并保留，`profile_for()` 之后自然命中新位置 |
-    | `--purge` | 顺带**删除**孤儿 profile（端口无存活实例且不在登记表） | 高：**会丢 Cookie**，需 `--apply`/`--purge` 显式给出 |
+    | `--purge` | 兼容保留参数名，但安全拒绝删除 profile | 不删除用户数据 |
 
     **永不**移动/删除「有存活实例」的 profile —— Edge 正在使用它。
     """
-    wd = wd or _wd()
+    wd = _scope(wd)
+    if purge:
+        raise PermissionError("Profile deletion is disabled; clean --apply moves profiles and preserves data")
     home = wd / PROFILE_HOME
     # 名字可能撞车的都当历史残留（输出根下以 .edge-cdp 开头者）
     legacy = sorted(p for p in wd.glob(".edge-cdp*") if p.is_dir())
@@ -491,8 +474,16 @@ def clean(wd: pathlib.Path | None = None, log=None,
 
     report: list[dict] = []
     moved = purged = 0
-    live = {p for p in range(9222, 9222 + 8) if is_alive(p)}
     reg = _load_registry(wd)
+    candidate_ports = {_port_of_profile_name(p.name) for p in legacy + orphans}
+    candidate_ports.update(int(p) for p in reg if str(p).isdigit())
+    live = {p for p in candidate_ports if p and _open(p)}
+    for entry in reg.values():
+        if entry.get("owned") and entry.get("pid"):
+            info = process_info(entry["pid"])
+            if info is not None:
+                values = __import__("browser_runtime").switch_values(info.get("args", []), "--remote-debugging-port")
+                live.update(int(p) for p in values if p.isdigit())
 
     def _record(p: pathlib.Path, where: str) -> dict:
         port = _port_of_profile_name(p.name)
@@ -524,6 +515,10 @@ def clean(wd: pathlib.Path | None = None, log=None,
             try:
                 shutil.move(str(p), str(dst))
                 moved += 1
+                for record in reg.values():
+                    if record.get("profile") and normalize_path(record["profile"]) == normalize_path(str(p)):
+                        record["profile"] = str(dst.resolve())
+                _save_registry(wd, reg)
                 if log:
                     log.ok(f"已收拢 {p.name}/ → {PROFILE_HOME}/（{_mb(e['mb'])}，Cookie 保留）")
             except OSError as ex:
@@ -549,83 +544,54 @@ def clean(wd: pathlib.Path | None = None, log=None,
             "moved": moved, "purged": purged}
 
 
-# ── CLI ─────────────────────────────────────────────────────
-USAGE = ("usage: cdp_pool.py {up|status|down|renew|kill|clean}\n"
-         "       up     [--n=3] [--base=9222] [--levels=0,3] [--fresh]\n"
-         "       status [--base=9222] [--span=8]\n"
-         "       down   [--base=9222] [--span=8]\n"
-         "       renew  [--port=9222] [--level=3] [--tag=...]\n"
-         "       kill   [--port=9222]\n"
-         "       clean  [--apply] [--purge]      # profile 清点；--apply 收拢进 "
-         f"{PROFILE_HOME}/\n"
-         "\n"
-         "  档位：0=L0 日常（默认） 1=L1 极简 2=L2 扩展 3=L3 极速\n"
-         "  跨脚本统一档位请设 PAPER_CDP_LEVEL（缺省 0）\n"
-         f"  profile 落点：{PROFILE_HOME}/（历史遗留仍在输出根，用 clean --apply 收拢）")
-
-
-def main():
-    args = sys.argv[1:]
-    # ★ `--help` / `-h` 必须在这里显式拦下。
-    #   本脚本**没有 argparse**，而下一行是
-    #       cmd = args[0] if args and not args[0].startswith("-") else "up"
-    #   —— 任何以 `-` 开头的参数（含 `--help`）都会落到 else → **执行 up**，
-    #   于是 `cdp_pool.py --help` 会**真的启动 Edge 实例、建 profile 目录**，
-    #   而不是打印用法。实测踩到：跑 `--help` 后 9222 上多出一个真实浏览器进程。
-    #   对一个会开浏览器/占端口的工具，这属于**意外副作用**，必须拦。
-    if "--help" in args or "-h" in args:
-        print(USAGE)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for command in ("up", "status", "down", "renew", "kill", "clean"):
+        p = sub.add_parser(command)
+        p.add_argument("--workdir", type=pathlib.Path)
+        if command in ("up", "renew"):
+            p.add_argument("--browser", help="Exact browser executable; invalid paths fail closed")
+        if command in ("up", "status", "down"):
+            p.add_argument("--base", type=int, default=9222)
+        if command in ("status", "down"):
+            p.add_argument("--span", type=int, default=8)
+        if command in ("renew", "kill"):
+            p.add_argument("--port", type=int, default=9222)
+        if command == "clean":
+            p.add_argument("--apply", action="store_true")
+            p.add_argument("--purge", action="store_true", help="Deprecated: deletion is refused")
+        if command == "up":
+            p.add_argument("--n", type=int, default=1)
+            p.add_argument("--levels", type=lambda s: [int(x) for x in s.split(",")])
+            p.add_argument("--fresh", action="store_true")
+        if command == "renew":
+            p.add_argument("--level", type=int)
+            p.add_argument("--tag", default="")
+    args = parser.parse_args(argv)
+    try:
+        wd = _scope(args.workdir)
+        if args.command == "clean":
+            print(json.dumps(clean(wd, apply=args.apply, purge=args.purge), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "status":
+            print(json.dumps(status(wd, args.base, args.span), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "up":
+            ports = ensure(wd, args.n, args.base, args.levels, fresh=args.fresh, browser=args.browser)
+            print(f"Ready ports: {ports}")
+            return 0 if len(ports) == args.n else 1
+        if args.command == "renew":
+            return 0 if renew(wd, args.port, args.level, args.tag, browser=args.browser) else 1
+        if args.command == "down":
+            print(f"Stopped: {down(wd, args.base, args.span)}")
+            return 0
+        kill_port(args.port, wd=wd)
         return 0
-    cmd = args[0] if args and not args[0].startswith("-") else "up"
-    wd = _wd()
-    kw = {}
-    for a in args:
-        if a.startswith("--n="): kw["n"] = int(a.split("=", 1)[1])
-        elif a.startswith("--port="): kw["port"] = int(a.split("=", 1)[1])
-        elif a.startswith("--base="): kw["base_port"] = int(a.split("=", 1)[1])
-        elif a.startswith("--span="): kw["span"] = int(a.split("=", 1)[1])
-        elif a.startswith("--levels="):
-            kw["levels"] = [int(x) for x in a.split("=", 1)[1].split(",") if x.strip()]
-        elif a.startswith("--level="): kw["level"] = int(a.split("=", 1)[1])
-        elif a.startswith("--tag="): kw["tag"] = a.split("=", 1)[1]
-        elif a == "--fresh": kw["fresh"] = True
-        elif a == "--apply": kw["apply"] = True
-        elif a == "--purge": kw["purge"] = True
-    log = get_log("cdp_pool", wd=wd)
-
-    if cmd == "up":
-        ports = ensure(wd, n=kw.get("n", 1), base_port=kw.get("base_port", 9222),
-                       levels=kw.get("levels"), log=log, fresh=kw.get("fresh", False))
-        print(f"存活实例: {ports}")
-    elif cmd == "status":
-        for s in status(wd, kw.get("base_port", 9222)):
-            if s["alive"]:
-                print(f"  [ON ] :{s['port']}  L{s.get('level')}  profile={s['profile']}  "
-                      f"tabs={s.get('tabs')}  {s.get('browser','')}")
-            else:
-                print(f"  [off] :{s['port']}  profile={s['profile']}")
-    elif cmd == "down":
-        down(wd, kw.get("base_port", 9222), kw.get("span", 8), log=log)
-    elif cmd == "renew":
-        renew(wd, kw.get("port", 9222), kw.get("level"), kw.get("tag", ""), log=log)
-    elif cmd == "kill":
-        kill_port(kw.get("port", 9222), log=log)
-    elif cmd == "clean":
-        rep = clean(wd, log=log, apply=kw.get("apply", False),
-                    purge=kw.get("purge", False))
-        for r in rep["legacy"]:
-            print(f"  [根] {r['name']:<28} port={r['port']}  {_mb(r['mb'])}"
-                  + ("  ← 存活实例在用，跳过" if r["in_use"] else ""))
-        for r in rep["profiles"]:
-            print(f"  [收] {r['name']:<28} port={r['port']}  {_mb(r['mb'])}"
-                  + ("  ← 存活实例在用" if r["in_use"] else ""))
-        print(f"移动 {rep['moved']} / 删除 {rep['purged']}")
-        if not (kw.get("apply") or kw.get("purge")):
-            print("（dry-run：未改盘。确认后加 --apply；仅删孤儿再加 --purge）")
-    else:
-        print(USAGE)
-    log.close()
+    except Exception as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

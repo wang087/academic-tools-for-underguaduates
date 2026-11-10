@@ -214,3 +214,16 @@ python scripts/check_interpretation.py 解读.md --tier L2 --model
   用于练动词强度校准。
 - **`references/sentence-patterns.md`** —— 按档位组织的句式库，
   每个槽位给出 模板 → 变体 → 真实例句 → 常见错误。
+
+
+### 关键词与来源证据（接入 H/H2/R2）
+
+同一次读原文时按调用方任务包产生完整专业词，不另派关键词代理。
+`keywords_core/method/reagent` 与 `keyword_evidence(term/category/rule/evidence/confidence)`
+保留三层含义；来源引文独立写 `keyword_source_evidence(term/surface/source_field/quote)`。
+后者不能覆盖前者。`source_field` 限于任务包 `title/abstract/text/author_keywords`，
+引文逐字回查、缩写展开只用精确别名或原文括号定义，不猜翻译。
+三层词集合已足够，不要求另抄一份 `keywords`。证据不足宁可空并 WARN，不补满配额。
+L1/L2/L3 的关键词契约一致：完整中英文术语、短语不拆词、不做中文滑窗；
+词云与 VOS 优先三层 core，method 单独画像，reagent 不进入词云；逐文献二值共现。
+具体分类与门控以 `../../subagent-driven-review/SKILL.md` §6.7 为准。

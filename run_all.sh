@@ -44,8 +44,7 @@ export PAPER_WORKDIR="${WORKDIR}"
 export PAPER_AUTHOR="${AUTHOR_NAME}"
 
 # ── CDP 档位（PAPER_CDP_LEVEL 统一指定，缺省 L0 日常档）────────────
-#   本变量同时决定**首次启动**（下面传给 start_edge_cdp.sh）与**崩溃重启**
-#   （cdp_pool.DEFAULT_LEVEL 自己的同名环境变量），保证一轮任务内档位一致。
+#   本变量同时决定首次启动与崩溃重启，cdp_pool 在调用时读取同名环境变量。
 #
 #   ★ 必须在这里显式校验，不能只依赖下游的 case 匹配：
 #     start_edge_cdp.sh 的 extra_args() 用 `case "$lv"` 分档，**不匹配时不报错、
@@ -144,8 +143,8 @@ fi
 #   档位由 ${CDP_LEVEL}（= PAPER_CDP_LEVEL，缺省 L0）决定，经第 4 个位置参数
 #   传入；**不要再写死一个常量** —— 那会让 PAPER_CDP_LEVEL 被
 #   start_edge_cdp.sh 的 `${4:-${PAPER_CDP_LEVEL:-0}}` 短路，静默失效。
-echo "[1/7] 启动 ${N_INST} 个 CDP Edge 实例（档位 L${CDP_LEVEL}）..."
-bash "${SDIR}/start_edge_cdp.sh" "$WORKDIR" 9222 "$N_INST" "${CDP_LEVEL}" || {
+echo "[1/7] 启动 ${N_INST} 个 Chromium 兼容 CDP 实例（档位 L${CDP_LEVEL}，PAPER_BROWSER 可选浏览器）..."
+uv run --with websocket-client python "${SDIR}/cdp_pool.py" up --workdir "$WORKDIR" --base=9222 --n="$N_INST" --levels="${CDP_LEVEL}" || {
   echo "      [X] CDP 启动失败"; exit 1; }
 
 # ── 2. 抓取 ORCID 成果 ─────────────────────────────────────────

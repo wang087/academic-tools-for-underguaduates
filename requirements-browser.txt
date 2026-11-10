@@ -1,0 +1,5 @@
+# Optional existing-browser render/desktop integration. Does not download browser binaries.
+-r requirements-core.txt
+playwright>=1.48,<2
+opencv-python>=4.10,<5
+psutil>=6,<8

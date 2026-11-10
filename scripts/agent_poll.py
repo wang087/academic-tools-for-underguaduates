@@ -35,6 +35,7 @@ import sys
 import time
 
 from logutil import run_root as _run_root  # noqa: E402
+from keyword_contract import validate_keyword_contract
 
 
 def _fix_streams() -> None:
@@ -304,9 +305,11 @@ _DICT_LIST_FIELDS = {
 }
 
 
-def card_shape_problems(card: dict, stage: str) -> list[str]:
+def card_shape_problems(card: dict, stage: str, task: dict | None = None) -> list[str]:
     """返回这张卡的容器类型问题清单；空清单 = 合规。"""
-    errs: list[str] = []
+    if not isinstance(card, dict):
+        return ["card: 应为对象"]
+    errs: list[str] = list(validate_keyword_contract(card, task)["errors"])
     for k in _STR_FIELDS.get(stage, ()):
         v = card.get(k)
         if not isinstance(v, str) or not v.strip():
@@ -354,8 +357,22 @@ def survey(stage: str, expect: int) -> dict:
             bad_detail.append({"file": n, **diag})
     rejected = sorted(_parse_failed_cards(d))
     # 能解析但**容器类型不合规**的卡：不重派就会带病进 build（H-3）
-    shape = {n: card_shape_problems(json.loads((rdir / n).read_text(encoding="utf-8")), stage)
-             for n in good}
+    shape, keyword_reports = {}, []
+    for n in good:
+        if n not in tasks:
+            continue
+        card = json.loads((rdir / n).read_text(encoding="utf-8"))
+        try:
+            task = json.loads((tdir / n).read_text(encoding="utf-8"))
+            if not isinstance(task, dict):
+                raise ValueError("task is not an object")
+        except (OSError, ValueError) as exc:
+            shape[n] = [f"task: unreadable object ({exc})"]
+            continue
+        shape[n] = card_shape_problems(card, stage, task)
+        report = validate_keyword_contract(card, task)
+        if report["warnings"] or report["rejected"]:
+            keyword_reports.append({"file": n, **report})
     shape_bad = sorted([{"file": n, "problems": p} for n, p in shape.items() if p],
                        key=lambda x: x["file"])
 
@@ -369,6 +386,8 @@ def survey(stage: str, expect: int) -> dict:
                 c = json.loads((rdir / n).read_text(encoding="utf-8"))
             except Exception:
                 continue
+            if not isinstance(c, dict):
+                continue
             if not any(isinstance(c.get(k), list) and c.get(k)
                        for k in ("keywords_core", "keywords_method", "keywords_reagent")):
                 kw_missing.append(n)
@@ -381,7 +400,9 @@ def survey(stage: str, expect: int) -> dict:
     remaining = len(missing)
     suggest_batch = 0 if remaining == 0 else min(remaining, batch_cap)
 
-    if remaining == 0 and total > 0 and not shape_bad:
+    if bad or rejected or shape_bad:
+        code, verdict = 4, "needs-remake"
+    elif remaining == 0 and total > 0:
         code, verdict = 0, "complete"
     elif remaining == 0 and total == 0:
         code, verdict = 2, "no-tasks"
@@ -416,6 +437,8 @@ def survey(stage: str, expect: int) -> dict:
         "rejected": rejected[:20],
         "shape_bad_count": len(shape_bad),
         "shape_bad": shape_bad[:20],
+        "keyword_warning_count": len(keyword_reports),
+        "keyword_warnings": keyword_reports,
         "keywords_missing_count": len(kw_missing),
         "keywords_missing": kw_missing[:20],
         "progress_pct": round(n_done / total * 100, 1) if total else 0.0,

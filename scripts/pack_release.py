@@ -11,7 +11,7 @@
 #   ├── ppt-integration/SKILL.md               # 阶段 P 子流程
 #   ├── skills/                                # 流程内技能副本（paper-lookup、
 #   │                                          #   paper-interpretation-writing）
-#   ├── 示例数据/                              # 自检夹具
+#   ├── 示例数据/                              # 自检夹具（合成题录，无真实作者信息）
 #   ├── 研究方法与关键词总表.md                 # 词表的来源文档（附）
 #   ├── vendor/ppt-master/                     # 依赖：ppt-master 运行时（去 .git/projects/docs）
 #   ├── vendor/nature-paper-card/               # 依赖：已并入的 nature-paper-card（Apache-2.0）
@@ -115,8 +115,8 @@ except Exception:                      # 单文件运行时也要能用
 TEXT_EXT = {".md", ".py", ".sh", ".json", ".txt", ".html", ".toml", ".cfg", ".yml", ".yaml"}
 
 # 顶层条目：源目录名 → 是否必须
-TOP_ITEMS = ["SKILL.md", "README.md", "run_all.sh", "scripts", "templates",
-             "subagent-driven-review", "ppt-integration", "示例数据",
+TOP_ITEMS = ["SKILL.md", "README.md", "README_FOR_AGENTS.md", "start_local.ps1", "requirements-core.txt", "requirements-visual.txt", "requirements-browser.txt", "requirements-ppt.txt", "run_all.sh", "scripts", "templates",
+             "subagent-driven-review", "ppt-integration", "robot", "paper-card-integration", "schemas",
              # v17：流程内的技能副本。两者都是**运行时**依赖，不带就断链：
              #   · skills/paper-lookup        —— route_databases.py 直接调它的
              #       paginate.py / arxiv_atom.py 取数（阶段 R 检索链）
@@ -227,7 +227,10 @@ Write-Host "[1/3] torch（$Device -> $idx）" -ForegroundColor Cyan
 
 Write-Host "[2/3] 流程与小模型层依赖" -ForegroundColor Cyan
 & $py -m pip install @pypi pypdf websocket-client pymupdf pillow networkx matplotlib `
-    wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft huggingface_hub
+    wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft huggingface_hub `
+    websockets httpx requests jsonschema
+$coreReq = Join-Path $here "流程1\requirements-visual.txt"
+if (Test-Path $coreReq) { & $py -m pip install @pypi -r $coreReq }
 
 Write-Host "[3/3] ppt-master 依赖" -ForegroundColor Cyan
 $req = Join-Path $here "流程1\vendor\ppt-master\requirements.txt"
@@ -774,7 +777,7 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
                  "依赖按设备装：`pwsh -File install.ps1 -Device cuda130\\|cpu` |")
     else:
         L.append("| Python | 通过 `uv` 运行，脚本按需 `uv run --with <pkg>` 拉依赖 |")
-    L.append("| 浏览器 | Microsoft Edge（阶段 B–E 的 CDP 抓取要用） |")
+    L.append("| 浏览器 | Chrome/Chromium/Edge（CDP；PAPER_BROWSER或--browser可指定） |")
     L.append("| 网络 | 阶段 D2/G2/H2 走 OpenAlex 等元数据 API；"
              "摘要在第一层直连；**原文全文经 CDP** |")
     L.append("")

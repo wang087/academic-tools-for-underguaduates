@@ -634,17 +634,15 @@ def _usable_ports() -> list[int]:
     cand = cdp_pool.alive_ports(FLOW1, 9222, span=8)
     if not cand:
         return []
-    try:
-        launcher = cdpmod.script("cdp_up_nosandbox.py") if cdpmod else None
-        if launcher:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("_cdp_up", launcher)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return [p for p in cand if mod.renderer_count(p) > 0]
-    except Exception:  # noqa: BLE001
-        pass
-    return cand
+    from browser_runtime import probe_endpoint
+    usable = []
+    for port in cand:
+        try:
+            if probe_endpoint(port).get('dom_usable'):
+                usable.append(port)
+        except Exception:
+            pass
+    return usable
 
 
 def run_cdp(num: int, ports: str | None, manual_wait: float,
@@ -678,20 +676,11 @@ def run_cdp(num: int, ports: str | None, manual_wait: float,
     else:
         pl = _usable_ports()
         if not pl:
-            # 优先用带 --no-sandbox 的启动器：本机 Edge 的 renderer 沙箱
-            # 创建失败，用 cdp_pool 直启会得到「端口就绪但 renderer=0」的
-            # 假活实例（页面级命令全部超时）。见 cdp_up_nosandbox.py 头部说明。
-            launcher = cdpmod.script("cdp_up_nosandbox.py") if cdpmod else None
-            if launcher:
-                print(f"  启动 {num} 个 CDP 实例（cdp_up_nosandbox）…")
-                subprocess.call([sys.executable, str(launcher), f"--n={num}"])
-            else:
-                print(f"  启动 {num} 个 CDP 实例（cdp_pool）…")
-                cdp_pool = cdpmod.module_import("cdp_pool") if cdpmod else None
-                if cdp_pool is None:
-                    print("  [INFO] CDP 取全文模块未安装 → 跳过启动，改走备用链路")
-                else:
-                    cdp_pool.ensure(FLOW1, n=num, base_port=9222, log=None)
+            # Generic Chromium path; sandbox remains enabled unless explicitly
+            # configured after environment diagnosis via PAPER_CDP_EXTRA_ARGS.
+            import cdp_pool
+            print(f"  启动 {num} 个 CDP 实例（通用Chromium池）…")
+            cdp_pool.ensure(FLOW1, n=num, base_port=9222, log=None)
             pl = _usable_ports()
     if not pl:
         _dl0 = cdpmod.script("download_all_fulltexts.py") if cdpmod else None

@@ -469,6 +469,28 @@ subagent** 分别产出 —— 同一概念会写成
   归一化规则固定为 **NFKC + 去空白**（连字符/连字/全角由 NFKC 处理），不要用“去连字符”的土办法。
   全文 sidecar 不存在时才退回 `text`，并在报告里注明。
 
+#### 独立来源证据（H/H2/R2 同用）
+
+任务包 `keyword_contract.version=1` 且 `evidence_field=keyword_source_evidence` 时，
+同一次解读还需写 `keyword_source_evidence`，不改变上述三层分类证据：
+
+```json
+{
+  "keyword_source_evidence": [
+    {"term": "与三层数组中某词一致", "surface": "原文写法",
+     "source_field": "title|abstract|text|author_keywords", "quote": "对应任务包字段里的逐字引文"}
+  ]
+}
+```
+
+- `keyword_evidence` 继续且只负责 `term/category/rule/evidence/confidence`；禁止把来源引文形状写进该字段。
+- `quote` 必须逐字出现在所指任务包字段，`surface` 必须逐字出现在 `quote`；`term` 与 `surface` 不同须有精确同义词表或相邻括号别名，不猜译名。
+- 三层数组中的词已定义词集合，不强制重复写 `keywords`；旧卡的独立 `keywords` 仍受来源门校验。
+- 证据不足可不收词或留空数组并报 WARN；不为 5–8 的建议数量编词。L1/L2/L3 同样保留完整中英文专业短语，不从方法句拆词。
+- 只有旧任务未声明独立字段、且旧 `keyword_evidence` 每行明确含 `term/surface/source_field/quote`、不含分类字段时，才走只读 legacy 兼容。新任务不走该兼容。
+- 轮询保留三层缺失 WARN；来源字段结构错须重派，来源不可信仅剔除对应词，卡片本身仍保留。
+- VOS 与词云优先三层门控：core 不混入常用方法，method 单独画像，reagent 不入词云。来源门只可剔词；每个 DOI 二值计数，共现边权是共同出现的文献数，不伪造聚类。
+
 #### 与词云的关系
 
 - 阶段 K 词云**只吃 `keywords_core`**（权重最高，3）；
@@ -491,7 +513,7 @@ subagent** 分别产出 —— 同一概念会写成
 
 **关键词三层（与解读同一次生成，不另派代理）**：按 § 6.7 在同一个 JSON 里写
   `keywords_core`（5–8）、`keywords_method`（≤8）、`keywords_reagent`（≤4）
-  以及 `keyword_evidence`（每条 term/category/rule/evidence/confidence）。
+  以及 `keyword_evidence`（每条 term/category/rule/evidence/confidence）；任务包声明独立来源契约时，另写 §6.7 的 `keyword_source_evidence`。
   core 不写方法名、作者、期刊、泛词；常用方法只进 method；C2 必须同时满足
   「we developed/established + 主贡献 + 无同名既有方法」；每条 evidence 必须逐字来自原文。
 

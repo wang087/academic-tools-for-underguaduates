@@ -518,69 +518,149 @@ def parse_article_keywords(text: str):
     return ded, f"采纳 {len(ded)} 条{why_tail}"
 
 
-def load_article_keywords() -> tuple[dict, list]:
-    """→ ({doi: [关键词]}, [逐卡说明])。来源：interpret/tasks/<slug>.json 的正文
-    与解读卡自带的 keywords 字段（若 subagent 填了，优先用后者）。"""
-    man = load_json(CDPDIR / "interpret" / "manifest.json", {}) or {}
-    slug2doi = {str(t.get("slug") or ""): str(t.get("doi") or "").lower()
-                for t in (man.get("tasks") or [])}
-    notes, out = [], {}
-    rdir = CDPDIR / "interpret" / "results"
-    if rdir.is_dir():
-        for p in sorted(rdir.glob("*.json")):
-            c = load_json(p)
-            if not isinstance(c, dict):
-                continue
-            doi = str(c.get("doi") or slug2doi.get(p.stem) or "").lower()
-            if not doi:
-                continue
-            own = as_list(c.get("keywords"))
-            if own:
-                out[doi] = [str(x).strip() for x in own if str(x).strip()]
-                notes.append({"doi": doi, "source": "解读卡 keywords 字段",
-                              "keywords": out[doi], "why": "卡片直接给出"})
-                continue
-            slug = p.stem
-            tp = CDPDIR / "interpret" / "tasks" / f"{slug}.json"
-            if not tp.exists():
-                notes.append({"doi": doi, "source": "正文", "keywords": [],
-                              "why": "没有 interpret 任务包，无法取正文关键词"})
-                continue
-            txt = (load_json(tp, {}) or {}).get("text") or ""
-            kws, why = parse_article_keywords(txt)
-            if kws:
-                out[doi] = kws
-            notes.append({"doi": doi, "source": "正文 Keywords 段",
-                          "keywords": kws, "why": why})
+def _keyword_stage_dir(stage="H") -> pathlib.Path:
+    """Select one corpus; never mix author H cards with refs/reviews evidence."""
+    name = {"H": "interpret", "H2": "refs", "R2": "reviews"}.get(
+        str(stage).upper(), str(stage))
+    if name not in ("interpret", "refs", "reviews"):
+        raise ValueError(f"Unknown keyword stage: {stage}")
+    return CDPDIR / name
+
+def load_keyword_documents(cards=None, recs=None, stage="H") -> list[dict]:
+    """Adapt local task/card pairs to keyword_terms without trusting card prose.
+
+    H is the default. H2/refs and R2/reviews are explicitly selected corpora.
+    Both legacy manifest.tasks and review manifest.items are supported.
+    Missing packets provide less evidence, never generated n-grams.
+    """
+    from keyword_contract import validate_keyword_contract
+    base = _keyword_stage_dir(stage)
+    manifest = load_json(base / "manifest.json", {}) or {}
+    entries = manifest.get("tasks") or manifest.get("items") or []
+    packets, disk_cards = {}, {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        slug = str(entry.get("slug") or pathlib.Path(str(entry.get("task") or "")).stem)
+        task_path = base / "tasks" / f"{slug}.json"
+        result_path = base / "results" / f"{slug}.json"
+        if not task_path.exists() and entry.get("task"):
+            task_path = pathlib.Path(entry["task"])
+        if not result_path.exists() and entry.get("result"):
+            result_path = pathlib.Path(entry["result"])
+        task = load_json(task_path, {}) or {}
+        card = load_json(result_path, {}) or {}
+        if not isinstance(task, dict) or not isinstance(card, dict):
+            continue
+        keys = {str(v).lower() for v in (slug, entry.get("doi"), entry.get("id"),
+                                         task.get("doi"), card.get("doi")) if v}
+        for key in keys:
+            packets[key] = task
+            if card:
+                disk_cards[key] = card
+    # Legacy runs can have packets/cards but no manifest. Match by slug or DOI.
+    for path in sorted((base / "tasks").glob("*.json")):
+        task = load_json(path, {}) or {}
+        if isinstance(task, dict):
+            for key in (path.stem.lower(), str(task.get("doi") or "").lower()):
+                if key:
+                    packets.setdefault(key, task)
+    if cards is None:
+        cards = {}
+        for path in sorted((base / "results").glob("*.json")):
+            card = load_json(path, {}) or {}
+            if isinstance(card, dict):
+                packet = packets.get(path.stem.lower()) or {}
+                key = str(card.get("doi") or packet.get("doi") or path.stem).lower()
+                cards[key] = card
+    recs = recs or {}
+    abstracts = (load_json(CDPDIR / "abstracts_openalex.json", {}) or {}) if base.name == "interpret" else {}
+    documents = []
+    for doc_id in dict.fromkeys([*cards, *recs]):
+        record = recs.get(doc_id) or {}
+        key = str(doc_id).lower()
+        doi = str(record.get("doi") or key).lower()
+        card = cards.get(doc_id) or disk_cards.get(key) or disk_cards.get(doi) or {}
+        task = packets.get(key) or packets.get(doi) or {}
+        ab = abstracts.get(doi) or {}
+        document = {
+            "id": doc_id,
+            "title": task.get("title") or record.get("title") or "",
+            "abstract": task.get("abstract") or record.get("abstract") or
+                        (ab.get("abstract") if isinstance(ab, dict) else ab) or "",
+            "text": task.get("text") or task.get("fulltext") or record.get("text") or record.get("fulltext") or "",
+            "author_keywords": task.get("author_keywords") or record.get("author_keywords") or [],
+            "keywords": card.get("keywords") or task.get("keywords") or record.get("keywords") or [],
+            "keyword_source_evidence": card.get("keyword_source_evidence") or [],
+            "methods": card.get("methods") or [],
+        }
+        source_packet = dict(task)
+        if "keyword_contract" in task:
+            source_packet["text"] = task.get("text") or task.get("fulltext") or ""
+        else:
+            source_packet.update({field: document[field] for field in
+                                  ("title", "abstract", "text", "author_keywords")})
+        checked = validate_keyword_contract(card, source_packet)
+        document["keywords"] = checked["keywords"]
+        document["keyword_source_evidence"] = checked["keyword_source_evidence"]
+        document["_keyword_contract_audit"] = [
+            {"document_id": str(doc_id).lower(), "term": item.get("term", ""),
+             "source": "keyword_contract", "reason": item["reason"]}
+            for item in checked["rejected"]]
+        document["_keyword_contract_audit"].extend(
+            {"document_id": str(doc_id).lower(), "term": "",
+             "source": "keyword_contract", "reason": error}
+            for error in checked["errors"])
+        document["_layer_card"] = card
+        document["_layer_task"] = task
+        documents.append(document)
+    return documents
+
+def collect_graph_terms(cards=None, recs=None, stage="H", families=None,
+                        level="keywords_core") -> dict:
+    """Target three-layer classification first; legacy only uses shared source gate."""
+    from keyword_terms import collect_documents
+    from keywords_three_layer import gated_keywords, fulltext_of
+    documents = load_keyword_documents(cards, recs, stage)
+    for doc in documents:
+        card, task = doc.pop("_layer_card"), doc.pop("_layer_task")
+        if any(k in card for k in ("keywords_core", "keywords_method", "keywords_reagent")):
+            fulltext = ""
+            sidecar = task.get("fulltext_path") or (task.get("evidence") or {}).get("fulltext_path")
+            if sidecar:
+                try:
+                    fulltext = pathlib.Path(sidecar).read_text(encoding="utf-8")
+                except OSError:
+                    pass
+            checked = gated_keywords(card, task, level, fulltext)
+            doc["keywords"] = checked["terms"]
+            doc["keyword_source_evidence"] = checked["keyword_source_evidence"]
+            doc["keyword_layer_terms"] = checked["terms"]
+            doc["_keyword_contract_audit"].extend({"document_id":str(doc['id']).lower(),**item} for item in checked["audit"])
+    result = collect_documents(documents, families=families)
+    result["audit"].extend(item for doc in documents for item in doc["_keyword_contract_audit"])
+    return result
+
+def load_article_keywords(stage="H") -> tuple[dict, list]:
+    """Legacy public adapter returning only evidence-verified keyword terms."""
+    result = collect_graph_terms(stage=stage)
+    out, notes = {}, []
+    for doc in result["documents"]:
+        terms = list(dict.fromkeys(e["term"] for e in doc.get("evidence", [])
+                                   if e.get("source") == "keywords" and e.get("term") in doc["terms"]))
+        if terms:
+            out[doc["id"]] = terms
+        notes.append({"doi": doc["id"], "source": "已验证关键词证据",
+                      "keywords": terms, "why": "共享证据门控；无证据不补词"})
     return out, notes
 
 
-def method_terms_by_topics(cards) -> dict:
-    """方法层取词 → {词: {出现过的 doi}}。
-
-    **与词云同一套筛选**（v16.3）：中文走全局邻接熵 + 泛化词表，
-      英文走 en_terms。旧版在这里直接用 `tokenize()`，
-      于是图上的方法节点混进了 `经元`(神经元) `鼠海`(大鼠海马) `养基`(培养基)
-      `谷氨`(谷氨酸) `马神`(海马神经元) `氨酸` 这类**跨词边界碎片**，
-      以及 `div/min/e18/kcl/student` —— 实测 40 个方法节点里 11 个是垃圾。
-
-    **刻意不动 `tokenize()`**：方向画像（`direction_profiles_from_cards`）
-      与冲突检出仍走旧口径（与 `interpret_build.py` 绑定），
-      改它会静默漂移聚类结果。这里只影响**图上显示的方法节点**。
-    """
-    per_doc = {}
-    for doi, c in cards.items():
-        per_doc[doi] = " ".join(str(m) for m in as_list(c.get("methods")))
-    keep_zh, _info = zh_terms(" ".join(per_doc.values()))
-    for g in list(keep_zh):
-        if g in MISLEADING_ZH or g in GENERIC_ZH:
-            del keep_zh[g]
+def method_terms_by_topics(cards, recs=None, stage="H") -> dict:
+    """Visible method nodes use complete verified terms, like the word cloud."""
     out = defaultdict(set)
-    for doi, text in per_doc.items():
-        for g in zh_grams(text) & keep_zh.keys():
-            out[g].add(doi)
-        for w in set(en_terms(text)):
-            out[w].add(doi)
+    for doc in collect_graph_terms(cards, {k: v for k, v in (recs or {}).items() if k in cards}, stage, level="keywords_method")["documents"]:
+        for term in doc["terms"]:
+            out[term].add(doc["id"])
     return out
 
 
@@ -744,8 +824,9 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
             n = normalize_tag(p, allowed_p, al_p)
             if n:
                 dir_paradigm[tags[0]][n] += 1
-        for m in as_list(c.get("methods")):
-            dir_methods[tags[0]].update(set(tokenize(str(m))))
+        for term, dois in method_terms_by_topics({doi:c}, recs).items():
+            if doi in dois:
+                dir_methods[tags[0]][term] += 1
 
     # 阶段节点 + 方向节点 + 边
     #   [FIX v18] 旧版在 (阶段,方向) 双层循环里 append author→阶段，
@@ -2515,228 +2596,99 @@ WC_WEIGHTS = {"keywords": 3, "key_20": 2, "title": 2, "abstract": 2, "methods": 
 
 def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
                               weights=None, lang="both", min_docs=WC_MIN_DOCS,
-                              kw_model=None):
-    """词云权重：关键词优先 + 全局邻接熵筛词 + 单位/受控标签剔除。
+                              kw_model=None, stage="H", families=None):
+    """Weight complete canonical terms with shared, source-backed evidence.
 
-    `cards`  —— doi → 解读卡
-    `recs`   —— doi → 题录（本轮起用于取**题名**；旧版收了这个参数却没用）
-    `lang`   —— both（默认）｜ zh 只出中文词 ｜ en 只出英文词
-    `kw_model` —— None（默认，纯规则）｜ small_model.SmallModel 实例。
-      给出时，对**通过全部规则门**的中文留词再跑一遍 kw 适配器
-      （term/fragment 二分类，留出集实测 97.1%），判 fragment 者剔除。
-      只删不加：模型不会把规则杀掉的词捞回来 —— 规则门是确定性下限，
-      模型是精度补丁（邻接熵在 3–4 字术语上的误留/误杀见 zh_terms 注释）。
-
-    语料优先级（用户指定）：
-      ① 文章自带 Keywords（权重 3）—— 作者/期刊自己认定的词，最可信
-      ② 题名（权重 2）            —— 结构化来源，稳定可得
-      ③ 摘要（权重 2）            —— **仅当该篇既无关键词也取不到题名时**才用。
-         摘要与"方法描述"同属**散文**，把它整篇切词上云正是"大量无用信息"
-         的来源（实测把它加进来后，英文词型从 200 级暴涨到 1600 级，
-         云被 neuronal/synaptic/activity 这类通用词占满）。故降级为兜底。
-      ④ 解读卡方法描述（权重 1）—— 量最大也最杂，作补充，保住中文方法词
-
-    中文门控必须**全局**统计：邻接熵与频次都依赖整个语料的分布，
-      逐篇统计会让 3 次以下的真词（海马、谷氨酸）与碎片一起被误杀。
+    Source weights apply once per document/term/source. Unknown legacy prose
+    stays empty; neither English splitting nor Chinese n-grams is a fallback.
     """
     weights = dict(WC_WEIGHTS, **(weights or {}))
+    result = collect_graph_terms(cards, {k: v for k, v in recs.items() if k in cards}, stage, families)
     allowed_p = vocab.get("paradigm_tags_vocabulary") or []
     aliases = vocab.get("aliases") or {}
     al_p = {str(k).lower(): v for k, v in (aliases.get("_范式别名") or {}).items()}
-
-    kw_by_doi, kw_notes = load_article_keywords()
-    abs_by_doi = load_json(CDPDIR / "abstracts_openalex.json", {}) or {}
-
-    # ── 第一遍：收集语料 ──────────────────────────────────────
-    corpora = []            # (doi, 方向, 来源, 权重, 文本)
-    paradigms = Counter()
-    for doi, c in cards.items():
-        d = doi_dir.get(doi) or "未标注方向"
-        # 范式标签：**不再切词上云**（15 个受控标签，见 PARADIGM_EN），
-        #   改为单独统计进图注与报告 —— 不是静默丢弃。
-        for p in as_list(c.get("paradigm_tags")):
-            p = normalize_tag(p, allowed_p, al_p)
-            if p:
-                paradigms[p] += 1
-
-        kws = kw_by_doi.get(doi) or []
-        title = str((recs.get(doi) or {}).get("title") or "").strip()
-        key20 = [str(x).strip() for x in as_list(c.get("key_20")) if str(x).strip()]
-        if kws:
-            corpora.append((doi, d, "keywords", weights["keywords"], " ; ".join(kws)))
-        if key20:
-            corpora.append((doi, d, "key_20", weights["key_20"], " ; ".join(key20)))
-        if title:
-            corpora.append((doi, d, "title", weights["title"], title))
-        elif not kws:
-            abstract = str((abs_by_doi.get(doi) or {}).get("abstract") or "").strip()
-            if abstract:
-                corpora.append((doi, d, "abstract", weights["abstract"], abstract))
-        mtext = " ".join(str(m) for m in as_list(c.get("methods")))
-        if mtext:
-            corpora.append((doi, d, "methods", weights["methods"], mtext))
-
-    # ── 第二遍：中文候选词走全局门控 ──────────────────────────
-    keep_zh, zh_info = zh_terms(" ".join(t for *_, t in corpora))
-
-    w = Counter()
-    term_dir = defaultdict(Counter)     # 词 → {方向: 次数}
-    term_src = defaultdict(Counter)     # 词 → {来源: 次数}
-    term_doi = defaultdict(set)         # 词 → {出现在哪些论文}
-    dropped = Counter()
-    drop_reason = defaultdict(Counter)
+    paradigms = Counter(normalize_tag(p, allowed_p, al_p)
+                        for card in cards.values() for p in as_list(card.get("paradigm_tags")))
+    paradigms.pop("", None)
+    w, dropped = Counter(), Counter()
+    term_dir, term_src = defaultdict(Counter), defaultdict(Counter)
+    term_doi, drop_reason = defaultdict(set), defaultdict(Counter)
     src_hits = Counter()
-
-    def _drop(tok, why, n=1):
-        dropped[tok] += n
-        drop_reason[tok][why] += n
-
-    # 中文词表门（旧版只在 tokenize 后做过 MISLEADING/MISLEADING_ZH；
-    #   本版新增 GENERIC_ZH，并把二者统一到全局门之后）
-    for g in list(keep_zh):
-        if g in MISLEADING_ZH:
-            _drop(g, "泛化/载体词")
-            del keep_zh[g]
-        elif g in GENERIC_ZH:
-            _drop(g, "词云泛化词")
-            del keep_zh[g]
-
-    if lang in ("both", "zh"):
-        for g, st in zh_info.items():
-            if not st["keep"]:
-                _drop(g, st.get("why") or "跨词碎片")
-    if lang in ("both", "en"):
-        raw_en = set()
-        for *_, text in corpora:
-            raw_en |= {x.strip("-") for x in _EN_TOK.findall(text.lower())
-                       if len(x.strip("-")) >= WC_EN_MIN_LEN}
-        for t in raw_en - set(en_terms(" ".join(x for *_, x in corpora))):
-            if t in STOP:
+    kw_by_doi, kw_notes = {}, []
+    for doc in result["documents"]:
+        doc_id = doc["id"]
+        evidence = defaultdict(set)
+        for item in doc.get("evidence", []):
+            if item.get("term") in doc["terms"]:
+                evidence[item["term"]].add(item.get("source") or "text")
+        kws = [term for term in doc["terms"] if "keywords" in evidence[term]]
+        if kws:
+            kw_by_doi[doc_id] = kws
+        kw_notes.append({"doi": doc_id, "source": "共享证据门控",
+                         "keywords": kws, "why": "已核验原文/卡片证据；不补散文词"})
+        for term in doc["terms"]:
+            has_zh = bool(re.search(r"[一-鿿]", term))
+            if (lang == "zh" and not has_zh) or (lang == "en" and has_zh):
                 continue
-            _drop(t, "受控范式标签" if t in PARADIGM_EN else
-                  ("单位/试剂/编号" if (t in UNIT_ABBR or re.fullmatch(r"[a-z]\d{1,3}", t)) else
-                   ("来源噪声词" if t in GENERIC_EN else "泛化/停用")))
-
-    for doi, d, src, wt, text in corpora:
-        if lang in ("both", "zh"):
-            hits = zh_grams(text) & keep_zh.keys()
-            for g in hits:
-                w[g] += wt
-                term_dir[g][d] += 1
-                term_src[g][src] += 1
-                term_doi[g].add(doi)
-            if hits:
-                src_hits[src] += len(hits)
-        if lang in ("both", "en"):
-            hits = set(en_terms(text))
-            for t in hits:
-                w[t] += wt
-                term_dir[t][d] += 1
-                term_src[t][src] += 1
-                term_doi[t].add(doi)
-            if hits:
-                src_hits[src] += len(hits)
-    color_of, dir_label = {}, {}
-    palette = ["#1B3A6B", "#E4572E", "#2E86AB", "#7D3C98", "#117A65",
-               "#B9770E", "#943126", "#1A5276"]
-    # ── 方法描述来源的"单篇孤词"过滤（见 WC_MIN_DOCS 说明）────────
-    #   判据用**论文数**（term_doi），不是方向数 —— 方向只有两三个，
-    #   用方向数会把中文词几乎全杀掉（实测入云词型从 1449 掉到 159）。
-    curated = ("keywords", "key_20", "title", "abstract")
-    # 小样本时不能用固定的 3 篇门槛：两张解读卡会把所有
-    # methods-only 术语误删。仍要求跨至少 2 篇，避免单篇偶然散词。
-    effective_min_docs = min(int(min_docs), max(2, len(cards)))
-    for t in list(w):
-        if len(term_doi[t]) >= effective_min_docs:
-            continue
-        if any(src in curated for src in term_src[t]):
-            continue
-        _drop(t, "仅单篇孤词", 1)
-        del w[t]
-        del term_dir[t]
-        del term_src[t]
-        term_doi.pop(t, None)
-
-    # ── kw 模型精筛（可选，--kw-model）────────────────────────
-    #   对通过全部规则门的**中文**留词跑 kw 适配器（term/fragment 二分类）。
-    #   英文 token 不进入该模型：kw 适配器训练任务只接受中文术语格式，
-    #   英文已由 en_terms 的停用词/单位/长度规则处理。
-    #   输入格式与训练口径逐字一致（字符串/出现次数/文档数/左右邻接 top5），
-    #   文档数取 term_doi（跨论文口径），邻接取 zh_info 的全局统计。
-    #   只删不加、解析不出保守保留；剔除全部记入 dropped（原因可审计）。
+            sources = evidence[term] or {"text"}
+            for source in sources:
+                w[term] += weights.get(source, weights["abstract"])
+                term_src[term][source] += 1
+                src_hits[source] += 1
+            term_dir[term][doi_dir.get(doc_id) or "未标注方向"] += 1
+            term_doi[term].add(doc_id)
+    for item in result.get("audit", []):
+        term = item.get("term") or "（无术语）"
+        dropped[term] += 1
+        drop_reason[term][item.get("reason") or "证据不足"] += 1
+    # Preserve the historical methods-only document-frequency option.
+    for term in list(w):
+        if set(term_src[term]) == {"methods"} and len(term_doi[term]) < min_docs:
+            dropped[term] += 1
+            drop_reason[term]["仅方法描述且支持篇数不足"] += 1
+            del w[term], term_dir[term], term_src[term]
+            term_doi.pop(term, None)
     kw_stats = None
     if kw_model is not None and lang in ("both", "zh"):
-        zh_tokens = [t for t in w if _CJK_RUN.fullmatch(t)]
-        if zh_tokens:
-            items = [{
-                "g": t,
-                "n": zh_info.get(t, {}).get("n", w[t]),
-                "n_docs": len(term_doi[t]),
-                "left": [x for x, _ in zh_info.get(t, {}).get("left", [])],
-                "right": [x for x, _ in zh_info.get(t, {}).get("right", [])],
-            } for t in zh_tokens]
-            labels = kw_model.kw_classify(items)
+        tokens = [term for term in w if _CJK_RUN.fullmatch(term)]
+        if tokens:
+            labels = kw_model.kw_classify([{"g":term,"n":w[term],"n_docs":len(term_doi[term]),
+                                           "left":[],"right":[]} for term in tokens])
             n_frag = n_unparsed = 0
-            for t, lab in zip(zh_tokens, labels):
-                if lab == "fragment":
-                    _drop(t, "kw 模型判碎片", 1)
-                    del w[t]
-                    del term_dir[t]
-                    del term_src[t]
-                    term_doi.pop(t, None)
+            for term,label in zip(tokens, labels):
+                if label == "fragment":
+                    dropped[term] += 1
+                    drop_reason[term]["kw 模型判碎片"] += 1
+                    del w[term], term_dir[term], term_src[term]
+                    term_doi.pop(term, None)
                     n_frag += 1
-                elif lab is None:
-                    n_unparsed += 1        # 保守保留
-            kw_stats = {"checked": len(zh_tokens), "dropped_fragment": n_frag,
-                        "unparsed_kept": n_unparsed,
-                        "note": "只删不加：规则门是确定性下限，kw 模型是精度补丁"}
-    dirs = sorted({d for _, c in term_dir.items() for d in c})
-    for i, d in enumerate(dirs):
-        dir_label[d] = palette[i % len(palette)]
-    for tok, c in term_dir.items():
-        color_of[tok] = dir_label[c.most_common(1)[0][0]]
-
-    # 候选碎片是全量 2–4 gram（实测近 2 万条），**不能全量落盘**：
-    #   上一版这样写把 graph_data.json 从 254 KB 顶到 8.8 MB。
-    #   这里按出现次数封顶，并显式记下"被封顶的总数"，不静默截断。
-    frag_all = {g: st for g, st in zh_info.items() if not st["keep"]}
-    frag_keep = sorted(frag_all.items(), key=lambda x: -x[1]["n"])[:80]
-    # 封顶 80 条之外**必须补上 kw 模型剔除的词**：模型门只剔零星几个，
-    #   按丢弃次数排序永远进不了前 80 —— 不补就会"删了词但审计表查无此词"。
-    _kw_dropped = {t for t, rs in drop_reason.items() if "kw 模型" in str(rs)}
-    reason_keep = {t: dict(drop_reason[t])
-                   for t, _ in dropped.most_common(80) if t in drop_reason}
-    reason_keep.update({t: dict(drop_reason[t]) for t in _kw_dropped
-                        if t in drop_reason and t not in reason_keep})
+                elif label is None:
+                    n_unparsed += 1
+            kw_stats = {"checked":len(tokens),"dropped_fragment":n_frag,"unparsed_kept":n_unparsed,
+                        "note":"只删不加：三层/来源规则门是确定性下限"}
+    palette = ["#1B3A6B", "#E4572E", "#2E86AB", "#7D3C98", "#117A65",
+               "#B9770E", "#943126", "#1A5276"]
+    dirs = sorted({d for counts in term_dir.values() for d in counts})
+    dir_label = {d: palette[i % len(palette)] for i, d in enumerate(dirs)}
+    color_of = {term: dir_label[counts.most_common(1)[0][0]]
+                for term, counts in term_dir.items()}
     stats = {
-        "weights": weights,
-        "lang": lang,
-        "n_cards": len(cards),
-        "keywords_used": {k: v for k, v in kw_by_doi.items()},
-        "keywords_notes": kw_notes,
-        "keywords_coverage": f"{len(kw_by_doi)}/{len(cards)}",
+        "weights": weights, "lang": lang, "n_cards": len(cards), "kw_model":kw_stats,
+        "keywords_used": kw_by_doi, "keywords_notes": kw_notes,
+        "keywords_coverage": f"{len(kw_by_doi)}/{len(result['documents'])}",
         "paradigms": dict(paradigms.most_common()),
         "source_terms": dict(src_hits.most_common()),
-        "source_coverage": {
-            "keywords_docs": sum(1 for d in cards if kw_by_doi.get(d)),
-            "key_20_docs": sum(1 for c in cards.values() if as_list(c.get("key_20"))),
-            "title_docs": sum(1 for d in cards if str((recs.get(d) or {}).get("title") or "").strip()),
-            "methods_docs": sum(1 for c in cards.values() if as_list(c.get("methods"))),
-        },
-        "term_source": {t: dict(term_src[t]) for t in w},
-        "thresholds": {"min_count": WC_MIN_COUNT, "min_entropy": WC_MIN_ENTROPY,
-                       "min_n": WC_MIN_N, "max_n": WC_MAX_N, "min_docs": min_docs,
-                       "effective_min_docs": effective_min_docs,
-                       "font_floor_pt": WC_FLOOR_PT},
-        "n_terms_kept": len(w),
-        "n_dropped_types": len(dropped),
+        "term_source": {term: dict(term_src[term]) for term in w},
+        "term_documents": {term: sorted(term_doi[term]) for term in w},
+        "thresholds": {"min_docs": min_docs, "font_floor_pt": WC_FLOOR_PT, "min_entropy":WC_MIN_ENTROPY, "min_count":WC_MIN_COUNT, "max_n":WC_MAX_N},
+        "n_terms_kept": len(w), "n_dropped_types": len(dropped),
         "n_dropped_hits": sum(dropped.values()),
-        "n_fragment_candidates": len(frag_all),
-        "fragments": dict(frag_keep),
-        "fragments_truncated": f"仅列出现次数最高的 80/{len(frag_all)} 条",
-        "drop_reasons": reason_keep,
-        "drop_reasons_truncated": f"仅列出现次数最高的 80/{len(dropped)} 条",
-        "kw_model": kw_stats,
+        "n_fragment_candidates": 0, "fragments": {},
+        "fragments_truncated": "不生成滑窗候选",
+        "drop_reasons": {term: dict(drop_reason[term]) for term in dropped},
+        "keyword_audit": result.get("audit", []),
+        "keyword_documents": result["documents"],
+        "keyword_terms": result["terms"],
     }
     return w, color_of, dir_label, dropped, stats
 
@@ -2857,6 +2809,8 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
         if _t:
             src_dir[str(_doi).lower()] = _t
 
+    ref_terms = {doc["id"]: doc["terms"] for doc in collect_graph_terms(
+        rcards, {str(x.get("id") or x.get("doi") or ""):x for x in final.get("items",[])}, stage="H2")["documents"]}
     rows, hs = [], defaultdict(Counter)
     how = Counter()
     for x in (final.get("items") or []):
@@ -2886,8 +2840,7 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
         how["review 卡标注" if why == "review 卡标注" else
             ("施引论文方向" if why.startswith("施引论文方向") else
              ("关键词兜底" if why.startswith("关键词兜底") else "无法归类"))] += 1
-        toks = [t for t in tokenize(str(x.get("title") or ""))
-                if t not in MISLEADING and t not in MISLEADING_ZH]
+        toks = ref_terms.get(str(x.get("id") or x.get("doi") or "").lower(), [])
         rows.append({"direction": d, "year": int(y),
                      "title": x.get("title") or "",
                      "cited": x.get("cited_by_count") or 0,
@@ -2997,17 +2950,14 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     if _ws:
         L.append(f"> **取词口径**（v16.2）：文章关键词（权重 "
                  f"{_ws['weights'].get('keywords')}）＞ 题名（{_ws['weights'].get('title')}）"
-                 f"＞ 摘要（{_ws['weights'].get('abstract')}，仅在既无关键词也无题名时用）"
-                 f"＞ 解读卡方法描述（{_ws['weights'].get('methods')}）。"
+                 f"＞ 摘要（{_ws['weights'].get('abstract')}；需原文证据）"
+                 f"；完整术语不拆词，三层卡只取 core，method/reagent 不进词云。"
                  f"语言口径 `{_ws.get('lang')}`。")
         L.append(f"> **文章关键词采纳**：{_ws.get('keywords_coverage', '?')} 篇取到并采纳。"
                  "关键词段解析不干净时**整份丢弃**（宁可少一个来源，也不让散文上云）。")
         L.append(f"> **范式标签不再切词上云**（它们是 15 个受控标签，描述不了作者），"
                  f"改为在此单列：{_ws.get('paradigms') or '（无）'}。")
-        L.append(f"> **中文筛词**：左右邻接熵 ≥ {_ws['thresholds']['min_entropy']} bit "
-                 f"且频次 ≥ {_ws['thresholds']['min_count']} 才保留，"
-                 f"候选词长 {_ws['thresholds']['max_n']} 字以内 —— "
-                 "用来挡「小鼠海马→鼠海」这类跨词边界碎片。")
+        L.append("> **完整术语**：只保留三层门与来源证据支持的专业词；不做中文滑窗或英文逐词切分。")
         L.append(f"> **来源贡献的词型数**：{_ws.get('source_terms') or '（无）'}。")
         L.append("")
         notes = _ws.get("keywords_notes") or []
@@ -3134,21 +3084,11 @@ def build_report(overview_notes, memory_links, contradictions, wc_dropped,
     L.append("## 八、限制与未做之事\n")
     L.append("- 图谱的**节点与边全部来自流程已有产物**，没有引入外部知识；"
              "因此图上没有出现的关系不代表不存在。")
-    L.append("- 方法层的节点由**方法描述文本分词**得到，"
-             "英文取单词、中文取 2-gram —— 会有同义词未合并的情况，"
-             "报告已如实列出高频词，便于人工判断。")
-    L.append("- **词云与图谱的分词口径不同**（这是刻意的）："
-             "图谱/方向画像沿用 `tokenize()` 的中文 2-gram（与 `interpret_build.py` 同口径，"
-             "改它会漂移方向画像与冲突检出）；"
-             "词云另走「关键词优先 + 左邻接熵筛词」，并为可读性扩到 2–4 字。"
-             "两者**不应互相对齐**，也不要用词云的词去解释图谱的簇。")
-    L.append("- 词云的邻接熵筛词仍会漏掉个别**粘着语素**（如「氨酸」这类"
-             "只作后缀的字组），它们读起来不成词但也不是跨词边界碎片；"
-             "如需剔除请加入 `GENERIC_ZH`。")
+    L.append("- 方法层节点来自完整、可回查原文的专业术语；三层卡 method 单独画像，core 供词云。")
     L.append("- 文章关键词来自出版方网页/PDF 文本的 Keywords 段，"
              "**解析不干净就整份丢弃**（见 §五 的逐篇表）；"
              "因此关键词覆盖率偏低是**如实反映**，不是漏跑。"
-             "若解读卡自带 `keywords` 字段，则优先用它。")
+             "三层卡只取通过门控的 core；旧卡 keywords 须通过来源证据门。")
     L.append("- 热点簇的标签取该方向近 N 年**最高频关键词**，"
              "是**数据驱动的命名**，不是领域共识的热点名称。")
     L.append("")

@@ -139,13 +139,13 @@ def fulltext_of(slug: str, cards_dir: pathlib.Path = RESULTS,
             j = json.loads(tp.read_text(encoding="utf-8"))
         except Exception:
             j = {}
-        fp = str(j.get("fulltext_path") or "")
+        fp = str(j.get("fulltext_path") or (j.get("evidence") or {}).get("fulltext_path") or "")
         if fp and pathlib.Path(fp).exists():
             try:
                 return pathlib.Path(fp).read_text(encoding="utf-8", errors="replace")
             except Exception:
                 pass
-        return str(j.get("text") or "")
+        return str(j.get("text") or j.get("fulltext") or j.get("abstract") or "")
     return ""
 
 
@@ -166,58 +166,100 @@ def check(cards_dir: pathlib.Path = RESULTS, tasks_dir: pathlib.Path = TASKS) ->
             "rows": rows}
 
 
+def gated_keywords(card: dict, task: dict | None = None, level: str = CORE,
+                   fulltext: str = "") -> dict:
+    """Three-layer gate first; optional source contract can only remove terms."""
+    from keyword_contract import validate_keyword_contract, source_evidence
+    from keyword_terms import term_problem
+    task = task if isinstance(task, dict) else {}
+    result = {"terms": [], "keyword_source_evidence": [], "audit": []}
+    def reject(term, reason):
+        result["audit"].append({"term": str(term), "source": level, "reason": reason})
+    if not isinstance(card, dict) or level not in (CORE, METHOD, REAGENT):
+        reject("", "invalid-card-or-layer"); return result
+    words = card.get(level)
+    if not isinstance(words, list) or any(not isinstance(t, str) or not t.strip() for t in words):
+        reject("", "layer-not-string-array"); return result
+    if len(words) > MAXN[level]:
+        reject("", "layer-over-limit"); return result
+    rows = card.get(EVID)
+    if not isinstance(rows, list):
+        reject("", "missing-three-layer-category-evidence"); return result
+    sources = [fulltext, str(task.get("text") or task.get("fulltext") or ""),
+               str(task.get("abstract") or ""), str(task.get("title") or "")]
+    normalized = [_n(text) for text in sources if text]
+    category = {CORE: "core", METHOD: "method", REAGENT: "reagent"}[level]
+    prefix = {CORE: "C", METHOD: "M", REAGENT: "R"}[level]
+    checked = validate_keyword_contract(card, task)
+    source_required = "keyword_contract" in task or source_evidence(card) is not None
+    allowed = set(map(_n, checked["keywords"]))
+    for term in dict.fromkeys(words):
+        evs = [row for row in rows if isinstance(row, dict) and _n(row.get("term")) == _n(term)
+               and row.get("category") == category]
+        evs = [row for row in evs if row.get("rule") in {prefix+str(n) for n in (1,2,3)}
+               and type(row.get("confidence")) is int and 1 <= row["confidence"] <= 3
+               and isinstance(row.get("evidence"), str) and 0 < len(row["evidence"]) <= 100]
+        if not evs:
+            reject(term, "missing-or-invalid-layer-evidence"); continue
+        if not any(_n(row["evidence"]) in text for row in evs for text in normalized):
+            reject(term, "layer-evidence-not-in-original"); continue
+        if level == CORE and _n(term) in {_n(t) for t in COMMON_METHODS}:
+            reject(term, "common-method-in-core"); continue
+        if level == CORE and _n(term) in set(map(_n, card_keywords(card)[METHOD])) and not any(row['rule']=='C2' for row in evs):
+            reject(term, "core-method-duplicate-without-C2"); continue
+        problem = term_problem(term, explicit=True)
+        if problem:
+            reject(term, problem); continue
+        if source_required and (checked["errors"] or _n(term) not in allowed):
+            reject(term, "source-contract-excluded-term"); continue
+        result["terms"].append(term.strip())
+        result["keyword_source_evidence"].extend(row for row in checked["keyword_source_evidence"] if _n(row['term'])==_n(term))
+    result["source_contract"] = checked
+    return result
+
+
 # ── VOSviewer 导出 ────────────────────────────────────────────
 def export(cards_dir: pathlib.Path = RESULTS, out: pathlib.Path = CDP / "graph" / "vos",
            min_doc: int = 1, level: str = CORE, min_link: int = 1,
-           max_links: int = 12000) -> dict:
-    """把卡片的某一层关键词导出成 VOSviewer map + network。"""
-    cards = load_cards(cards_dir)
-    docs = [card_keywords(c)[level] for c in cards]
-    docs = [[t for t in d if t] for d in docs]
-    docs = [d for d in docs if d]
-    n_docs = len(docs)
+           max_links: int = 12000, tasks_dir: pathlib.Path | None = None) -> dict:
+    """Export the target layer after its evidence gate, binary once per DOI."""
+    if level not in (CORE, METHOD, REAGENT) or min_doc < 1 or min_link < 1:
+        raise ValueError("invalid layer or nonpositive threshold")
+    tasks_dir = pathlib.Path(tasks_dir) if tasks_dir else pathlib.Path(cards_dir).parent / "tasks"
+    docs, audits, disp = {}, [], {}
+    for card in load_cards(cards_dir):
+        slug = card.get("_file", "")
+        try:
+            task = json.loads((tasks_dir / slug).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            task = {}
+        checked = gated_keywords(card, task, level, fulltext_of(slug, cards_dir, tasks_dir))
+        identity = str(card.get("doi") or task.get("doi") or slug).casefold()
+        terms = docs.setdefault(identity, set())
+        for term in checked["terms"]:
+            terms.add(_n(term)); disp.setdefault(_n(term), term)
+        audits.append({"file": slug, "document_id": identity, **checked})
     df, pairs = Counter(), Counter()
-    for d in docs:
-        uniq = list(dict.fromkeys(d))
-        for t in uniq:
-            df[t] += 1
-        for a, b in itertools.combinations(sorted(map(_n, uniq)), 2):
-            pairs[(a, b)] += 1
-
-    disp = {}
-    for d in docs:
-        for t in d:
-            disp.setdefault(_n(t), t)
-    kept = [k for k in df if df[k] >= min_doc]
-    kept.sort(key=lambda k: (-df[k], k))
-    tid = {k: i + 1 for i, k in enumerate(kept)}
-
+    for terms in docs.values():
+        df.update(terms)
+        pairs.update(itertools.combinations(sorted(terms), 2))
+    kept = sorted((k for k in df if df[k] >= min_doc), key=lambda k: (-df[k], k))
+    tid = {k: i+1 for i,k in enumerate(kept)}
     out.mkdir(parents=True, exist_ok=True)
     n = max(1, len(kept))
     with (out / "map.txt").open("w", encoding="utf-8", newline="") as f:
         f.write("id\tlabel\tx\ty\tweight\n")
-        for i, k in enumerate(kept):
-            ang = 2 * math.pi * i / n
-            f.write(f"{tid[k]}\t{disp.get(k, k)}\t{math.cos(ang):.4f}\t"
-                    f"{math.sin(ang):.4f}\t{df[k]}\n")
-    nlink = 0
-    with (out / "network.txt").open("w", encoding="utf-8", newline="") as f:
-        for (a, b), s in pairs.most_common(max_links):
-            if s < min_link or a not in tid or b not in tid:
-                continue
-            f.write(f"{tid[a]}\t{tid[b]}\t{s}\n")
-            nlink += 1
-    with (out / "vocab.csv").open("w", encoding="utf-8-sig", newline="") as f:
-        f.write("id\tterm\tn_docs\n")
-        for k in kept:
-            f.write(f"{tid[k]}\t{disp.get(k, k)}\t{df[k]}\n")
-    with (out / "thesaurus.txt").open("w", encoding="utf-8", newline="") as f:
-        f.write("label\treplace by\n")
-    with (out / "corpus.txt").open("w", encoding="utf-8", newline="") as f:
-        for d in docs:
-            f.write(" ".join(d) + "\n")
-    return {"level": level, "n_docs": n_docs, "n_nodes": len(kept), "n_links": nlink,
-            "out": str(out)}
+        for i,k in enumerate(kept):
+            angle = 2*math.pi*i/n
+            f.write(f"{tid[k]}\t{disp[k]}\t{math.cos(angle):.4f}\t{math.sin(angle):.4f}\t{df[k]}\n")
+    links = [(a,b,w) for (a,b),w in pairs.most_common() if w>=min_link and a in tid and b in tid][:max_links]
+    (out/'network.txt').write_text(''.join(f'{tid[a]}\t{tid[b]}\t{w}\n' for a,b,w in links),encoding='utf-8')
+    (out/'vocab.csv').write_text('id\tterm\tn_docs\n'+''.join(f'{tid[k]}\t{disp[k]}\t{df[k]}\n' for k in kept),encoding='utf-8-sig')
+    (out/'thesaurus.txt').write_text('label\treplace by\n',encoding='utf-8')
+    (out/'corpus.txt').write_text(''.join('; '.join(disp[k] for k in sorted(v))+'\n' for v in docs.values()),encoding='utf-8')
+    (out/'keyword_source_evidence.json').write_text(json.dumps(audits,ensure_ascii=False,indent=2),encoding='utf-8')
+    return {"level": level, "n_docs": len(docs), "n_nodes": len(kept), "n_links": len(links),
+            "counting": "binary document-level; three-layer gate first", "out": str(out)}
 
 
 # ── 全文建图（无卡片时的替代）────────────────────────────────

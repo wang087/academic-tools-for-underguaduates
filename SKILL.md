@@ -83,9 +83,12 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 
 > **关于正文中的作者姓名 / ORCID / DOI（必读）**
 >
-> 本文件与 `README.md`、`示例数据/` 中出现的具体作者姓名、ORCID iD、DOI、单位与
+> 本文件与 `README.md` 中出现的具体作者姓名、ORCID iD、DOI、单位与
 > 论文数量，均为**历史案例实录**，用于溯源与说明验证过程，**仅作案例记录**，
 > **不是脚本的默认值**。
+>
+> `selftest_pipeline.py` 在临时目录动态生成合成题录（`10.5555/selftest.*`、虚构作者），
+> 不依赖真实论文样例文件；旧样例已备份并移出运行与发行依赖。
 >
 > **`scripts/*.py` 与 `run_all.sh` 内没有任何作者硬编码信息**：姓名、ORCID、单位、
 > 署名识别词、阶段分组、待测 DOI 全部由运行时通过命令行参数或环境变量传入，
@@ -153,7 +156,7 @@ export PAPER_AFFIL="<单位/职称>"                 # 抬头（可选）
 #    store.exports_dir() 还会自动探测历史名 <作者名>_Exports 并沿用，二者不必手工迁移
 mkdir -p "$PAPER_WORKDIR/${PAPER_AUTHOR}_paper_Exports"
 
-# 2) 启动 CDP Edge —— 多实例并行（推荐 3 个；推荐 L3 极速档）
+# 2) 启动 CDP Chromium浏览器 —— 多实例并行（推荐 3 个；推荐 L3 极速档）
 bash 流程1/scripts/start_edge_cdp.sh "$PAPER_WORKDIR" 9222 3 3
 #    或纯 Python 版本：
 #    uv run --with websocket-client python 流程1/scripts/cdp_pool.py up --n=3 --levels=3
@@ -236,7 +239,7 @@ uv run python 流程1/scripts/interpret_build.py                      # 汇总�
 | 分析某作者全部论文               | 输入姓名/主页/ORCID，产出成果列表 + 解读报告（原有链路）               |
 | 成果列表整理                     | 产出 GB/T 7714-2015 标准著录（含 DOI、原文链接）                       |
 | 全文获取与翻译                   | 开放获取（OA）论文下载全文 → 中文翻译 → PDF                          |
-| 绕反爬取数据                     | 出版社（ACS/Wiley/RSC/Elsevier）有 Cloudflare 验证，用 CDP + 真实 Edge |
+| 绕反爬取数据                     | 出版社站点按分层策略用选定的Chromium浏览器CDP；验证码仅人工处理，禁止自动绕过 |
 
 ---
 
@@ -245,7 +248,7 @@ uv run python 流程1/scripts/interpret_build.py                      # 汇总�
 | 项       | 要求                                                                               |
 | -------- | ---------------------------------------------------------------------------------- |
 | 操作系统 | Windows（本流程基于 win32 + Git Bash）                                             |
-| 浏览器   | Microsoft Edge（`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`） |
+| 浏览器 | Chromium兼容浏览器（Chrome/Chromium/Edge），由PAPER_BROWSER或--browser选择 |
 | Python   | 通过`uv` 运行，无需预装依赖（`uv run --with <pkg> python`）                    |
 | 必备包   | `websocket-client`（CDP 通信）、`pypdf`（PDF 校验）                            |
 | 可选     | Chrome（`--print-to-pdf` 渲染中文 PDF）、`pandoc`                              |
@@ -288,7 +291,7 @@ uv run python 流程1/scripts/interpret_build.py                      # 汇总�
 
 | 工具                           | 用途                                                                                               |
 | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| **Edge + CDP（多实例）** | 真实浏览器绕过 Cloudflare / 机器人验证；抓 ORCID 页面、出版社摘要与全文                            |
+| **Chromium + CDP（多实例）** | 真实浏览器绕过 Cloudflare / 机器人验证；抓 ORCID 页面、出版社摘要与全文                            |
 | CDP 关键方法                   | `Page.navigate`、`Page.enable`、`Runtime.evaluate`（`returnByValue`）、`Page.printToPDF` |
 | CDP HTTP 端点                  | `http://127.0.0.1:<port>/json`（列标签页）、`/json/version`、`/json/new?<url>`               |
 
@@ -304,6 +307,51 @@ uv run python 流程1/scripts/interpret_build.py                      # 汇总�
 | **`report_artifacts`**         | 任务结束时申报最终交付物                                                                               |
 
 ---
+
+### 本地解释器与分层依赖
+
+本目录可使用 `.venv/Scripts/python.exe` 或 `start_local.ps1` 跑流程；核心依赖见
+`requirements-core.txt`，图谱见 `requirements-visual.txt`，浏览器渲染见 `requirements-browser.txt`，
+原生PPT转换见 `requirements-ppt.txt`。`start_local.ps1 doctor`检查本地核心依赖。
+模型层保持独立，通过 `SMALL_MODEL_PYTHON` 或 `start_local.ps1 -Model` 选已有Torch环境，
+不因普通官网/关键词操作自动下载Torch/模型。Playwright浏览器二进制不随pip自动安装，
+可用本机Chromium的CDP或显式executable_path；Scopus/WoS仍按原认证/外部技能要求启用。
+
+### 通用 Chromium CDP 浏览器选择与实例归属
+
+CDP不依赖Edge品牌，支持本机Chrome、Chromium、Edge和自定义构建。浏览器发现优先级为
+显式 `--browser` > `PAPER_BROWSER` > `CHROME_PATH` > `EDGE_PATH` > 安装候选；显式无效路径报错，
+不静默换浏览器。可以使用已启用远程调试的本机实例，但非本工作目录登记的实例只附着、不认领，
+不会在结束时关闭；指定可执行路径时必须能核实其与现有端点匹配。
+
+```powershell
+# 本机Chrome；也可用环境变量PAPER_BROWSER让下载器/重启沿用
+.\start_local.ps1 scripts/cdp_pool.py up --workdir "<运行目录>" --n 1 --base 9222 --browser "C:/Program Files/Google/Chrome/Application/chrome.exe"
+# 自定义Chromium构建（路径只是本机示例，不是默认硬编码）
+.\start_local.ps1 scripts/cdp_pool.py up --workdir "<运行目录>" --n 1 --base 9223 --browser "C:/s2/src/out/ReleasePGO/chrome.exe"
+.\start_local.ps1 scripts/cdp_pool.py status --workdir "<运行目录>" --base 9222 --span 2
+.\start_local.ps1 scripts/cdp_pool.py down --workdir "<运行目录>" --base 9222 --span 2
+```
+
+新profile按品牌与exe路径哈希隔离，不把Edge的已有profile交给Chrome。端口就绪还需
+Browser.getVersion及DOM.getDocument成功；status记录实际版本、exe、PID、profile和owned。
+关闭/重启只针对本目录登记且PID、exe、创建时间、精确端口、profile均匹配的实例；
+未登记或所有权不符时拒绝终止。重启默认保留已登记浏览器/参数，不因环境变量变化换品牌。
+`fresh`/`renew`新建profile，不删除旧profile；`clean --apply`仅移动旧布局，`--purge`拒绝删数据。
+
+默认保留浏览器沙箱；`cdp_up_nosandbox.py`仅为显式选择的环境诊断兼容入口，
+不再由综述下载器优先自动选用。Python虚拟环境/uv本身不等于浏览器无法启动，
+应查实际exe、CDP/DOM能力与启动日志，而非按解释器名称断言。
+
+普通Cookie/分类按钮只在限定范围内匹配，检查可见性、启用状态、遮挡、链接动作与挑战标记。
+不强制隐藏弹窗/改滚动，不点击验证码，不发送Input.*。`dismiss_consent_report`区分
+attempted/clicked/verified/blocked/unchanged；旧bool接口仅实际verified返回true。
+分类枚举使用独立标签页、稳定类别身份和内容签名/完成标记；未更新、空类别、超时、
+隐藏/禁用等保留partial，不把上一类名单归给下一类。
+
+本地可靠性检查：`selftest_browser_runtime.py`、`selftest_click_logic.py`；
+真实浏览器检查：`selftest_consent.py --browser <exe> --port <空闲端口>`，使用独立profile并自行清理。
+宿主SendInput的既有政策仍按§5.2，但本地普通DOM测试不能证明验证码像素识别或通行可靠。
 
 ## 4. 标准工作流
 
@@ -369,7 +417,7 @@ N 大方向确定（无交互：拆解用户输入 + 匹配关键词群）
    | 来源                                                | 用途                                                                         | [WARN] 它**不是**什么                       |
    | --------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
    | `流程1/研究方法与关键词总表.md`（工作文件夹内同名副本）      | 24 个研究领域 ×**常用研究方法** + 关键词 + 对应技能（**主表**） | [X]**不是疾病/主题索引**                    |
-   | `流程1/templates/关键词词族_学科通用.json`        | 机读版语义词族，供机器匹配与后续词频归一                                     | [X] 只收英文单词与中文 2-gram，**不含短语** |
+   | `流程1/templates/关键词词族_学科通用.json`        | 机读方法领域分组，供检索路线参考                                     | [X] 不是精确同义词表，不用于VOSviewer同义归并 |
    | `流程1/templates/方法范式标签词表.json`           | 受控标签，消除后续解读的标签漂移                                             | —                                                |
 
 
@@ -621,39 +669,40 @@ uv run python 流程1/scripts/harvest_faculty.py --unit zju --stage=list
 `--unit` 接受三种写法：学校 key（`zju`）、`学校:学院`（`zju:life-sci`）、
 中文名/别名（`浙大`、`浙江大学生命科学学院`）。
 
-### 复用模式：任意学校 / 院系（**默认走这条**）
+### 任意院系官网：运行时发现与解析（默认）
 
-> **目标**：给一个学校 + 院系（如「中国科学技术大学化学系」「复旦大学医学院」），
-> **自动**找到师资页、判定站点家族、生成数据源配置并入库 ——
-> 之后同一学校直接复用，**不需要逐次人工确认**。
->
-> 不再需要"每换一所学校就人工看 HTML、手写正则"。
-
-**一条命令完成发现 + 入库**：
+给定院系官网入口，使用同站有界导航发现、语义表格、个人卡片及已有家族引擎择优解析。
+`templates/学部官网源.json` 是可选的已知站点预设，不是学校白名单，也不是新站点运行的前置条件。
 
 ```bash
-# ① 新学校：给院系官网入口 → 自动发现师资页 → 判定家族 → 生成配置
-uv run python 流程1/scripts/faculty_discover.py \
-    --site https://chem.ustc.edu.cn/ \
-    --school 中国科学技术大学 --school-key ustc \
-    --unit-name 化学系 --unit-key chem \
-    --top 3 --write
+# 院系官网入口：发现下级师资目录后进入正式列表/详情/归类链路
+uv run python 流程1/scripts/harvest_faculty.py --site https://chem.ustc.edu.cn/ --stage list
 
-# ② 之后（以及所有已收录学校）直接用标准脚本，零确认
+# 已知师资列表页：直接抓取，无需登记学校或引擎
+uv run python 流程1/scripts/harvest_faculty.py --url https://www.hfuu.edu.cn/aibd/7262/list.htm --stage all
+
+# 探查与证据输出；--dry-run 仅打印，不写文件
+uv run python 流程1/scripts/faculty_discover.py --site https://szb.jmu.edu.cn/szll/szdw.htm --dry-run
+uv run python 流程1/scripts/faculty_discover.py --url https://chem.ustc.edu.cn/js/list.htm --explain
+
+# 已有站点预设仍可复用
 uv run python 流程1/scripts/harvest_faculty.py --unit ustc:chem --out outputs/ustc_chem
 ```
 
-**先看不写**（推荐首次执行时）：去掉 `--write` 即只打印探测结果与建议配置。
-加 `--explain` 可看到**每个候选引擎的得分与理由**（可解释，不是黑盒）。
-
-```bash
-# 只看某一页属于哪个家族
-uv run python 流程1/scripts/faculty_discover.py \
-    --url https://chem.ustc.edu.cn/js/list.htm --explain
-
-# 已收录院系：复用配置并顺带校验是否仍与官网一致
-uv run python 流程1/scripts/faculty_discover.py --unit ustc:chem
-```
+- `--site` 用于院系首页或教研室人员文章目录；`--url` 用于明确的名单页。
+  `faculty_discover.py --site URL --direct` 与直接名单探测同义。
+- 正式抓取按 URL 的主机名和哈希隔离输出，保留名单、逐页证据、发现路径及来源页面。
+  同一输出根下测试不同站点或栏目不会相互覆盖。
+- 自动发现最多两层、限定同站链接；分页仅跟随真实下一页链接，`--max-pages` 控制上限。
+  缺页、失败、同名异链接、未支持目录或无总条目数时如实保留覆盖缺口，不猜测分页地址。
+- 退出码：`0` 解析通过，`4` 待核验/部分结果，`3` 没有可用名单；
+  `0` 不代表全院覆盖，必须同时查看 `coverage`、`scope`、`partial` 和逐页证据。
+- `verdict=accept` 只表示当前结构可解析；`coverage=verified` 要求在声明范围内遍历完成且
+  条目总数精确对账、无身份歧义。官网“共N条”是记录数，不能直接当作唯一在职人数。
+- 完整研究方向与截断摘要分开：截断内容仅放 `direction_hint`，仍需详情补全；
+  不从栏目名推断职称、方向、导师资格或在职状态。
+- 默认预设文件缺失时仍可运行通用解析。显式 `--config` 路径无效或内容损坏时应报错。
+  仅在需要长期复用且核验通过后，才用 `faculty_discover.py --site ... --write` 保存预设。
 
 #### 站点家族（`scripts/faculty_engines.py`）
 
@@ -672,24 +721,18 @@ uv run python 流程1/scripts/faculty_discover.py --unit ustc:chem
 
 `generic_cluster` 是**结构无关**的兜底：不依赖任何站点特有 class，
 只锚定"形如人名的链接"，再按 URL 形态聚类取最大簇 ——
-导航链接形态各异，天然被排除。
+导航结构和栏目词须先过滤；不能仅凭链接形态认定教师身份。
 
 后两个家族是**直连失败后的转 CDP 分支**（§5.1）：前者适用于
 "渲染一下就有"的 SPA 外壳站，后者适用于"必须点击才加载"的站群。
 
-#### 质量闸门（`score_candidate`）
+#### 解析置信与覆盖范围分开核验
 
-自动发现必须能**拒绝**把栏目名当教师交差。判据（按优先级）：
-
-1. **结构指纹**命中 → 加分（确认属于该家族）
-2. **官网自称条数对账**（主锚）—— `共N条` / `页码 x/y` 是官网自己给的数字，
-   比任何启发式都硬；对不上就降级
-3. **导航词占比** > 30% → 判 `reject`（抽到的"人"其实是栏目名）
-4. **规模合理性**：≥25 条且 ≥80% 带详情页 → 无对账也可接受
-   （导航误判的规模远小于此阈值，数据见 [实测结果汇总.md](实测结果汇总.md#s-2)）
-
-判定三态：`accept`（直接入库）/ `review`（**需 agent 看一眼**，唯一需人工介入处）
-/ `reject`。**复核只发生在首次接入某站时**，入库后即长期复用。
+`select_parser` 比较通用 DOM/表格及站点家族候选，返回 `accept/review/reject`。
+导航、普通课程表、错误页不能作为人员名单；多个解析候选发生冲突时保留证据供核验。
+`collect_page` 在真实分页汇总后核对官网声明条目数；乘法估计不能代替逐页对账。
+小名录没有总数时可以有可用记录，但 `coverage` 仍为 `unverified`。
+按教授、教研系列、ALL等标签取得的名单只覆盖对应栏目，不能称全院或全校完整名单。
 
 #### JS 渲染站：不再直接放弃，转 CDP 浏览器链路
 
@@ -714,34 +757,19 @@ uv run python 流程1/scripts/harvest_faculty.py --unit nju:chem --out outputs/n
 
 > **`interactive` 的前置条件（硬约束，必读）**
 >
-> **`uv run` 会阻止 Chrome 启动** —— 该限制**沿进程树继承**，
-> 连「uv run → 系统 python → Chrome」都不行，Chrome 进程根本起不来。
-> 故必须**先在普通终端预启动一个调试浏览器**，再跑流程：
->
-> ```bash
-> # ① 普通终端里执行一次（脚本会打印可直接复制的命令）
-> uv run python 流程1/scripts/faculty_interact.py --start-browser --port 9222
->
-> # ② 之后正常跑流程，会自动连上该浏览器
-> uv run python 流程1/scripts/harvest_faculty.py --unit nju:chem
-> ```
->
-> `--remote-allow-origins=*` 是**必需**参数：缺它 websocket 握手返回
-> **403 Rejected an incoming WebSocket connection**。
->
-> 浏览器不可用时脚本**优雅降级**：如实打印原因、把该栏位记为「未取到」，
-> **不会**伪造数据或把页脚友情链接当教师凑数。
-> `render` 家族同理需 `robot/crawl_site.py` 在位。
+> 启动环境限制须按实际日志诊断；uv/venv不作为必然失败判据。统一使用通用浏览器池并核验DOM。
 
 若站内确实没有形如「师资队伍/教师名录」的入口，用 `--url` 直接指定具体页。
 
 #### 离线自检（改引擎后**必跑**）
 
 ```bash
-uv run python 流程1/scripts/selftest_engines.py    # 零网络，秒级
+uv run python 流程1/scripts/selftest_engines.py
+uv run python 流程1/scripts/selftest_faculty_dom.py
+uv run python 流程1/scripts/selftest_faculty_discovery.py
 ```
 
-用真实站点骨架做 fixture，锁住 12 组行为（**49 项**），覆盖实测踩过的坑：
+离线夹具覆盖站群骨架、通用 DOM、无预设入口和发现/分页契约，测试数据在代码中合成，不依赖真实作者样例包：
 无个人主页的教师被漏掉、导航链接混入、`研究方向` 锚点在导航里、
 `共N条` 对账失效、`listN.htm` 分页、JS 空壳识别，
 以及浏览器家族（枚举结果解析、非人名过滤、预启动命令含
@@ -749,8 +777,7 @@ uv run python 流程1/scripts/selftest_engines.py    # 零网络，秒级
 
 ### 新增一所学校：手工配置（探索模式，仍受支持）
 
-配置里加条目即可。**推荐先试复用模式**（上面），仅在自动发现判定为
-`review` 时才需要手工介入：
+人工预设是可选适配方式。优先使用运行时发现；遇未支持结构时先核对页面证据，再决定是否保存配置：
 
 ```json
 "xxx": {
@@ -1334,7 +1361,7 @@ uv run python 流程1/scripts/reviews_build.py --topic "阿尔茨海默病早期
 > - **一项一问**：每个选项单独给出**取值、默认值、以及选它的后果**，由用户逐项回答。
 > - **不得合并**：把 N 个互相独立的选项并成一句「是否照默认跑」「其余按默认可以吗」
 >   属**违规**。**尤其禁止**把**输出物格式（#1）**、**是否翻译（#2）**、
->   **是否制作 PPT（#6）**、**综述解读档位（#9）** 合并成一次确认 —— 
+>   **是否制作 PPT（#6）**、**综述解读档位（#9）** 合并成一次确认 ——
 >   这四项互相独立，必须**分别**确认。
 > - **不得替用户默认**：未获明确答复的项按「**不新增**」处理（保守），
 >   并在阶段产出与交付说明里如实标注「该项未确认、未执行」。
@@ -2166,13 +2193,13 @@ uv run python 流程1/scripts/interpret_build.py                  # ④ 汇总�
 
 1. **时间线要点串联**（按发表先后）：每篇一句定位 + 1–2 条关键数据。
 2. **逐篇解读**：每篇按 H.1 的四步展开（含量化数据表）。
-3. **关键词统计**：题名 + 摘要 + 解读卡语料做词频统计，给出
-   「**语义词族合并计数**」+「**单一条目频次**」两张表。
-   词族表见 `templates/关键词词族模板.json`（作者专属）与
-   `templates/关键词词族_学科通用.json`（**学科通用底座**）——
-   后者由工作根目录《研究方法与关键词总表.md》的 24 个领域派生，
-   **全部成员都是单 token**，可直接使用。
-   **没有词族表就只出单条目频次，不臆造合并关系**。
+3. **关键词统计与共现**：保留完整术语，按每篇文献出现计数，不以中文滑窗/英文散文拆词代替术语。
+   原三层 `keywords_core/method/reagent` 与分类证据 `keyword_evidence` 保持原契约；
+   新增独立 `keyword_source_evidence`（term/surface/source_field/quote）供原文溯源，
+   由任务包 `keyword_contract.version=1` 约束。不能把两种证据同名混写。
+   关键词必须经过三层门控及原文证据核验；错误词拒收但不自动丢整张解读卡；空词表可接受并申报。
+   `templates/关键词同义词表.json` 只做精确同义归一；旧学科领域词族不能当同义表。
+   题录/摘要/全文证据不足时宁缺不补，不从生成的methods/key_20散文自证。
 4. **主要研究方向归纳**（3–6 条，按被标注篇数排序）——
    **必须来自受控词表**（见下方 H.5）。
 5. **研究方法范式（Paradigm）分析** —— 同样**必须来自受控词表**。
@@ -2357,7 +2384,7 @@ uv run --with matplotlib --with networkx --with python-igraph --with adjustText 
 > `SMALL_MODEL_ROOT` 指定缓存根，`HF_ENDPOINT` 指定下载源，
 > `SMALL_MODEL_TORCH_INDEX` / `SMALL_MODEL_PIP_INDEX` 指定包索引，
 > `SMALL_MODEL_OFFLINE=1` 禁止联网（离线前必须已完成一次下载）。
-```   
+```
 --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
 ```
 #                         词的来源权重：文章关键词 > 题名 > 摘要 > 卡片方法描述
@@ -2414,9 +2441,9 @@ x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠
 | **字号比上限**       | `WC_LIB_FONT_RATIO=6`：最大字号 ≤ 6 × 最小字号（库把字号钳在 `[min,max]`，故成品实际比必然 ≤ 6；自检 ⑭ 断言）。**代价**：字号一压平，大词让不出位置、能放下的**词数陡降**（实测 min 8→348 词/比 2.0、**min 16→339 词/比 6.0/墨迹 26.2%**、min 32→95 词、min 40→65 词），故基准取 `WC_LIB_MIN_FONT=16` |
 | **出图契约**         | 自检 ⑭ 断言：同权重两次渲染位图**逐字节一致**、位图非空、方向配色被采纳（`color_func`）、**等宽字体确已生效**（带/不带 mono 的栅格必须不同）。**代价如实申报**：词云 SVG **内嵌位图**（不再矢量字形）；PPT 用 PNG，不受影响                                                                                                                                                                                    |
 
-> **注意**：词云的分词口径与「图谱节点 / 方向画像」**刻意不同**。
-> 后者沿用 `tokenize()` 的中文 2-gram（与 `interpret_build.py` 同口径，改它会漂移方向画像与冲突检出）。
-> 两者不应互相对齐，也不要用词云的词去解释图谱的簇。
+> **关键词一致性**：报告、词云、可见方法节点与VOSviewer使用完整术语与来源门控。
+> 内部方向相似度/冲突线索可保留启发式tokenize，但不得将其滑窗/散词直接作为展示或导出关键词。
+> 词云core与方法画像的类别范围仍按三层规则分别处理。
 
 **质检（「这一簇在讲什么？」「哪里在自相矛盾？」）**
 
@@ -2456,31 +2483,22 @@ x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠
 + `.work_cdp/graph/*.svg|png` + `graph_data.json`
   （含 `wordcloud.stats`、`figure_notes` 与 **`overview_layout`** —— 节点坐标与布局元信息）。
 
-**VOSviewer 图（v18 新增，可选但推荐）**
+**VOSviewer 完整术语与三层导出**
 
-卡片带关键词三层（§6.7）时，用 `keywords_three_layer.py` 额外导出一套 VOSviewer 文件：
+保留目标分支三层门控：core用于词云，method/reagent分别统计；分类证据 `keyword_evidence`
+与原文来源证据 `keyword_source_evidence` 分开。导出仅使用校验通过的完整短语。
 
 ```bash
-# ① 校验卡片关键词（缺字段只 WARN，不阻断）
-uv run python 流程1/scripts/keywords_three_layer.py --check
-
-# ② 导出 VOSviewer（词云只吃 core；method 单独做方法画像）
-uv run python 流程1/scripts/keywords_three_layer.py \
-    --export --out .work_cdp/graph/vos --min-doc 1
-
-# ③ 卡片没带关键词时，退回“全文建图”
-uv run python 流程1/scripts/keywords_three_layer.py \
-    --fulltext --corpus <MinerU md 目录> --out .work_cdp/graph/vos --min-doc 5
+python 流程1/scripts/keywords_three_layer.py --check
+python 流程1/scripts/keywords_three_layer.py --export --out .work_cdp/graph/vos --min-doc 2
+# H/H2/R2独立原文证据导出，或由对应build汇总自动生成
+python 流程1/scripts/vosviewer_export.py --workdir "<工作目录>" --stage H --min-occurrences 2
 ```
 
-产物：`.work_cdp/graph/vos/{map.txt,network.txt,thesaurus.txt,vocab.csv,corpus.txt}`
-
-> **格式由脚本保证**：`map.txt` 必须有 `id/label/x/y/weight` 表头（缺 `x`/`y` 会被
-> VOSviewer 拒绝），`network.txt` 是 `id1/id2/strength` 稀疏格式且**无表头**。
-> 打开方式：VOSviewer → File → Open → 两个文件都选 → Analysis → Layout/Clustering。
-
-> **VOSviewer 只支持英文文本挖掘**（§3.5.4）；中文标签走 map+network 没问题，
-> 但**不要**把中文喂给 corpus 路线。
+每篇文献每个术语最多计1次；边权为共同出现的文献数。map/network/thesaurus及审计文件
+保留完整术语、源文证据、被拒词原因和空网络状态。聚类编号不预造，由VOSviewer计算。
+没有可靠关键词时先补证据，不能退回任意中文n-gram/英文逐词散文凑词群。
+既有 `--fulltext` 路线仅供受控词典原文匹配，不把滑窗候选直接导出。
 
 > **诚实性约束**：挂不上方向的综述、放不下的低频词、不足 N 年的方向样本、
 > 样本不足而不做热点簇着色的方向 —— 全部**显式报出数量或名字**，不静默丢弃；
@@ -2943,7 +2961,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | **`reviews_fulltext.py`**    | **阶段 R①.5：综述全文获取（skill 先试 / CDP 兜底）**。把阶段 R 任务包接到 §5.1 分层链路上：**补 PMCID**（原检索漏采，是下游停在摘要级的根因）→ **第一层** EPMC `fullTextXML`（白名单授权通道）→ **第二层-A** 缺口转 `download_all_fulltexts.py` → **第二层-B** `--repo` 出版社被 CAPTCHA 时改走 **PMC 仓库副本（仍经 CDP）** → **回填**（按字数**择优**，防付费墙残页盖住真正文）→ **副链路** `--fallback` 三层都没拿到时转 `fulltext_router.py`（CDP 备用，产物由回填第 ④ 通道收取）。**取不到就如实保持 `abstract`，不臆造**。用法见 `docs/阶段R全文获取模块.md` | `uv run python reviews_fulltext.py --all --cdp --repo --fallback --backfill`（分步：`--probe` / `--layer1` / `--layer2` / `--cdp` / `--repo` / `--fallback [--fallback-mode off\|oa\|oa+api] [--fallback-arxiv]` / `--backfill`。**`--fallback` 必须在 `--cdp`/`--repo` 之后、`--backfill` 之前**）                                                |
 | **`fulltext_router.py`**     | **阶段 R①.5 的副链路路由（CDP 备用）**。把 nature-downloader `routeDoiDownload` 的**编排层**搬进来（不外链 nature-skills）：Crossref 元数据 →（中文硬分流）CNKI → 出版商 API → OA 瀑布 → 浏览器交接 → API 兜底需显式授权；真正的取件全部委托给既有 `oa_candidates` / `white_list_policy` / `fulltext_publishers` / `fulltext_credentials` / `fetch_pacing` / `jats_fulltext` / `fulltext_result`。**[STOP] 两个前提**：① CDP 主链路**已失败**（`cdp_failed` 非 `True` 直接拒绝，退出码 3）；② 候选**必须在 `templates/直连白名单.json` 内**（白名单文件不得为此改动）。**不代填、不代登录、不代持凭据** | `uv run python fulltext_router.py --plan 10.xxxx/yyy`（零网络干跑）；`--from-json .work_cdp/reviews/fallback_gap.json --out …/fallback --report …/reviews_fallback.json [--mode off\|oa\|oa+api]`；`--self-test`                                                |
 | **`selftest_fallback_wiring.py`** | **副链路接线自检（零网络、无 LLM）**。副链路每个模块各自都有 `--self-test`，但接线断掉的方式从来不是「脚本报错」，而是**契约对不上**：① 「CDP 已失败」的判据两边各算一套 → 已拿到全文的论文被重跑，白耗同一站点配额；② 副链路取到 PDF 却把二进制字节当正文塞进任务包 → 回填**按字数择优**时字节很容易胜出并盖住真正文；③ 阶段 0 写了 `fulltext_fallback=off` 但没人读 → 副链路照跑。三条只有把 `reviews_fulltext.py` 与 `fulltext_router.py` 接起来跑一遍才暴露，故单独成检。`route_many` 被换成夹具实现 —— 验的是**接线**，路线本身由 `fulltext_router.py --self-test` 的 40 项断言覆盖 | `uv run python selftest_fallback_wiring.py [--keep] [--verbose]` |
-| **`cdp_up_nosandbox.py`**    | **CDP 实例启动（附加 `--no-sandbox`）**。本机 Edge 的 **renderer 沙箱创建失败**，`cdp_pool` 直启会得到「端口就绪但 **renderer=0**」的**假活实例**（页面级命令全部超时）。本脚本复用 `cdp_pool` 的档位表/profile 规则，仅追加 `--no-sandbox`，并把就绪判定升级为「端口通 **且** renderer>0」。**不改动 `cdp_pool.py`**。诊断见 `outputs/03_领域概貌/CDP跑通记录.md`                                                                                                                                         | `python cdp_up_nosandbox.py --n=3`（正常环境仍应用 `cdp_pool.py up`）                                                                                                                                       |
+| **`cdp_up_nosandbox.py`**    | **显式诊断用实例启动器**（仅用户明确调用时添加 `--no-sandbox`）；默认通用池保持沙箱开启。通过CDP DOM能力探活，不按Edge进程名计数。跨平台环境不支持精确listener身份验证时fail-closed；不作为正常流程的自动回退 | `python cdp_up_nosandbox.py --n=3 --browser <Chromium路径>` |
 | **`prep_r2_tasks.py`**       | **阶段 R①.5→R2 的交接整理（必跑）**。把全文从任务包 JSON 的 `text` 字段**搬出**到 `<stage>/fulltext/<slug>.txt`：JSON 单行会被读取工具截断（十几万字的正文只剩开头一小段能被读到），且超长段落本身也会被截断 —— 本脚本把段落**软换行到 1200 字符/行**，确保全文 100% 可读。任务包只留摘录 + `fulltext_path` 指针。原包备份到 `tasks_full/`，`--restore` 可还原（备份只建一次、全文以 `tasks_full/` 为准，故**可反复运行而不会越跑越短**）。定位任务包目录**只认本次运行目录**：`.work_cdp/reviews/` → 本次 `outputs/` 下含 `tasks/` 者；**不回看**日期隔离前的 `流程1/outputs/`                                                                                                                                          | `python prep_r2_tasks.py`（`--excerpt 3000` / `--restore`）                                                                                                                                               |
 
 ### PRISMA 系统检索链
@@ -2978,12 +2996,12 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `logutil.py`                    | **统一日志**（控制台 + 文件双写，UTF-8 安全，线程安全）+ **操作流水** `journal(stage, action, **fields)`                                                                                            | `from logutil import get, journal`                                        |
 | **`journal_view.py`**     | **操作流水查看器** —— 回溯「这一轮到底做了什么」：按时间列出各阶段动作与参数，支持 `--stage=` / `--action=` / `--tail=` / `--json`                                                                | `uv run python journal_view.py [--stage=E] [--action=download.fail]`      |
-| **`selftest_consent.py`** | **Cookie 弹窗自动关闭的离线自检**：本地 `file://` 夹具 + 真实 Edge，验证固定定位横幅 / shadow DOM / 装饰符匹配 / 不误点正文按钮 / 不重复点击。**零网络**，不碰出版社站点                            | `uv run --with websocket-client python selftest_consent.py [--port=9251]` |
+| **`selftest_consent.py`** | **普通Cookie同意窗识别回归**（不含人机验证；真实验证provider仍须人工）：本地 `file://` fixture + 可选Chrome/Chromium/Edge，验证fixed/shadow/遮挡/按钮状态与实际DOM消失；不触碰出版社站点                            | `uv run --with websocket-client python selftest_consent.py [--port=9251]` |
 | `detect.py`                     | **页面状态唯一判定源**（ok/challenge/blocked/paywall/not-ready）+ DOI→出版社映射                                                                                                                           | `from detect import judge, site_of_doi`                                   |
 | `store.py`                      | **PDF 存放/命名/去重/校验**唯一实现                                                                                                                                                                         | `from store import existing_pdf, validate_pdf, stem_for, register_pdf`    |
 | `cdp.py`                        | CDP 客户端（端口参数化、**硬超时**、自动重连、异常分类）                                                                                                                                                    | `from cdp import connect, is_alive`                                       |
 | `cdp_pool.py`                   | **多实例池**：并行启动/探活/调度/回收                                                                                                                                                                       | `python cdp_pool.py {up\|status\|down\|renew}`                               |
-| `start_edge_cdp.sh`             | 启动 CDP Edge（**多实例**，最小参数档位）                                                                                                                                                                   | `bash start_edge_cdp.sh <workdir> 9222 3 0`                               |
+| `start_edge_cdp.sh`             | 启动 CDP Chromium浏览器（**多实例**，最小参数档位）                                                                                                                                                                   | `bash start_edge_cdp.sh <workdir> 9222 3 0`                               |
 | **`agent_poll.py`**       | [**]**子代理批次进度轮询**（阶段 H/H2/R2）：读 `tasks/` 与 `results/` 计数，给出「下一批派几个、隔多久再查」。**取代盲等固定时长**。只读、零网络；退出码即结论（0=齐/3=在跑/4=有坏卡/2=无任务包） | `uv run python agent_poll.py --stage H`                                   |
 | `renew_cdp_instance.sh`         | 重建**单个**实例（换全新 profile）                                                                                                                                                                          | `bash renew_cdp_instance.sh <workdir> <port>`                             |
 

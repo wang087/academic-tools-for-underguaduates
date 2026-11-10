@@ -1,0 +1,11 @@
+# Core CDP, PDF and local workflow dependencies. Model weights are separate.
+pypdf>=5,<7
+PyMuPDF>=1.24,<2
+websocket-client>=1.8,<2
+websockets>=13,<17
+Pillow>=10,<13
+numpy>=2,<3
+PyYAML>=6,<7
+requests>=2.32,<3
+httpx>=0.27,<1
+jsonschema>=4.23,<5

@@ -51,6 +51,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from keyword_contract import keyword_contract
+
 from logutil import run_root as _run_root  # noqa: E402
 
 # ── UTF-8 兜底（与 logutil._fix_stdout 同判据，幂等）──
@@ -222,6 +224,7 @@ def norm_record(rec: dict) -> dict:
         "citations": rec.get("citations") or rec.get("cited_by_count") or 0,
         "platform": rec.get("platform") or rec.get("source") or "",
         "why_selected": rec.get("why_selected", ""),
+        "author_keywords": rec.get("author_keywords") or [],
     }
 
 
@@ -297,6 +300,8 @@ def build(input_records: list[dict], outdir: pathlib.Path,
             "year": rec["year"],
             "authors": rec["authors"],
             "abstract": abstract,
+            "author_keywords": rec.get("author_keywords") or [],
+            "keyword_contract": keyword_contract(),
             "evidence_source": src,
             "type": rec["type"],
             "is_review": rec["is_review"],

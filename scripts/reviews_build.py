@@ -596,6 +596,11 @@ def main(argv: list[str] | None = None) -> int:
     if not outp.is_absolute():
         outp = WD / outp
     outp.parent.mkdir(parents=True, exist_ok=True)   # 允许输出到尚不存在的目录
+    from vosviewer_export import export_stage
+    keyword_export = export_stage(WD, 'R2', outdir=d / 'vosviewer', stage_dir=d)
+    text += ('\n\n## 完整术语与 VOSviewer 导出\n'
+             + f'完整术语节点 {keyword_export["terms"]} 个，共现边 {keyword_export["links"]} 条。'
+             + '三层 core 优先门控；每文献二值计数；不预设聚类；证据与剔除原因见 '+str(d/'vosviewer')+'。\n')
     outp.write_text(text, encoding="utf-8")
 
     n_task = len(tasks)

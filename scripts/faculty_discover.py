@@ -32,6 +32,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+from html.parser import HTMLParser
 import html as _html
 import io
 import json
@@ -42,7 +44,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
@@ -51,7 +53,6 @@ if str(_HERE) not in sys.path:
 from faculty_engines import (detect_engines, declared_total, looks_js_rendered,  # noqa: E402
                              page_count, parse_with, score_candidate, squash,
                              strip_tags)
-from logutil import run_root as _run_root                       # noqa: E402
 
 try:
     from logutil import get  # type: ignore
@@ -103,16 +104,41 @@ def _fix_streams() -> None:
 _fix_streams()
 
 
+class FetchedPage(str):
+    """String-compatible response body with its authoritative final URL."""
+    def __new__(cls, text: str, final_url: str):
+        obj = super().__new__(cls, text)
+        obj.final_url = final_url
+        return obj
+
+
+def decode_response(response, requested_url: str) -> FetchedPage:
+    raw = response.read()
+    content_type = response.headers.get("Content-Type", "")
+    header = re.search(r"charset\s*=\s*['\"]?([\w.-]+)", content_type, re.I)
+    meta = re.search(br"<meta\b[^>]*charset\s*=\s*['\"]?\s*([\w.-]+)", raw[:16384], re.I)
+    encodings = ([header.group(1)] if header else []) + ([meta.group(1).decode("ascii")] if meta else [])
+    for encoding in encodings + ["utf-8-sig", "gb18030"]:
+        try:
+            text = raw.decode(encoding)
+            break
+        except (UnicodeError, LookupError):
+            continue
+    else:
+        text = raw.decode("utf-8", "replace")
+    return FetchedPage(text, response.geturl() or requested_url)
+
+
 def fetch(url: str, timeout: int = 30, retries: int = 3) -> str:
     last = None
     for i in range(retries):
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "replace")
-        except Exception as e:                        # noqa: BLE001
-            last = e
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return decode_response(response, url)
+        except Exception as exc:
+            last = exc
             if i < retries - 1:
                 time.sleep(1.0 * (i + 1))
     raise RuntimeError(f"取页面失败：{url} —— {last}")
@@ -121,92 +147,302 @@ def fetch(url: str, timeout: int = 30, retries: int = 3) -> str:
 # ══════════════════════════════════════════════════════════════
 # ① 从站内找师资页候选
 # ══════════════════════════════════════════════════════════════
+class _Links(HTMLParser):
+    def __init__(self, page: str):
+        super().__init__(convert_charrefs=True)
+        self.base = ""
+        self.links = []
+        self.current = None
+        self.feed(page)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "base" and not self.base:
+            self.base = attrs.get("href", "")
+        if tag == "a":
+            self.current = [attrs, [], [], ""]
+        elif self.current and tag in ("h2", "h3", "h4", "h5"):
+            self.current[3] = tag
+
+    def handle_data(self, data):
+        if self.current:
+            self.current[1].append(data)
+            if self.current[3]:
+                self.current[2].append(data)
+
+    def handle_endtag(self, tag):
+        if self.current and tag == self.current[3]:
+            self.current[3] = ""
+        if tag == "a" and self.current:
+            attrs, text, heading, _ = self.current
+            label = squash(attrs.get("title", "")) or squash("".join(heading)) or squash("".join(text))
+            self.links.append((attrs, label))
+            self.current = None
+
+
+def safe_link(source: str, href: str, base: str = "") -> str:
+    """Resolve native links while keeping discovery on the department host."""
+    href = _html.unescape(href or "").strip()
+    if not href or href.startswith("#"):
+        return ""
+    try:
+        target = urlsplit(urljoin(urljoin(source, base), href))
+        source_parts = urlsplit(source)
+        if target.port != source_parts.port:
+            return ""
+    except ValueError:
+        return ""
+    if target.scheme.lower() not in ("http", "https"):
+        return ""
+    if target.hostname != source_parts.hostname or target.username or target.password:
+        return ""
+    return urlunsplit((target.scheme, target.netloc, target.path or "/", target.query, ""))
+
+
 def discover_faculty_pages(site: str, page: str) -> list[dict]:
-    """在站内找师资页候选：按导航关键词 + 排除招聘/校友类栏目。
-
-    返回 [{label, url, score}]，去重并按「标签越像师资页越靠前」排序。
-    """
-    out: dict[str, dict] = {}
-    base = re.match(r"^[a-z]+://[^/]+", site, re.I)
-    origin = base.group(0) if base else site.rstrip("/")
-
-    for m in re.finditer(r"<a\s+([^>]*?)>(.*?)</a>", page, re.S | re.I):
-        attrs, inner = m.group(1), m.group(2)
-        hm = re.search(r'href=["\']([^"\']+)["\']', attrs, re.I)
-        if not hm:
+    """Find faculty navigation; preserve actual URL semantics, including base href."""
+    parsed = _Links(page)
+    out = {}
+    keywords = FACULTY_KW + ("研究人员", "专任教师", "人员简介", "教研室")
+    for attrs, label in parsed.links:
+        label = squash(label)
+        low = label.lower()
+        personnel_directory = bool(re.search(r"(?:人员简介|教师介绍)\s*$", label))
+        if not label or len(label) > (64 if personnel_directory else 32) or not any(k in low for k in keywords):
             continue
-        label = squash(strip_tags(inner))
-        tm = re.search(r'title=["\']([^"\']*)["\']', attrs, re.I)
-        if tm and not label:
-            label = squash(_html.unescape(tm.group(1)))
-        if not label or len(label) > 24:
+        # Course/research themes may contain 学习/交流. An explicit personnel
+        # directory heading is stronger evidence than those generic news cues.
+        if any(k in label for k in NEGATIVE_KW) or (not personnel_directory and any(k in label for k in NEWS_KW)):
             continue
-        lab_l = label.lower()
-        if not any(k in lab_l for k in FACULTY_KW):
+        url = safe_link(site, attrs.get("href", ""), parsed.base)
+        if not url or re.search(r"/(?:news|xinwen|xwzx|xwdt|events?)(?:/|[_.])", urlsplit(url).path, re.I):
             continue
-        if any(k in label for k in NEGATIVE_KW):
-            continue
-        # 一句话式的标签多为新闻/活动页，排除（实测「朱冰院士做客谈家桢讲坛」）
-        if any(k in label for k in NEWS_KW) or len(label) > 12:
-            continue
-        u = _html.unescape(hm.group(1)).strip()
-        if u.startswith(("javascript:", "#", "mailto:")):
-            continue
-        if u.startswith("//"):
-            u = "https:" + u
-        elif u.startswith("/"):
-            u = origin + u
-        elif not u.startswith("http"):
-            u = site.rstrip("/") + "/" + u.lstrip("./")
-        if u in out:
-            continue
-        # 标签越具体（含"名录/队伍/师资"）越可能是真正的列表页
-        s = 0
-        if "名录" in label:
-            s += 3
-        if "队伍" in label or "师资" in label:
-            s += 2
-        if "教授" in label or "教师" in label or "导师" in label:
-            s += 1
-        out[u] = {"label": label, "url": u, "score": s}
+        score = sum(w for key, w in (("名录", 3), ("队伍", 2), ("师资", 2),
+                    ("教师", 1), ("导师", 1), ("人员", 1)) if key in label)
+        out.setdefault(url, {"label": label, "url": url, "score": score})
     return sorted(out.values(), key=lambda r: -r["score"])
 
 
-def probe_page(url: str, cfg: dict, section: str = "") -> dict:
-    """对一个候选页跑全部引擎 + 评分，返回探测结果（含判定）。"""
-    rec: dict = {"url": url}
-    try:
-        page = fetch(url)
-    except Exception as e:                            # noqa: BLE001
-        rec["error"] = f"{type(e).__name__}: {str(e)[:120]}"
-        return rec
-    pages = page_count(page)
-    decl = declared_total(page)
-    dets = detect_engines(page, url, section, cfg)
-    cands = []
-    for d in dets:
-        ppl = parse_with(d["engine"], page, url, section, cfg)
-        verdict, score, reasons = score_candidate(
-            d["engine"], ppl, pages, decl, d["fingerprint_hits"])
-        cands.append({"engine": d["engine"], "count": len(ppl),
-                      "fingerprint_hits": d["fingerprint_hits"],
-                      "verdict": verdict, "score": score, "reasons": reasons,
-                      "sample": [p["name"] for p in ppl[:8]],
-                      "people": ppl})
-    cands.sort(key=lambda r: (-r["score"], -r["count"]))
-    best = cands[0] if cands else None
-    maxn = best["count"] if best else 0
-    rec.update({
-        "pages": pages, "declared": decl,
-        "js_rendered": looks_js_rendered(page, maxn),
-        "candidates": [{k: v for k, v in c.items() if k != "people"}
-                       for c in cands],
-        "_best_people": (best or {}).get("people", []),
-        "_best_engine": (best or {}).get("engine", ""),
-        "_best_verdict": (best or {}).get("verdict", "reject"),
-        "_best_score": (best or {}).get("score", 0),
-    })
-    return rec
+def next_page_url(page: str, url: str) -> str:
+    parsed = _Links(page)
+    for attrs, label in parsed.links:
+        rel = attrs.get("rel", "").lower().split()
+        text = squash(label).lower().strip(" >›»→")
+        if "next" in rel or text in ("下一页", "下页", "next", "next page"):
+            target = safe_link(url, attrs.get("href", ""), parsed.base)
+            if target and target != url:
+                return target
+    return ""
+
+
+def select_page(page: str, url: str, section: str, cfg: dict) -> dict:
+    """Use the shared selector when available; retain compatibility with older engines."""
+    import faculty_engines
+    selector = getattr(faculty_engines, "select_parser", None)
+    if selector:
+        return selector(page, url, section, cfg)
+    candidates = []
+    for det in detect_engines(page, url, section, cfg):
+        people = parse_with(det["engine"], page, url, section, cfg)
+        verdict, score, reasons = score_candidate(det["engine"], people,
+                page_count(page), declared_total(page), det["fingerprint_hits"])
+        candidates.append({**det, "people": people, "count": len(people),
+                           "verdict": verdict, "score": score, "reasons": reasons})
+    candidates.sort(key=lambda c: (-c["score"], -c["count"]))
+    best = candidates[0] if candidates else {"engine": "", "people": [],
+            "verdict": "reject", "score": 0, "reasons": ["未找到支持的名单结构"]}
+    return {**best, "candidates": [{k: v for k, v in c.items() if k != "people"}
+                                    for c in candidates]}
+
+
+def url_key(url: str) -> str:
+    parts = urlsplit(url)
+    host = re.sub(r"[^a-zA-Z0-9.-]", "_", parts.netloc) or "site"
+    return host + "_" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
+def page_scope(page: str, section: str) -> dict:
+    title = re.search(r"<title\b[^>]*>(.*?)</title>", page, re.I | re.S)
+    headings = [squash(strip_tags(t)) for t in re.findall(r"<h[12]\b[^>]*>(.*?)</h[12]>", page, re.I | re.S)]
+    return {"section": section, "title": squash(strip_tags(title.group(1))) if title else "",
+            "headings": headings[:8], "unit_coverage": "unverified",
+            "note": "计数仅对应当前名单栏目；ALL、教授等标签不能证明全院覆盖"}
+
+
+def error_page_reason(page: str) -> str:
+    scope = page_scope(page, "")
+    title = scope["title"].lower()
+    visible = squash(strip_tags(re.sub(r"<(script|style)\b[^>]*>.*?</\1>", "", page, flags=re.I | re.S)))
+    if re.search(r"\b(?:404|403|500|502|503)\b|page not found|access denied|service unavailable|页面不存在|访问出错|网站维护", title, re.I):
+        return "错误页标题，不能作为名单证据"
+    if len(visible) < 1000 and re.search(r"您访问的页面不存在|您所访问的页面不存在|页面已被删除|页面访问错误|系统维护中", visible):
+        return "错误页正文，不能作为名单证据"
+    return ""
+
+
+def record_identity(person: dict) -> str:
+    """Keep exact duplicate observations together without guessing identity."""
+    if person.get("url"):
+        return str(person["url"])
+    content = {key: person.get(key) for key in ("title", "directions", "email", "direction_hint")}
+    return "content:" + hashlib.sha256(json.dumps(content, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def collect_page(url: str, cfg: dict, section: str = "", *, fetcher=None,
+                 max_pages: int = 30, first_page: str | None = None) -> dict:
+    """Keep parsing confidence separate from verified coverage of the listed scope."""
+    fetcher = fetcher or fetch
+    current, requested, finals, people, evidence = url, set(), set(), [], []
+    declared = pages = 0
+    verdicts, engines, reasons, candidates = [], [], [], []
+    unfinished, js_rendered = False, False
+    scope = {"section": section, "unit_coverage": "unverified"}
+    while current and current not in requested and len(requested) < max(1, max_pages):
+        requested.add(current)
+        final = current
+        try:
+            page = first_page if len(requested) == 1 and first_page is not None else fetcher(current)
+            final = getattr(page, "final_url", current)
+            if final in finals:
+                raise ValueError("重定向分页循环")
+            finals.add(final)
+            error = error_page_reason(page)
+            selected = ({"engine": "", "people": [], "verdict": "reject", "reasons": [error]}
+                        if error else select_page(page, final, section, cfg))
+        except Exception as exc:
+            evidence.append({"requested_url": current, "source_url": final, "error": f"{type(exc).__name__}: {exc}"})
+            reasons.append("页面获取或解析失败")
+            unfinished = True
+            break
+        if len(evidence) == 0:
+            scope = page_scope(page, section)
+        count_pages, count_declared = page_count(page), declared_total(page)
+        pages, declared = max(pages, count_pages), max(declared, count_declared)
+        verdict, got = selected.get("verdict", "reject"), selected.get("people", [])
+        verdicts.append(verdict)
+        engines.append(selected.get("engine", ""))
+        reasons.extend(selected.get("reasons", []))
+        if len(evidence) == 0:
+            candidates = selected.get("candidates", [])
+        evidence.append({"requested_url": current, "source_url": final, "engine": engines[-1], "verdict": verdict,
+                         "count": len(got), "pages": count_pages, "declared": count_declared,
+                         "declared_records": count_declared, "scope": page_scope(page, section),
+                         "score": selected.get("score", 0), "reasons": selected.get("reasons", [])})
+        js_rendered |= looks_js_rendered(page, len(got))
+        if verdict != "reject":
+            for person in got:
+                rec = {k: v for k, v in person.items() if not k.startswith("_")}
+                rec.setdefault("section", section)
+                rec["source_url"] = final
+                people.append(rec)
+        else:
+            unfinished = True
+        following = "" if error else next_page_url(page, final)
+        if following in requested or following in finals:
+            unfinished = True
+            reasons.append("分页链接形成循环")
+            break
+        current = following
+    if current and len(requested) >= max(1, max_pages):
+        unfinished = True
+        reasons.append("达到分页上限")
+    unique = {}
+    for person in people:
+        person["record_id"] = record_identity(person)
+        unique.setdefault((person.get("name", ""), person["record_id"], person.get("section", "")), person)
+    people = list(unique.values())
+    identities = {}
+    for person in people:
+        identities.setdefault(person.get("name", ""), set()).add(person["record_id"])
+    ambiguities = [{"name": name, "record_ids": sorted(ids),
+                    "urls": sorted({p.get("url", "") for p in people if p.get("name") == name and p.get("url")})}
+                   for name, ids in identities.items() if len(ids) > 1]
+    if ambiguities:
+        for person in people:
+            if len(identities.get(person.get("name", ""), set())) > 1:
+                person["identity_ambiguity"] = True
+        unfinished = True
+        reasons.append("同名记录的URL或无URL内容不同，身份待核验；记录条数不等于人数")
+    loaded = sum("error" not in e for e in evidence)
+    if pages > loaded:
+        unfinished = True
+        reasons.append("声明分页未全部跟随：仅使用页面真实 next 链接")
+    if declared and len(people) != declared:
+        unfinished = True
+        reasons.append(f"实际名单条目数 {len(people)} 与官网自称 {declared} 不符")
+    verdict = "reject" if not people else ("review" if unfinished or any(v != "accept" for v in verdicts) else "accept")
+    verified = bool(declared and len(people) == declared and not unfinished and verdict == "accept")
+    if not declared:
+        reasons.append("官网未提供可对账的名单条目总数，覆盖范围尚未核验")
+    engine = engines[0] if engines else ""
+    source = evidence[0].get("source_url", url) if evidence else url
+    return {"url": url, "requested_url": url, "source_url": source, "engine": engine, "verdict": verdict,
+            "pages": max(1, pages, loaded), "pages_fetched": loaded, "declared": declared,
+            "declared_records": declared, "record_count": len(people),
+            "unique_name_count": len({p.get("name", "") for p in people}),
+            "identity_ambiguity": ambiguities, "coverage": "verified" if verified else "unverified",
+            "scope": scope, "complete": verified, "partial": not verified,
+            "status": "complete" if verified else "partial", "evidence": evidence,
+            "reasons": list(dict.fromkeys(reasons)), "candidates": candidates, "records": people,
+            "js_rendered": js_rendered, "_best_people": people, "_best_engine": engine,
+            "_best_verdict": verdict, "_best_score": evidence[0].get("score", 0) if evidence else 0}
+
+
+def probe_page(url: str, cfg: dict, section: str = "", *, max_pages: int = 30) -> dict:
+    return collect_page(url, cfg, section, max_pages=max_pages)
+
+
+def discover_site(site: str, cfg: dict, *, fetcher=None, top: int = 3,
+                  max_pages: int = 30, max_candidates: int = 12) -> list[dict]:
+    """Inspect at most two navigation hops, including department personnel directories."""
+    fetcher = fetcher or fetch
+    home = fetcher(site)
+    home_url = getattr(home, "final_url", site)
+    home_candidates = discover_faculty_pages(home_url, home)
+    directories = [c for c in home_candidates if re.search(r"(?:人员简介|教师介绍)\s*$", c["label"])]
+    # An explicit set of personnel articles is the landing page's roster;
+    # global menus such as 研究生导师 should not consume its bounded budget.
+    queue = [(c, 1, home_url) for c in (directories or home_candidates)]
+    if not queue:
+        queue = [({"url": site, "label": "师资"}, 1, site)]
+    seen, results = {site}, []
+    for candidate, depth, parent in queue:
+        url = candidate["url"]
+        if url in seen and url != site:
+            continue
+        seen.add(url)
+        if len(results) >= max_candidates:
+            break
+        try:
+            page = home if url == site else fetcher(url)
+            rec = collect_page(url, cfg, candidate["label"], fetcher=fetcher,
+                               max_pages=max_pages, first_page=page)
+            children = discover_faculty_pages(getattr(page, "final_url", url), page)
+        except Exception as exc:
+            rec = {"url": url, "source_url": url, "verdict": "reject", "records": [],
+                   "engine": "", "complete": False, "partial": True, "pages": 0,
+                   "declared": 0, "declared_records": 0, "record_count": 0, "unique_name_count": 0,
+                   "coverage": "unverified", "scope": {"section": candidate["label"], "unit_coverage": "unverified"},
+                   "evidence": [{"requested_url": url, "source_url": url, "error": str(exc)}]}
+            children = []
+        rec.update(label=candidate["label"], discovery_depth=depth, discovered_from=parent)
+        pending = [c for c in children if c["url"] not in seen and c["url"] != url]
+        # Global menus also occur on real rosters; only empty/unsupported pages
+        # provide evidence that another navigation hop is needed.
+        if not rec.get("records") and (pending or any(k in candidate["label"] for k in ("教研室", "人员简介"))):
+            rec["complete"], rec["partial"], rec["status"] = False, True, "partial"
+            rec["verdict"] = "review"
+            rec.setdefault("reasons", []).append("存在下级师资目录，覆盖范围待核验")
+            rec["evidence"].append({"source_url": url, "directory_links": pending,
+                                    "reason": "有界二层发现；目录不等于完整名单"})
+            if depth < 2:
+                queue.extend((c, depth + 1, url) for c in pending)
+        results.append(rec)
+    return results
+
+
+def public_result(rec: dict) -> dict:
+    return {k: v for k, v in rec.items() if not k.startswith("_")}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -252,7 +488,7 @@ def build_unit_entry(school: str, unit_name: str, site: str,
 def write_config(school_key: str, school_name: str, aliases: list[str],
                  unit_key: str, unit_entry: dict, dry: bool = False) -> str:
     """把 unit 写进 templates/学部官网源.json（保留既有内容与排版风格）。"""
-    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    cfg = load_cfg()
     unis = cfg.setdefault("universities", {})
     sk = unis.setdefault(school_key, {"name": school_name, "alias": aliases,
                                       "units": {}})
@@ -286,8 +522,18 @@ def write_config(school_key: str, school_name: str, aliases: list[str],
 # ══════════════════════════════════════════════════════════════
 # 主流程
 # ══════════════════════════════════════════════════════════════
-def load_cfg() -> dict:
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+def load_cfg(path: pathlib.Path | None = None) -> dict:
+    target = pathlib.Path(path) if path is not None else CONFIG_PATH
+    if not target.exists() and path is None:
+        return {"universities": {}, "list_types": {"engine_dispatch": {"_engine_dispatch": True}}}
+    try:
+        cfg = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("universities"), dict):
+            raise ValueError("配置缺少 universities 对象")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[X] 配置文件错误 {target}: {exc}") from exc
+    cfg.setdefault("list_types", {}).setdefault("engine_dispatch", {"_engine_dispatch": True})
+    return cfg
 
 
 def resolve_from_config(cfg: dict, unit: str) -> tuple[str, str, dict] | None:
@@ -321,7 +567,7 @@ def probe_configured(unit_entry: dict, cfg: dict) -> list[dict]:
     base = unit_entry["base"].rstrip("/")
     out = []
     for sec in unit_entry["sections"]:
-        url = base + sec["path"]
+        url = urljoin(base + "/", sec["path"])
         rec = probe_page(url, cfg, sec.get("name", ""))
         rec["label"] = sec.get("name", "")
         rec["configured_engine"] = sec.get("engine", "")
@@ -330,178 +576,79 @@ def probe_configured(unit_entry: dict, cfg: dict) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
-        prog="faculty_discover.py",
-        description="阶段 S 复用模式：任意学校/院系 → 自动发现师资页并生成数据源配置",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=("示例：\n"
-                "  faculty_discover.py --unit ustc:chem\n"
-                "  faculty_discover.py --site https://life.fudan.edu.cn/ "
-                "--school 复旦大学 --unit-name 生命科学学院 --unit-key life-sci --write\n"
-                "  faculty_discover.py --url https://chem.ustc.edu.cn/js/list.htm --explain\n"))
-    ap.add_argument("--unit", help="已收录的 `学校:院系`，直接复用配置")
-    ap.add_argument("--site", help="院系官网入口 URL（新学校用）")
-    ap.add_argument("--school", default="", help="学校全称")
-    ap.add_argument("--school-key", default="", help="学校 key（缺省由域名推断）")
-    ap.add_argument("--unit-name", default="", help="院系全称")
-    ap.add_argument("--unit-key", default="", help="院系 key（缺省用 main）")
-    ap.add_argument("--url", help="直接指定一个师资页做家族判定")
-    ap.add_argument("--out",
-                    default=str(_run_root() / ".work_cdp" / "faculty_discover"),
-                    help="输出目录（默认 <流程1>/<年月日>/.work_cdp/faculty_discover）")
-    ap.add_argument("--write", action="store_true",
-                    help="把选定结果写进 templates/学部官网源.json")
-    ap.add_argument("--dry-run", action="store_true", help="只打印不写文件")
-    ap.add_argument("--explain", action="store_true",
-                    help="打印每个候选引擎的得分与理由")
-    ap.add_argument("--top", type=int, default=3,
-                    help="自动发现时最多采用几个师资页（默认 3）")
+    ap = argparse.ArgumentParser(description="官网师资发现与一次性解析（配置可选）")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--unit")
+    mode.add_argument("--site")
+    mode.add_argument("--url")
+    ap.add_argument("--direct", action="store_true", help="将 --site 作为名单页，不写全局配置")
+    ap.add_argument("--config", help="显式配置路径；缺失或错误即报错")
+    ap.add_argument("--school", default="")
+    ap.add_argument("--school-key", default="")
+    ap.add_argument("--unit-name", default="")
+    ap.add_argument("--unit-key", default="")
+    ap.add_argument("--out", default=str(_HERE.parent / time.strftime("%Y%m%d") / (os.environ.get("PAPER_AUTHOR") or "") / ".work_cdp" / "faculty_discover"))
+    ap.add_argument("--write", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--explain", action="store_true")
+    ap.add_argument("--top", type=int, default=3)
+    ap.add_argument("--max-pages", type=int, default=30)
     args = ap.parse_args(argv)
-
-    log = get("discover")
-    cfg = load_cfg()
-
-    # ── 模式 3：单页家族判定 ──
-    if args.url:
-        rec = probe_page(args.url, cfg)
-        print(f"页面：{args.url}")
-        if rec.get("error"):
-            print(f"  [X] {rec['error']}")
-            return 1
-        print(f"  分页 {rec['pages']}｜官网自称 {rec['declared'] or '未给出'}"
-              f"｜疑 JS 渲染 {rec['js_rendered']}")
-        for c in rec["candidates"]:
-            print(f"  · {c['engine']:<20} {c['count']:>4} 人  "
-                  f"判定={c['verdict']:<6} 得分={c['score']:>4}  "
-                  f"指纹={c['fingerprint_hits']}")
-            if args.explain:
-                for r in c["reasons"]:
-                    print(f"        - {r}")
-                print(f"        样例: {c['sample'][:8]}")
-        best = rec["_best_engine"]
-        print(f"\n  建议引擎：**{best}**（{rec['_best_verdict']}，"
-              f"{len(rec['_best_people'])} 人）")
-        return 0
-
-    # ── 模式 1：已收录院系，直接复用 ──
+    cfg = load_cfg(pathlib.Path(args.config) if args.config else None)
+    if args.direct and not args.site:
+        ap.error("--direct 需要 --site")
     if args.unit:
-        got = resolve_from_config(cfg, args.unit)
-        if not got:
-            print(f"[X] 配置里没有 {args.unit}；用 --site 做新学校自动发现")
+        resolved = resolve_from_config(cfg, args.unit)
+        if not resolved:
+            print(f"[X] 配置里没有 {args.unit}；用 --site 或 --url")
             return 2
-        sk, uk, ue = got
-        print(f"复用已收录数据源：{cfg['universities'][sk]['name']} · {ue['name']}")
-        recs = probe_configured(ue, cfg)
-        for r in recs:
-            print(f"  [{r.get('label')}] {r['url']}")
-            if r.get("error"):
-                print(f"      [X] {r['error']}")
-                continue
-            print(f"      配置引擎={r['configured_engine']} → 探测最优="
-                  f"{r['_best_engine']}（{r['_best_verdict']}，"
-                  f"{len(r['_best_people'])} 人；分页 {r['pages']}；"
-                  f"官网自称 {r['declared'] or '—'}）")
-            if r["_best_engine"] != r["configured_engine"]:
-                print("      [WARN] 与配置不一致，建议核对后更新配置")
-        return 0
-
-    # ── 模式 2：新学校自动发现 ──
-    if not args.site:
+        recs = probe_configured(resolved[2], cfg)
+        source = resolved[2]["base"]
+    elif args.url or args.direct:
+        source = args.url or args.site
+        recs = [probe_page(source, cfg, args.unit_name or "师资", max_pages=args.max_pages)]
+    elif args.site:
+        source = args.site
+        try:
+            recs = discover_site(source, cfg, top=args.top, max_pages=args.max_pages)
+        except Exception as exc:
+            print(f"[X] 首页失败：{exc}")
+            return 1
+    else:
         ap.print_help()
         return 0
-    print(f"站点：{args.site}")
-    try:
-        home = fetch(args.site)
-    except Exception as e:                            # noqa: BLE001
-        print(f"  [X] 首页打不开：{e}")
-        return 1
-    cands = discover_faculty_pages(args.site, home)
-    print(f"  发现师资页候选 {len(cands)} 个")
-    for c in cands:
-        print(f"      [{c['label']}] {c['url']}")
-
-    chosen, probed = [], []
-    for c in cands[: max(1, args.top * 4)]:
-        r = probe_page(c["url"], cfg, c["label"])
-        r["label"] = c["label"]
-        probed.append(r)
-        if r.get("error"):
-            print(f"  [X] {c['label']}: {r['error'][:70]}")
-            continue
-        print(f"  · {c['label']:<14} 引擎={r['_best_engine']:<20} "
-              f"{len(r['_best_people']):>4} 人  判定={r['_best_verdict']:<6} "
-              f"得分={r['_best_score']:>4}  分页={r['pages']} "
-              f"自称={r['declared'] or '—'}")
-        if args.explain:
-            for cc in r["candidates"]:
-                print(f"        {cc['engine']:<20} {cc['count']:>4} 人 "
-                      f"{cc['verdict']:<6} {cc['score']:>4}")
-                for rs in cc["reasons"]:
-                    print(f"            - {rs}")
-        if r["_best_verdict"] in ("accept", "review") and r["_best_people"]:
-            chosen.append(r)
-
-    if not chosen:
-        print("\n未找到可用的师资页。")
-        # 直连全失败 → 再看是不是 JS/AJAX 站，并给出**可执行的下一步**
-        #   （§5.1：第一层直连失败转 CDP；渲染/交互由 faculty_render、
-        #     faculty_interact 两个模块承担，配置里写 engine 即可。）
-        js_like = [r for r in probed
-                   if not r.get("error") and r.get("js_rendered")]
-        if js_like:
-            print("    · 该站师资数据由 JS/AJAX 动态加载，直连取不到。")
-            print("      → 走浏览器链路（配置里把 section 的 engine 设为）：")
-            print("        · `interactive` —— 数据靠**点击分类**加载时（多数 WebPlus 站群）")
-            print("        · `render`      —— 整页渲染后即可解析时")
-            print("      参考已收录的南京大学化学化工学院：")
-            print("        uv run python 流程1/scripts/harvest_faculty.py "
-                  "--unit nju:chem --out outputs/nju_chem")
-            for r in js_like[:3]:
-                print(f"      · 候选页 {r['url']}")
-        else:
-            print("    · 站内没有形如「师资队伍/教师名录」的入口 → "
-                  "请用 --url 指定具体页")
-        return 3
-
-    chosen.sort(key=lambda r: -r["_best_score"])
-    chosen = chosen[: args.top]
-    print(f"\n采纳 {len(chosen)} 个师资页：")
-    for r in chosen:
-        print(f"  · {r['label']} → 引擎 {r['_best_engine']}，"
-              f"{len(r['_best_people'])} 人/页 × {r['pages']} 页"
-              f"（{r['_best_verdict']}）")
-
-    # 生成配置
-    unit_name = args.unit_name or (chosen[0]["label"] if chosen else "师资队伍")
-    unit_key = args.unit_key or "main"
-    school_key = args.school_key or _infer_key(args.site)
-    entry = build_unit_entry(args.school or school_key, unit_name,
-                             args.site, chosen)
-    print("\n生成的配置条目：")
-    print(json.dumps({school_key: {unit_key: entry}}, ensure_ascii=False, indent=2))
-
-    outdir = pathlib.Path(args.out)
-    outdir.mkdir(parents=True, exist_ok=True)
-    (outdir / f"{school_key}_{unit_key}_discover.json").write_text(
-        json.dumps({"school": args.school, "unit": unit_name,
-                    "site": args.site, "probed": [
-                        {k: v for k, v in r.items() if k != "_best_people"}
-                        for r in probed],
-                    "entry": {school_key: {unit_key: entry}}},
-                   ensure_ascii=False, indent=2), encoding="utf-8")
-
-    if args.write:
-        wrote = write_config(school_key, args.school or school_key,
-                             [school_key], unit_key, entry, dry=args.dry_run)
-        print(f"\n已写入配置：{wrote}")
-        print(f"  之后直接跑：uv run python 流程1/scripts/harvest_faculty.py "
-              f"--unit {school_key}:{unit_key} --out outputs/{unit_name}")
-    elif args.dry_run:
-        print("\n（--dry-run：未写文件）")
+    payload = {"source_url": source, "results": [public_result(r) for r in recs]}
+    accepted = [r for r in recs if r.get("verdict") == "accept" and r.get("records")]
+    pending = any(r.get("verdict") == "review" for r in recs)
+    payload["verdict"] = "review" if pending else ("accept" if accepted else "reject")
+    payload["complete"] = bool(accepted) and not pending and all(r.get("complete") for r in recs)
+    payload["partial"] = not payload["complete"]
+    if (args.url or args.direct) and not any(r.get("records") for r in recs):
+        print("名单页未解析到记录；若该页为教研室/师资目录，请用 --site URL 遍历下级入口（不要加 --direct）。")
+    if args.dry_run:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print("--dry-run：未写文件")
     else:
-        print(f"\n→ 探测结果：{outdir}")
-        print("  确认无误后加 --write 落进配置")
-    return 0
+        outdir = pathlib.Path(args.out)
+        outdir.mkdir(parents=True, exist_ok=True)
+        for rec in recs:
+            target = outdir / (url_key(rec.get("requested_url") or rec["url"]) + "_faculty.json")
+            target.write_text(json.dumps(public_result(rec), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            print(f"{rec.get('verdict')} {rec['source_url']} → {target}")
+        target = outdir / (url_key(source) + "_discover.json")
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.write and not args.direct and not args.url and accepted and not args.dry_run:
+        if args.config and pathlib.Path(args.config).resolve() != CONFIG_PATH.resolve():
+            ap.error("--write 仅支持默认配置；自定义配置不会被静默改写")
+        school_key = args.school_key or _infer_key(source)
+        entry = build_unit_entry(args.school or school_key, args.unit_name or "师资",
+                                 source, accepted[:max(1, args.top)])
+        print(write_config(school_key, args.school or school_key, [school_key],
+                           args.unit_key or "main", entry))
+    if pending:
+        print("[REVIEW] 待核验：部分名单、目录或解析证据尚不能确认完整性")
+        return 4
+    return 0 if accepted else 3
 
 
 def _infer_key(site: str) -> str:

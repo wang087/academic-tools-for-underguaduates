@@ -1,0 +1,8 @@
+# Native PPT conversion subset; optional AI image/narration tools stay separate.
+-r requirements-visual.txt
+python-pptx>=1,<2
+XlsxWriter>=3,<4
+openpyxl>=3.1,<4
+skia-pathops>=0.9,<1
+uharfbuzz>=0.50,<1
+beautifulsoup4>=4.12,<5

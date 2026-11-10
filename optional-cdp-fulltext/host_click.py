@@ -46,7 +46,11 @@ for _s in (sys.stdout, sys.stderr):
 
 HERE = pathlib.Path(__file__).resolve().parent
 OCR = HERE.parent / "clicktest" / "ocr.ps1"
-EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+_CORE = HERE.parent / "scripts"
+if str(_CORE) not in sys.path:
+    sys.path.insert(0, str(_CORE))
+from browser_runtime import find_browser, browser_brand
+import hashlib
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -584,7 +588,8 @@ def window_title(hwnd) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="https://doi.org/10.1016/j.molcel.2022.04.016")
-    ap.add_argument("--launch", action="store_true", help="用独立 profile 新开一个普通 Edge 窗口")
+    ap.add_argument("--launch", action="store_true", help="用独立profile新开Chromium浏览器窗口")
+    ap.add_argument("--browser", help="显式Chrome/Chromium/Edge可执行路径")
     ap.add_argument("--title-keyword", default="", help="窗口标题关键字（默认自动）")
     ap.add_argument("--out", default=str(HERE / "shots"))
     ap.add_argument("--clicks", type=int, default=1)
@@ -601,13 +606,17 @@ def main() -> int:
 
     proc = None
     if args.launch:
-        prof = HERE / "edge_profile"
+        binary = find_browser(args.browser)
+        token = hashlib.sha256(str(pathlib.Path(binary).resolve()).casefold().encode()).hexdigest()[:10]
+        prof = HERE / "browser_profiles" / f"{browser_brand(binary)}-{token}"
         prof.mkdir(parents=True, exist_ok=True)
-        proc = subprocess.Popen([EDGE, f"--user-data-dir={prof}", "--new-window",
+        proc = subprocess.Popen([binary, f"--user-data-dir={prof}", "--new-window",
                                  "--no-first-run", "--no-default-browser-check",
                                  "--window-size=1280,900", args.url],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rep["edge_pid"] = proc.pid
+        rep["browser_pid"] = proc.pid
+        rep["browser_binary"] = binary
+        rep["browser_profile"] = str(prof)
 
     # 等窗口出现
     keywords = ([args.title_keyword] if args.title_keyword

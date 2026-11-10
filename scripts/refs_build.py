@@ -538,6 +538,11 @@ def main() -> int:
         L.append("\n无缺卡、无 schema 问题、无仅有题录的条目。")
     L.append("")
 
+    from vosviewer_export import export_stage
+    keyword_export = export_stage(WD, 'H2')
+    L.append('## 完整术语与 VOSviewer 导出\n')
+    L.append(f'完整术语节点 {keyword_export["terms"]} 个，共现边 {keyword_export["links"]} 条；'
+             '三层 core 优先门控，每文献二值计数；未预设聚类，空网络不宣称词群。')
     md = "\n".join(L)
     # 单一交付文件（同 interpret_build：不再写 `_完整版.md` 别名）
     p = WD / f"{AUTHOR}_研究方向综述.md"

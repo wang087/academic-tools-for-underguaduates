@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # ─────────────────────────────────────────────────────────────
 # 批量下载论文全文（IP 级机构订阅授权 + 多 CDP 实例并行）
 #
@@ -99,6 +99,23 @@ except Exception:
     STATE_DATA = {}
 
 _STATE_LOCK = threading.Lock()
+
+
+def _dom_ready(port, log=None):
+    try:
+        return bool(cdp_pool.probe_endpoint(port).get("dom_usable"))
+    except Exception as exc:
+        if log:
+            log.warn(f"CDP :{port} DOM 不可用: {exc}")
+        return False
+
+
+def _cleanup_owned(base_port, span, log):
+    try:
+        return cdp_pool.down(WD, base_port=base_port, span=span, log=log)
+    except PermissionError as exc:
+        log.warn(f"保留未登记或身份不符的浏览器，受控实例已按登记回收: {exc}")
+        return 0
 
 
 def save_state():
@@ -217,12 +234,21 @@ def notify_user(title: str, message: str, timeout_s: float = 180.0) -> None:
         pass
 
 
-def activate_edge_window() -> None:
-    """把 Edge 窗口置前（Page.bringToFront 只能激活标签页，不抬升窗口）。"""
+def activate_edge_window(port: int | None = None) -> None:
+    """Compatibility name: focus only this workdir's verified browser root."""
+    if port is None:
+        return
+    try:
+        import cdp_pool
+        reg = cdp_pool._load_registry(WD)
+        info = cdp_pool._owned_identity(WD.resolve(), int(port), reg.get(str(port), {}))
+        if not info:
+            return
+        pid = int(info['pid'])
+    except Exception:
+        return  # Never fall back to the first Edge/Chrome window.
     ps = ("$ws = New-Object -ComObject wscript.shell;"
-          "$p = Get-Process msedge -ErrorAction SilentlyContinue |"
-          " Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -First 1;"
-          "if ($p) { $ws.AppActivate($p.Id) | Out-Null }")
+          f"$ws.AppActivate({pid}) | Out-Null")
     try:
         import subprocess
         subprocess.Popen(["powershell", "-NoProfile", "-Command", ps],
@@ -241,12 +267,12 @@ def wait_for_manual(c: CDP, doi: str, max_wait: float, log) -> bool:
     """
     notify_user("需要人工验证（CAPTCHA）",
                 f"检测到人机验证，自动化已暂停。\n\n论文 DOI: {doi}\n\n"
-                f"请在已置前的 Edge 窗口中完成验证（勾选 / 拼图）。\n"
+                f"请在目标浏览器窗口中完成人工验证（勾选 / 拼图）。\n"
                 f"完成后无需操作，流程会自动继续。\n（最长等待 {max_wait/60:.0f} 分钟）",
                 timeout_s=max_wait + 30)
     log.warn(f"检测到人机验证，请人工处理（最长 {max_wait/60:.0f} 分钟）")
     c.bring_to_front()
-    activate_edge_window()
+    activate_edge_window(c.port)
     t0 = time.time()
     last = -1
     # UC: try the validated host-level click first (real SendInput).
@@ -719,9 +745,9 @@ def run_pool(items: list[tuple[str, dict]], ports: list[int], opts: dict, log) -
                                             "pdf_error": f"site-circuit-open:{site}"})
                         continue
                     pace(site)
-                    if not is_alive(port):
-                        log.warn(f"端口 {port} 失联，尝试重启 …")
-                        if not cdp_pool.launch_one(WD, port, level=0, log=log):
+                    if not _dom_ready(port, log):
+                        log.warn(f"端口 {port} 页面不可用，尝试恢复 …")
+                        if not cdp_pool.launch_one(WD, port, level=None, log=log):
                             with rlock:
                                 results.append({"doi": doi, "pdf_ok": False,
                                                 "pdf_error": f"cdp-down:{port}"})
@@ -907,12 +933,13 @@ def main():
     if not todo:
         LOG.info("没有待处理的论文")
         # 即使本轮没有新任务，run_all 也可能已预先启动实例；阶段结束仍应回收。
-        cdp_pool.down(WD, base_port=opts["base_port"], span=8, log=LOG)
+        _cleanup_owned(opts["base_port"], 8, LOG)
         LOG.close()
         return
 
     # 端口池
-    ports = opts["ports"] or cdp_pool.alive_ports(WD, opts["base_port"], span=8)
+    candidates = opts["ports"] or cdp_pool.alive_ports(WD, opts["base_port"], span=8)
+    ports = [port for port in candidates if _dom_ready(port, LOG)]
     if not ports:
         LOG.info("未发现存活实例，正在启动 …")
         ports = cdp_pool.ensure(WD, n=opts["n"], base_port=opts["base_port"], log=LOG)
@@ -942,7 +969,7 @@ def main():
     finally:
         # 批量下载结束后回收全部本轮 CDP 实例，避免 detached Edge 长期占用资源。
         span = max(8, max(ports) - opts["base_port"] + 1) if ports else 8
-        cdp_pool.down(WD, base_port=opts["base_port"], span=span, log=LOG)
+        _cleanup_owned(opts["base_port"], span, LOG)
     ok = sum(1 for r in res if r.get("pdf_ok"))
     LOG.info(f"本轮完成：成功 {ok} / {len(res)} | 用时 {(time.time()-t0)/60:.1f} 分钟")
     LOG.info(f"站点熔断情况：{GUARD.summary()}")

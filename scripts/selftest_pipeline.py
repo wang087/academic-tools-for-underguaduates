@@ -10,7 +10,8 @@
 #
 # 特点
 #   · 在**临时工作目录**里跑，不碰任何真实案例数据；
-#   · 用 `流程1/示例数据/crossref_all.json` 作题录输入（77 篇真实 Crossref 记录）；
+#   · 用 `流程1/示例数据/crossref_all.json` 作题录输入（运行时合成题录，
+#     schema 与真实 Crossref 记录一致；DOI 为 `10.5555/selftest.*`，作者为虚构）；
 #   · 三个阶段的解读卡由**夹具**生成（不调用 LLM），但字段严格按 schema，
 #     并刻意混入：缺卡、schema 不合规卡、未归一标签 —— 验证流程**如实申报**而不是静默略过；
 #   · `--offline` 时跳过需要联网的 D2/G2/P，只验其余环节。
@@ -58,7 +59,7 @@ _HERE = pathlib.Path(__file__).resolve().parent
 REPO = _HERE.parents[1]              # 仓库根（流程1/scripts → 流程 → 仓库根）
 SDIR = _HERE
 TPL = _HERE.parent / "templates"
-SAMPLE = _HERE.parent / "示例数据" / "crossref_all.json"
+
 
 AUTHOR = "自检作者"
 
@@ -88,9 +89,9 @@ def run(script: str, wd: pathlib.Path, args: list[str] | None = None,
     env = dict(os.environ)
     env["PAPER_WORKDIR"] = str(wd)
     env["PAPER_AUTHOR"] = AUTHOR
-    env["PAPER_NAME_TOKENS"] = "hou, xudong|xudong hou|zhou, cong-zhao"
-    env["PAPER_SURNAME"] = "Hou"
-    env["PAPER_GIVEN"] = "Xudong"
+    env["PAPER_NAME_TOKENS"] = "fixture, author|author fixture"
+    env["PAPER_SURNAME"] = "Fixture"
+    env["PAPER_GIVEN"] = "Author"
     if with_pkgs and shutil.which("uv"):
         cmd = (["uv", "run", "--no-project"]
                + [x for pkg in with_pkgs for x in ("--with", pkg)]
@@ -163,6 +164,11 @@ def make_fixture_cards(wd: pathlib.Path, verbose: bool) -> None:
                                else ["分子与化学", "材料与结构"]),
             "paradigm_tags": (["自定义:夹具范式"] if unnorm else ["computational"]),
             "evidence": {"source": "fulltext", "text_chars": 1234},
+            "keywords": ["machine learning", "mass spectrometry"],
+            "keyword_source_evidence": [
+                {"term": term, "surface": term, "source_field": "title",
+                 "quote": make_fixture_records()[doi]["title"]}
+                for term in ("machine learning", "mass spectrometry")],
         }
         if not ok:
             c.pop("verified_conclusions")   # 故意缺必需字段
@@ -211,6 +217,7 @@ def make_refs_cards(wd: pathlib.Path, verbose: bool) -> int:
             "paradigm_tags": ["review"],
             "network_role": roles[i % len(roles)],
             "relation_to_author": "作者沿用其框架",
+            "keywords": [], "keyword_source_evidence": [],
             "evidence": {"source": t.get("evidence_source") or "abstract",
                          "text_chars": t.get("abstract_chars") or 0},
         }
@@ -248,6 +255,28 @@ def ppt_projects_dir() -> pathlib.Path:
     return ppt_master_root() / "projects"
 
 
+def make_fixture_records() -> dict:
+    """生成与生产契约一致、但不含真实案例信息的最小题录。"""
+    records = {}
+    for i in range(1, 9):
+        doi = f"10.5555/selftest.{i:04d}"
+        records[doi] = {
+            "doi": doi,
+            "title": f"Self-test paper {i}: machine learning and mass spectrometry",
+            "journal": "Self-test Journal",
+            "short_journal": "Self-test Journal",
+            "year": 2020 + (i % 5),
+            "vol": "1",
+            "issue": "1",
+            "page": f"{i}-{i + 4}",
+            "article_number": "",
+            "type": "journal-article",
+            "authors": [{"family": "Fixture", "given": "Author", "name": "Fixture, Author"}],
+            "url": f"https://doi.org/{doi}",
+        }
+    return records
+
+
 def main() -> int:
     if "--help" in sys.argv or "-h" in sys.argv:
         # 为什么要有 --help：本脚本没有 argparse，参数靠 `--x in sys.argv` 判定，
@@ -283,14 +312,10 @@ def main() -> int:
     print(f" 模式：{'离线（跳过 D2/G2/P 联网部分）' if offline else '联网'}")
     print("═" * 68)
 
-    if not SAMPLE.exists():
-        print(f"[X] 找不到示例题录：{SAMPLE}")
-        return 2
-
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="flow_selftest_"))
     wd = tmp / AUTHOR
     (wd / ".work_cdp").mkdir(parents=True, exist_ok=True)
-    shutil.copy(SAMPLE, wd / ".work_cdp" / "crossref_all.json")
+    (wd / ".work_cdp" / "crossref_all.json").write_text(json.dumps(make_fixture_records(), ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n临时工作目录：{wd}\n")
 
     try:

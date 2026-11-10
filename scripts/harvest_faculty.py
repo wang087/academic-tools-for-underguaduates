@@ -37,6 +37,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urljoin, urlsplit
 
 from logutil import run_root as _run_root  # noqa: E402
 from run_status import calculate_status, write_status  # noqa: E402
@@ -120,14 +121,9 @@ def fetch(url: str, timeout: int = 30, retries: int = 3) -> str:
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                raw = r.read()
-            for enc in ("utf-8", "gb18030"):
-                try:
-                    return raw.decode(enc)
-                except UnicodeDecodeError:
-                    continue
-            return raw.decode("utf-8", errors="replace")
+            from faculty_discover import decode_response
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return decode_response(response, url)
         except Exception as e:
             last = e
             if i < retries - 1:
@@ -139,12 +135,11 @@ def fetch(url: str, timeout: int = 30, retries: int = 3) -> str:
 # 配置
 # ══════════════════════════════════════════════════════════════
 def load_config(path: pathlib.Path | None = None) -> dict:
-    p = pathlib.Path(path) if path else CONFIG_PATH
-    if not p.exists():
-        raise SystemExit(f"[X] 找不到配置文件 {p}")
-    cfg = json.loads(p.read_text(encoding="utf-8"))
-    if "universities" not in cfg:
-        raise SystemExit(f"[X] 配置文件缺少 universities 段：{p}")
+    from faculty_discover import load_cfg
+    if path is None and not CONFIG_PATH.exists():
+        cfg = {"universities": {}, "list_types": {}}
+    else:
+        cfg = load_cfg(path if path is not None else CONFIG_PATH)
     # 复用模式：引擎分派型 list_type 由代码提供，避免配置缺项导致 KeyError
     cfg.setdefault("list_types", {}).setdefault(
         "engine_dispatch",
@@ -377,16 +372,9 @@ def _abs_url(base: str, url: str) -> str:
       这种**站内相对路径**，直接拿去 fetch 会失败（缺主机名），
       导致这些人被静默跳过、方向永远补不到。
     """
-    u = (url or "").strip()
-    if not u or u.startswith("javascript:"):
-        return ""
-    if u.startswith("//"):
-        return "http:" + u
-    if u.startswith("/"):
-        return base.rstrip("/") + u
-    if not u.startswith("http"):
-        return base.rstrip("/") + "/" + u.lstrip("/")
-    return u
+    u = _html.unescape(url or "").strip()
+    target = urljoin(base, u)
+    return target if u and urlsplit(target).scheme in ("http", "https") else ""
 
 
 def _clean_name(name: str) -> str:
@@ -458,10 +446,14 @@ def parse_list_page(page: str, lt: dict, cfg: dict, section: dict,
       新增学校因此**只需在配置里写引擎名**，不必改本脚本。
     """
     # ── 复用模式：家族引擎分派 ──
-    if lt.get("_engine_dispatch") or section.get("engine"):
+    if lt.get("_engine_dispatch") or section.get("engine") or section.get("_auto"):
         eng = section.get("engine") or ""
-        if not eng:
-            return []
+        actual_url = section.get("_url") or base
+        if not eng or eng == "auto" or section.get("_auto"):
+            from faculty_discover import select_page
+            selected = select_page(page, actual_url, section.get("name", ""), cfg)
+            section["_selection"] = {k: v for k, v in selected.items() if k != "people"}
+            return selected.get("people", []) if selected.get("verdict") != "reject" else []
         try:
             from faculty_engines import parse_with  # type: ignore
         except Exception:  # pragma: no cover
@@ -473,7 +465,7 @@ def parse_list_page(page: str, lt: dict, cfg: dict, section: dict,
             page = _browser_fetch(page, eng, section, base, cfg)
             if not page:
                 return []
-        got = parse_with(eng, page, base, section.get("name", ""), cfg)
+        got = parse_with(eng, page, actual_url, section.get("name", ""), cfg)
         for r in got:
             # 引擎已给出方向（列表页含方向）时不必再进详情页
             if r.get("_dir_from_title"):
@@ -602,15 +594,26 @@ def dedupe_people(people: list[dict], log=None) -> list[dict]:
     """
     merged: dict[str, dict] = {}
     order: list[str] = []
+    from faculty_discover import record_identity
+    identities = {}
+    for person in people:
+        identities.setdefault(person["name"], set()).add(record_identity(person))
     for p in people:
-        k = p["name"]
+        ambiguous = len(identities.get(p["name"], set())) > 1
+        k = p["name"] + ("|" + record_identity(p) if ambiguous else "")
+        if ambiguous:
+            p = {**p, "record_id": record_identity(p), "identity_ambiguity": True, "identity_candidates": sorted(identities[p["name"]])}
         if k not in merged:
             rec = dict(p)
             rec["sections"] = [p.get("section", "")]
+            rec["source_urls"] = list(dict.fromkeys(p.get("source_urls", []) + [p["source_url"]])) if p.get("source_url") else list(p.get("source_urls", []))
             merged[k] = rec
             order.append(k)
             continue
         cur = merged[k]
+        for source in p.get("source_urls", []) + ([p["source_url"]] if p.get("source_url") else []):
+            if source not in cur["source_urls"]:
+                cur["source_urls"].append(source)
         sec = p.get("section", "")
         if sec and sec not in cur["sections"]:
             cur["sections"].append(sec)
@@ -641,64 +644,91 @@ def dedupe_people(people: list[dict], log=None) -> list[dict]:
 def stage_list(unit: dict, d: pathlib.Path, log, cfg: dict,
                only_section: str = "") -> list[dict]:
     """抓各师资栏目的列表页，汇总去重。"""
+    from faculty_discover import collect_page, next_page_url, public_result, url_key, page_scope, error_page_reason
     lt = cfg["list_types"][unit["list_type"]]
     base = unit["base"].rstrip("/")
     raw = d / "raw_list"
     raw.mkdir(parents=True, exist_ok=True)
-
-    people: list[dict] = []
-    seen_key: set[str] = set()
-
-    for sec in unit["sections"]:
+    people, reports = [], []
+    for original in unit["sections"]:
+        sec = dict(original)
         if only_section and only_section not in sec["name"]:
             continue
         paging = sec.get("paging", "auto")
-        log.info(f"[{sec['name']}] 抓列表 …")
-        # 把本栏目的绝对 URL 挂到 section 上，供需要浏览器的家族
-        # （render / interactive）使用 —— 它们在直连拿不到数据时要自己去驱动浏览器。
-        sec["_url"] = page_url(base, sec["path"], 1, paging)
-        try:
-            first = fetch(sec["_url"])
-        except Exception as e:
-            log.warn(f"  [WARN] 首页失败：{e}")
-            # 直连失败但栏目声明了浏览器家族 → 仍给一次机会（§5.1 转 CDP）
-            if sec.get("engine") in ("render", "interactive"):
-                first = ""
-            else:
-                continue
-        (raw / f"{safe_filename(sec['name'])}_1.html").write_text(first, encoding="utf-8")
-
-        npages = 1 if paging == "single" else parse_page_count(first, lt)
-        declared = parse_declared_total(first, lt)
-        got = parse_list_page(first, lt, cfg, sec, base)
-        log.info(f"  第 1/{npages} 页 → {len(got)} 人"
-                 + (f"（官网称共 {declared} 条）" if declared else ""))
-
-        for p in range(2, npages + 1):
+        start_url = urljoin(base + "/", sec["path"])
+        max_pages = max(1, int(sec.get("max_pages", 30)))
+        def fetch_saved(url):
+            page = fetch(url)
+            (raw / (url_key(url) + ".html")).write_text(page, encoding="utf-8")
+            return page
+        if sec.get("_auto") or sec.get("engine") == "auto":
+            rec = collect_page(start_url, cfg, sec["name"], fetcher=fetch_saved, max_pages=max_pages)
+            reports.append(public_result(rec))
+            people.extend(rec["records"])
+            log.info(f"[{sec['name']}] {rec['verdict']} / {rec['status']}：{len(rec['records'])} 人")
+            continue
+        current, visited, got, errors = start_url, set(), [], []
+        npages = declared = 0
+        page_evidence = []
+        scope = {"section": sec["name"], "unit_coverage": "unverified"}
+        while current and current not in visited and len(visited) < max_pages:
+            visited.add(current)
+            sec["_url"] = current
             try:
-                page = fetch(page_url(base, sec["path"], p, paging))
-            except Exception as e:
-                log.warn(f"  [WARN] 第 {p} 页失败：{e}")
-                continue
-            (raw / f"{safe_filename(sec['name'])}_{p}.html").write_text(page, encoding="utf-8")
-            g = parse_list_page(page, lt, cfg, sec, base)
-            log.info(f"  第 {p}/{npages} 页 → {len(g)} 人")
-            got.extend(g)
-            time.sleep(0.4)
-
-        for r in got:
-            k = r["name"] + "|" + r["section"]
-            if k in seen_key:
-                continue
-            seen_key.add(k)
-            people.append(r)
-        time.sleep(0.3)
-
+                page = fetch_saved(current)
+            except Exception as exc:
+                errors.append({"source_url": current, "error": str(exc)})
+                if sec.get("engine") in ("render", "interactive") and len(visited) == 1:
+                    page = ""
+                else:
+                    break
+            final = getattr(page, "final_url", current)
+            sec["_url"] = final
+            scope = page_scope(page, sec["name"])
+            error = error_page_reason(page)
+            if error:
+                errors.append({"requested_url": current, "source_url": final, "error": error})
+                break
+            npages = max(npages, 1 if paging == "single" else parse_page_count(page, lt))
+            if lt.get("_engine_dispatch"):
+                from faculty_engines import declared_total
+                declared = max(declared, declared_total(page))
+            else:
+                declared = max(declared, parse_declared_total(page, lt))
+            batch = parse_list_page(page, lt, cfg, sec, final)
+            for person in batch:
+                person["source_url"] = final
+            got.extend(batch)
+            page_evidence.append({"requested_url": current, "source_url": final, "record_count": len(batch), "scope": scope})
+            if paging == "single":
+                current = ""
+            else:
+                current = next_page_url(page, final)
+            log.info(f"[{sec['name']}] 已取 {len(visited)} 页 → {len(batch)} 人")
+        partial = bool(errors or current or npages > len(visited))
+        if declared and len(got) != declared:
+            partial = True
+        verified = bool(got and declared and not partial)
+        reports.append({"requested_url": start_url, "source_url": page_evidence[0]["source_url"] if page_evidence else start_url,
+                        "engine": sec.get("engine", unit["list_type"]),
+                        "verdict": "reject" if not got else ("review" if partial else "accept"),
+                        "pages": max(npages, len(page_evidence)), "pages_fetched": len(page_evidence), "declared": declared,
+                        "declared_records": declared, "record_count": len(got),
+                        "unique_name_count": len({p['name'] for p in got}), "scope": scope,
+                        "coverage": "verified" if verified else "unverified",
+                        "complete": verified, "partial": not verified,
+                        "evidence": page_evidence + errors})
+        people.extend(got)
     people = dedupe_people(people, log)
-    (d / "faculty_list.json").write_text(
-        json.dumps(people, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info(f"[OK] 列表完成：{len(people)} 人"
-             f"（有方向 {sum(1 for p in people if p['directions'])}）")
+    ambiguous = [p for p in people if p.get("identity_ambiguity")]
+    if ambiguous:
+        reports.append({"source_url": unit["base"], "engine": "identity_check", "verdict": "review",
+                        "coverage": "unverified", "complete": False, "partial": True,
+                        "record_count": len(people), "unique_name_count": len({p['name'] for p in people}),
+                        "declared_records": 0, "evidence": [{"name": p['name'], "urls": p['identity_candidates']} for p in ambiguous]})
+    (d / "faculty_list.json").write_text(json.dumps(people, ensure_ascii=False, indent=2), encoding="utf-8")
+    (d / "faculty_evidence.json").write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info(f"[OK] 列表完成：{len(people)} 人")
     return people
 
 
@@ -709,6 +739,11 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
     if not lf.exists():
         raise SystemExit(f"[X] 缺少 {lf}；先跑 --stage=list")
     people = json.loads(lf.read_text(encoding="utf-8"))
+
+    def identity_key(person):
+        key = person["name"] + "|" + person.get("section", "")
+        from faculty_discover import record_identity
+        return key + "|" + (person.get("record_id") or record_identity(person)) if person.get("identity_ambiguity") else key
 
     df = d / "faculty_detail.json"
     done: dict = {}
@@ -724,12 +759,12 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
                     continue
                 if rec.get("status") not in ("ok", "no_direction"):
                     continue
-                done[rec["name"] + "|" + rec.get("section", "")] = rec
+                done[identity_key(rec)] = rec
         except Exception:
             pass
 
     need = [p for p in people if not p.get("directions") and p.get("url")]
-    todo = [p for p in need if (p["name"] + "|" + p.get("section", "")) not in done]
+    todo = [p for p in need if (identity_key(p)) not in done]
     if limit:
         todo = todo[:limit]
     log.info(f"需补详情：{len(todo)} 人（已有 {len(done)}，无需补 "
@@ -742,11 +777,14 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
         try:
             page = fetch(p["url"], timeout=30)
         except Exception as e:
-            done[p["name"] + "|" + p.get("section", "")] = {
+            done[identity_key(p)] = {
                 **p, "status": "fetch_failed", "why": str(e)[:160]}
             fail += 1
             continue
         slug = f"{safe_filename(p['name'])}_{safe_filename(p.get('section',''))}"
+        if p.get("identity_ambiguity"):
+            from faculty_discover import url_key
+            slug += "_" + url_key(p.get("url", ""))
         (raw / f"{slug}.html").write_text(page, encoding="utf-8")
 
         dirs = extract_directions_from_detail(page, cfg)
@@ -773,7 +811,7 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
             rec["status"] = "no_direction"
             rec["no_direction_reason"] = reason
             rec["why"] = _NO_DIR_REASON_CN.get(reason, "无法判定")
-        done[p["name"] + "|" + p.get("section", "")] = rec
+        done[identity_key(p)] = rec
         ok += 1
         if i % 20 == 0 or i == len(todo):
             log.info(f"  [{i}/{len(todo)}] 成功 {ok} / 失败 {fail}｜补到方向 {hit}")
@@ -788,7 +826,7 @@ def stage_detail(unit: dict, d: pathlib.Path, log, cfg: dict,
     #   **把「抓了、网站真的没写」错报成「没抓」**，续跑判据与交付说明都会被骗。
     merged = []
     for p in people:
-        k = p["name"] + "|" + p.get("section", "")
+        k = identity_key(p)
         rec = done.get(k)
         if rec is not None and (rec.get("directions") or not p.get("directions")):
             merged.append(rec)
@@ -1278,15 +1316,56 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
     groups = classify(people, rules)
     withdir = [p for p in people if p.get("directions")]
 
+    evidence_file = d / "faculty_evidence.json"
+    coverage_evidence = None
+    ambiguous = evidence_file.exists() and any(p.get("identity_ambiguity") for p in people)
+    count_label = "条记录" if ambiguous else "人"
+    if evidence_file.exists():
+        try:
+            sources = json.loads(evidence_file.read_text(encoding="utf-8"))
+            if not isinstance(sources, list):
+                raise ValueError("证据应为列表")
+        except (OSError, ValueError) as exc:
+            sources = [{"coverage": "unverified", "verdict": "review", "error": str(exc)}]
+        roster_sources = [source for source in sources if source.get("engine") != "identity_check"]
+        complete = bool(roster_sources) and all(source.get("coverage") == "verified" and source.get("complete") for source in roster_sources)
+        missing_pages = sum(max(0, source.get("pages", 0) - source.get("pages_fetched", 0)) for source in roster_sources)
+        errors = [item for source in sources for item in source.get("evidence", []) if item.get("error")]
+        coverage_evidence = {
+            "notice": "当前栏目采集记录，非全院完整或导师资格认证",
+            "coverage": "verified" if complete else "unverified", "complete": complete, "partial": not complete,
+            "unit_coverage": "unverified", "parser_verdicts": sorted({source.get("verdict", "unknown") for source in sources}),
+            "declared_records": sum(source.get("declared_records", source.get("declared", 0)) for source in roster_sources),
+            "record_count": len(people), "unique_name_count": len({person['name'] for person in people}),
+            "missing_pages": missing_pages, "page_errors": len(errors),
+            "identity_ambiguity_records": sum(bool(person.get("identity_ambiguity")) for person in people),
+            "direction_hint_records": sum(bool(person.get("direction_hint")) for person in people),
+            "sources": sources,
+        }
+
     L: list[str] = []
     A = L.append
-    A(f"# {uni['name']} · {unit['name']} 导师名单与方向归类")
+    A(f"# {uni['name']} · {unit['name']} " + ("当前栏目采集记录与方向归类" if coverage_evidence else "导师名单与方向归类"))
     A("")
+    if coverage_evidence:
+        A("> [WARN] **当前栏目采集记录，非全院完整或导师资格认证**。")
+        A(f"> 解析置信（verdict）：**{', '.join(coverage_evidence['parser_verdicts'])}**；"
+          f"栏目 coverage：**{coverage_evidence['coverage']}**；partial：**{coverage_evidence['partial']}**；全院覆盖：**unverified**。")
+        A(f"> 官网声明条目数：**{coverage_evidence['declared_records'] or '未给出'}**（多栏目可能重叠）；"
+          f"实际记录数：**{len(people)}**；唯一姓名数：**{coverage_evidence['unique_name_count']}**（不等于已核验人数）。")
+        A(f"> 缺页：**{coverage_evidence['missing_pages']}**；页面错误：**{coverage_evidence['page_errors']}**；"
+          f"身份歧义记录：**{coverage_evidence['identity_ambiguity_records']}**；"
+          f"仅作线索的 direction_hint：**{coverage_evidence['direction_hint_records']}** 条（未提升为正式研究方向）。")
+        for source in coverage_evidence['sources']:
+            scope = source.get("scope") or {}
+            A(f"> 来源 scope：{scope.get('section') or '未给出'}；title：{scope.get('title') or '未给出'}；"
+              f"URL：{source.get('source_url') or '未给出'}；coverage：{source.get('coverage', 'unverified')}。")
+        A("")
     A(f"> 数据源：**学部官网** [{unit['base']}]({unit['base']})"
       f"（栏目 {len(unit['sections'])} 个）")
     A("> ")
     A(f"> 抓取时间：{time.strftime('%Y-%m-%d %H:%M')} | "
-      f"共 **{len(people)}** 人，其中 **{len(withdir)}** 人有研究方向")
+      f"共 **{len(people)}** {count_label}，其中 **{len(withdir)}** {count_label}有研究方向")
     A("")
     A("> [WARN] **方向归类是关键词粗分类**，不是权威学科划分；一位老师可能出现在"
       "多个方向下。**请以学院官网原文为准**（下表保留原文与链接）。")
@@ -1297,7 +1376,7 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
     # 汇总表
     A("## 方向分布")
     A("")
-    A("| 方向 | 人数 | 方向 | 人数 |")
+    A("| 方向 | 记录数 | 方向 | 记录数 |" if ambiguous else "| 方向 | 人数 | 方向 | 人数 |")
     A("|---|---|---|---|")
     items = [(g, len(ms)) for g, ms in groups.items() if g != "未分类"]
     half = (len(items) + 1) // 2
@@ -1312,7 +1391,7 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
 
     # 按方向列人
     for g, ms in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        A(f"## {g}（{len(ms)} 人）")
+        A(f"## {g}（{len(ms)} {count_label}）")
         A("")
         A("| 姓名 | 职称 | 研究方向（官网原文） | 邮箱 | 主页 |")
         A("|---|---|---|---|---|")
@@ -1334,12 +1413,12 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
     if nd:
         A("---")
         A("")
-        A("## 附：官网未提供研究方向的人数与原因")
+        A("## 附：官网未提供研究方向的记录数与原因" if ambiguous else "## 附：官网未提供研究方向的人数与原因")
         A("")
         A("> [WARN] 下列人员的学院官网页面**没有研究方向数据**，脚本如实标注，")
         A("> **未用印象补全**。如需了解请点其主页或查阅论文成果。")
         A("")
-        A("| 原因 | 人数 |")
+        A("| 原因 | 记录数 |" if ambiguous else "| 原因 | 人数 |")
         A("|---|---|")
         for r, n in Counter(p.get("why") or "未标注" for p in nd).most_common():
             A(f"| {r} | {n} |")
@@ -1355,6 +1434,10 @@ def build_report(d: pathlib.Path, uni: dict, unit: dict, people: list[dict],
         "sections": [s["name"] for s in unit["sections"]],
         "mentors": people,
     }
+    if coverage_evidence:
+        payload["coverage_evidence"] = coverage_evidence
+        payload["total_unit"] = "records" if ambiguous else "people"
+        payload["total_label"] = "记录数" if ambiguous else "人数"
     (d / "faculty_grouped.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info(f"[OK] 归类完成：{len(groups)} 个方向桶；报告 → {out}")
@@ -1418,6 +1501,10 @@ def main(argv: list[str] | None = None) -> int:
                 "  harvest_faculty.py --unit zju --out outputs/zju\n"
                 "  harvest_faculty.py --unit zju --stage=list\n"
                 "  harvest_faculty.py --unit ustc:life-med --out outputs/ustc\n"))
+    ap.add_argument("--site", help="院系官网入口：运行时有界发现，无需全局配置")
+    ap.add_argument("--url", help="直接抓师资名单 URL，无需全局配置")
+    ap.add_argument("--dry-run", action="store_true", help="打印探测证据，不写结果文件")
+    ap.add_argument("--max-pages", type=int, default=30)
     ap.add_argument("--unit", help="学校 key，或 `学校:学院`（见 --list-units）")
     ap.add_argument("--unit-name", help="只抓某个师资栏目（名称模糊匹配）")
     ap.add_argument("--stage", choices=["list", "detail", "all"], default="all")
@@ -1432,15 +1519,60 @@ def main(argv: list[str] | None = None) -> int:
                     help="规范 raw_detail/ 下的存档命名")
     args = ap.parse_args(argv)
 
-    log = get("faculty")
+    log = None if args.dry_run else get("faculty")
     cfg = load_config(pathlib.Path(args.config) if args.config else None)
 
-    if args.list_units or not args.unit:
+    runtime = bool(args.site or args.url)
+    if sum(bool(x) for x in (args.site, args.url, args.unit)) > 1:
+        ap.error("--site、--url、--unit 互斥")
+    if args.list_units or not (args.unit or runtime):
         _list_units(cfg)
         return 0
 
-    sk, uk, unit = resolve_unit(cfg, args.unit)
-    uni = cfg["universities"][sk]
+    discovery = []
+    if runtime:
+        from faculty_discover import discover_site, probe_page, public_result, url_key
+        source = args.url or args.site
+        if args.url:
+            discovery = [probe_page(source, cfg, args.unit_name or "师资", max_pages=args.max_pages)]
+        else:
+            try:
+                discovery = discover_site(source, cfg, max_pages=args.max_pages)
+            except Exception as exc:
+                print(f"[X] 官网发现失败：{exc}")
+                return 3
+        if args.url and not any(r.get("records") for r in discovery):
+            print("若名单 URL 实为教研室目录，请改用 --site URL 遍历下级入口。")
+        if args.dry_run:
+            print(json.dumps({"source_url": source, "results": [public_result(r) for r in discovery]},
+                             ensure_ascii=False, indent=2))
+            return 4 if any(r.get("verdict") == "review" for r in discovery) else (0 if any(r.get("records") for r in discovery) else 3)
+        usable = [r for r in discovery if r.get("records") and r.get("verdict") != "reject"]
+        if not usable:
+            evidence_dir = pathlib.Path(args.out)
+            if not evidence_dir.is_absolute():
+                evidence_dir = WD / evidence_dir
+            evidence_dir = evidence_dir / url_key(source)
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / "faculty_discovery.json").write_text(
+                json.dumps([public_result(r) for r in discovery], ensure_ascii=False, indent=2), encoding="utf-8")
+            print("[REVIEW] 待核验：未找到支持的完整名单" if any(r.get("verdict") == "review" for r in discovery) else "[X] 未找到可用师资名单")
+            return 4 if any(r.get("verdict") == "review" for r in discovery) else 3
+        sk, uk = url_key(source), "runtime"
+        uni = {"name": urlsplit(source).hostname or "官网"}
+        unit = {"name": args.unit_name or "官网师资", "base": source,
+                "list_type": "engine_dispatch",
+                "sections": [{"name": r.get("label") or args.unit_name or "师资",
+                              "path": r["source_url"], "engine": "auto", "_auto": True,
+                              "paging": "auto", "max_pages": args.max_pages} for r in usable]}
+    else:
+        sk, uk, unit = resolve_unit(cfg, args.unit)
+        uni = cfg["universities"][sk]
+        if args.dry_run:
+            from faculty_discover import probe_configured, public_result
+            results = probe_configured(unit, cfg)
+            print(json.dumps([public_result(r) for r in results], ensure_ascii=False, indent=2))
+            return 4 if any(r.get("verdict") == "review" for r in results) else (0 if all(r.get("verdict") == "accept" for r in results) else 3)
     print(f"数据源：{uni['name']} · {unit['name']}")
     print(f"站点：  {unit['base']}")
     print(f"栏目：  {len(unit['sections'])} 个"
@@ -1450,6 +1582,9 @@ def main(argv: list[str] | None = None) -> int:
     d = pathlib.Path(args.out)
     if not d.is_absolute():
         d = WD / d
+
+    if runtime:
+        d = d / sk
 
     if args.rename_archives:
         _rename_archives(d, log)
@@ -1461,9 +1596,12 @@ def main(argv: list[str] | None = None) -> int:
     d.mkdir(parents=True, exist_ok=True)
     write_status(WD, status="RUNNING", stage="S",
                  reasons=["导师名单与详情正在抓取"])
+    if runtime:
+        (d / "faculty_discovery.json").write_text(
+            json.dumps([public_result(r) for r in discovery], ensure_ascii=False, indent=2), encoding="utf-8")
 
     if args.stage in ("list", "all"):
-        stage_list(unit, d, log, cfg, only_section=args.unit_name or "")
+        stage_list(unit, d, log, cfg, only_section="" if runtime else (args.unit_name or ""))
     if args.stage in ("detail", "all"):
         stage_detail(unit, d, log, cfg, limit=args.limit)
 
@@ -1498,8 +1636,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("[X] 没有抓到数据")
         payload = build_report(d, uni, unit, people, log)
         print()
-        print(f"[OK] 共 {payload['total']} 人，"
-              f"{payload['with_directions']} 人有研究方向")
+        report_count_label = "条记录" if payload.get("total_unit") == "records" else "人"
+        print(f"[OK] 共 {payload['total']} {report_count_label}，"
+              f"{payload['with_directions']} {report_count_label}有研究方向")
         print(f"→ 报告：{d / '导师名单与方向归类.md'}")
         print(f"→ 机读：{d / 'faculty_grouped.json'}")
         print_selection_prompt(payload)
@@ -1515,6 +1654,14 @@ def main(argv: list[str] | None = None) -> int:
             completed=payload["total"] - failed, failed=failed,
             reasons=([f"{failed} 位导师详情抓取失败"] if failed else []),
         )
+    evidence_file = d / "faculty_evidence.json"
+    evidence = json.loads(evidence_file.read_text(encoding="utf-8")) if evidence_file.exists() else []
+    combined = discovery + evidence
+    if any(r.get("verdict") == "review" for r in combined):
+        print("[REVIEW] 待核验：见 faculty_discovery.json / faculty_evidence.json")
+        return 4
+    if combined and any(r.get("verdict") == "reject" for r in combined):
+        return 3
     return 0
 
 

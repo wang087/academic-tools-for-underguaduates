@@ -494,7 +494,11 @@ def main() -> int:
             if isinstance(r, dict):
                 corpus_parts.append(str(r.get("title") or ""))
                 corpus_parts.append(str(r.get("abstract") or ""))
-    freq = Counter(tokenize(" ".join(corpus_parts)))
+    from keyword_terms import collect_documents
+    from vosviewer_export import load_documents
+    keyword_documents, keyword_notes = load_documents(WD, 'H')
+    keyword_result = collect_documents(keyword_documents)
+    freq = Counter({row['term']: row['document_frequency'] for row in keyword_result['terms']})
 
     # 语义词族（可选配置；**没有配置就只出单条目** —— 不臆造合并关系）
     fam_path = arg("families") or str(CDPDIR / "keyword_families.json")
@@ -509,9 +513,6 @@ def main() -> int:
     def _usable(m: str) -> bool:
         m = str(m).strip().lower()
         if not m:
-            return False
-        if " " in m:                       # 短语：分词器不产出
-            bad_members.append(m)
             return False
         return True
 
@@ -668,7 +669,7 @@ def main() -> int:
     L.append("---\n\n## 三、关键词统计\n")
     L.append("> 语料 = 全部题名 + 摘要 + 解读卡的方法/关键信息/标签。\n")
     if fam_rows:
-        L.append("### 3.1 语义词族合并计数\n")
+        L.append("### 3.1 配置词组逐成员计数（不代表同义）\n")
         L.append("| 语义词族 | 合计频次 | 成员（各自频次） |")
         L.append("|---|---|---|")
         for label, n, members in sorted(fam_rows, key=lambda x: -x[1]):
@@ -688,14 +689,14 @@ def main() -> int:
             L.append("> 如需统计短语，请把词拆成单个词，或在 `interpret_build.py` 里扩展分词器。")
             L.append("")
     else:
-        L.append("### 3.1 语义词族合并计数\n")
+        L.append("### 3.1 配置词组逐成员计数（不代表同义）\n")
         L.append(f"> 未提供语义词族表（`{fam_path}`）→ 跳过合并计数。\n")
         L.append("> 如需合并同义/近义写法（如 *CO2 capture* / *carbon dioxide capture*），")
-        L.append("> 可参考 `流程1/templates/关键词词族模板.json` 建立后重跑：")
+        L.append("> 精确同义写法使用 `templates/关键词同义词表.json`；旧领域词族只作分组展示。")
         L.append("> `uv run python interpret_build.py --families=<你的词族表.json>`\n")
 
-    L.append("### 3.2 单一条目频次（Top 40）\n")
-    L.append("| # | 关键词 | 频次 |")
+    L.append("### 3.2 完整术语出现篇数（Top 40）\n")
+    L.append("| # | 完整关键词 | 出现篇数 |")
     L.append("|---|---|---|")
     for i, (w, n) in enumerate(freq.most_common(40), 1):
         L.append(f"| {i} | {w} | {n} |")
@@ -707,14 +708,15 @@ def main() -> int:
     core_c, method_c, reagent_c = Counter(), Counter(), Counter()
     n_has = 0
     for t in tasks:
-        c = t["card"]
+        c = t["card"] if isinstance(t["card"], dict) else {}
         if not any(isinstance(c.get(k), list) and c.get(k)
                    for k in ("keywords_core", "keywords_method", "keywords_reagent")):
             continue
         n_has += 1
         for k, cnt in (("keywords_core", core_c), ("keywords_method", method_c),
                        ("keywords_reagent", reagent_c)):
-            for x in as_list(c.get(k)):
+            from keywords_three_layer import gated_keywords
+            for x in gated_keywords(c, t.get("packet"), k)["terms"]:
                 x = str(x).strip()
                 if x:
                     cnt[x] += 1
@@ -744,6 +746,12 @@ def main() -> int:
         L.append("导出 VOSviewer（map/network/thesaurus/vocab）：\n")
         L.append("`python scripts/keywords_three_layer.py --export "
                  "--out .work_cdp/graph/vos --min-doc 1`\n")
+
+    from vosviewer_export import export_stage
+    keyword_export = export_stage(WD, 'H')
+    L.append('### 3.4 完整术语与 VOSviewer 导出\n')
+    L.append(f'完整术语节点 {keyword_export["terms"]} 个，共现边 {keyword_export["links"]} 条。'
+             '三层卡优先 core 门控；每文献二值共现；来源与剔除原因见 `.work_cdp/interpret/vosviewer/keyword_evidence.json`。\n')
 
     # ── ④ 主要研究方向 ──────────────────────────────────────
     L.append("---\n\n## 四、主要研究方向归纳\n")

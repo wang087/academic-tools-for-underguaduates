@@ -217,7 +217,7 @@ def main() -> int:
          f"（其中正文 {n_text} 篇、PDF {n_pdf} 件）｜ 未获取 "
          f"{len(rows) - len(got)} 篇（覆盖率 {len(got) / max(len(rows), 1) * 100:.0f}%）",
          "> 获取途径：§5.1 **分层获取策略** —— 摘要/题录走第一层直连，"
-         "**原文全文一律经 CDP + 真实 Edge**（多实例），遵守 CDP 强制抓取与鼠标自动化两条禁令",
+         "**原文全文一律经 CDP + 选定的Chromium浏览器**（多实例），遵守 CDP 强制抓取与鼠标自动化两条禁令",
          f"> 文件命名：`{exports.name}/<年份>_<论文题名>.pdf`"
          "（见 `.work_cdp/pdf_index.json` 登记表）；"
          "网页正文落在 `.work_cdp/fulltext_xml/`、`.work_cdp/fulltext/` 或任务包的 `fulltext_path`\n",
@@ -287,7 +287,7 @@ def main() -> int:
             L.append(f"- **{r['title'][:80]}**（{r['journal']}, {r['year']}）")
             L.append(f"  - DOI：`{r['doi']}`")
             L.append(f"  - 原因：{r['reason']}")
-            L.append("  - 可补途径：机构 VPN / 图书馆文献传递，或人工在 Edge 中另存。")
+            L.append("  - 可补途径：机构 VPN / 图书馆文献传递，或人工在目标浏览器中另存。")
         L.append("")
 
     L.append("---\n\n## 页数合理性核查\n")

@@ -77,11 +77,8 @@ CHROME_CANDIDATES = [
 
 
 def find_browser() -> str:
-    for p in CHROME_CANDIDATES:
-        if p and pathlib.Path(p).exists():
-            return p
-    raise FileNotFoundError(
-        "未找到 Chrome / Chromium / Edge 可执行文件；可用 PAPER_BROWSER=<绝对路径> 指定")
+    from browser_runtime import find_browser as shared_find_browser
+    return shared_find_browser()
 
 
 def _run(log) -> int:

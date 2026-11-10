@@ -46,6 +46,8 @@ import pathlib
 import re
 import sys
 
+from keyword_contract import keyword_contract
+
 from logutil import run_root as _run_root  # noqa: E402
 
 def _fix_streams() -> None:
@@ -324,7 +326,10 @@ def main() -> int:
                                 if k.startswith("_")},
             "why_included": r.get("_reason") or "",
             "abstract": abstract,
+            "author_keywords": r.get("author_keywords") or [],
+            "keyword_contract": keyword_contract(),
             "fulltext": fulltext,
+            "text": fulltext,
             "fulltext_chars": len(fulltext),
             "abstract_truncated": truncated,
             "evidence": {

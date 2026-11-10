@@ -25,7 +25,7 @@ __all__ = [
     "TAG", "strip_tags", "squash", "is_person_name", "split_title_direction",
     "url_signature", "enclosing_block", "clean_absolute",
     "ENGINES", "BROWSER_ENGINES", "detect_engines", "parse_with", "page_count",
-    "declared_total", "looks_js_rendered",
+    "declared_total", "looks_js_rendered", "eng_semantic_table",
 ]
 
 TAG = re.compile(r"<[^>]+>")
@@ -71,6 +71,9 @@ NAV_WORDS = {
     "教师总表", "名誉教授", "国际访问教授", "国家级人才", "重大项目",
     "岁月留痕", "校友杂志", "时光剪影", "校友往事", "校友同乐", "百年院庆",
     "学术大咖", "商界精英", "研究机构", "科研基地", "重点实验室", "学术机构",
+    "查看更多", "了解更多", "教师", "杰出人才", "教师团队",
+    "按名字", "按研究所", "研究系列", "教学系列", "工程系列",
+    "教辅行政", "光荣退休", "荣誉学衔", "办公服务", "教学类", "科研类", "下载区",
 }
 
 
@@ -164,18 +167,8 @@ def clean_absolute(base: str, url: str) -> str:
     实测坑：浙大兼聘/支撑队伍列表里有站内相对路径，
       直接 fetch 会因缺主机名静默失败，方向永远补不到。
     """
-    u = (url or "").strip()
-    if not u or u.startswith(("javascript:", "#", "mailto:")):
-        return ""
-    u = _html.unescape(u)
-    if u.startswith("//"):
-        return "https:" + u
-    if u.startswith("http"):
-        return u
-    b = (base or "").rstrip("/")
-    if u.startswith("/"):
-        return b + u
-    return b + "/" + u.lstrip("./")
+    from faculty_dom import absolute
+    return absolute(base, _html.unescape(url or ""))
 
 
 def container_signature(page: str, pos: int) -> str:
@@ -375,6 +368,16 @@ def _split_dirs(raw: str, cfg: dict) -> list[str]:
     return out
 
 
+def eng_profile_cards(page: str, base: str, section: str, cfg: dict) -> list[dict]:
+    from faculty_dom import profile_cards
+    return profile_cards(page, base, section, is_person_name)
+
+
+def eng_semantic_table(page: str, base: str, section: str, cfg: dict) -> list[dict]:
+    from faculty_dom import semantic_tables
+    return semantic_tables(page, base, section, is_person_name)
+
+
 def eng_generic_cluster(page: str, base: str, section: str, cfg: dict) -> list[dict]:
     """家族：**形态聚类**（无固定 class 的自建站，实测 SJTU 生科院）。
 
@@ -402,6 +405,14 @@ def eng_generic_cluster(page: str, base: str, section: str, cfg: dict) -> list[d
             continue
         cands.append((url_signature(href), name, tattr, href))
 
+    # Structural navigation must never become a teacher merely by URL clustering.
+    from faculty_dom import Tree, in_navigation, absolute
+    dom = Tree(page).root
+    allowed = set()
+    for anchor in dom.nodes({'a'}):
+        if not in_navigation(anchor):
+            allowed.add(absolute(base, anchor.attrs.get('href')))
+    cands = [c for c in cands if absolute(base, c[3]) in allowed]
     if not cands:
         return []
     from collections import defaultdict
@@ -470,6 +481,11 @@ def eng_tsites_list(page: str, base: str, section: str, cfg: dict) -> list[dict]
     [WARN] 本流程**不以它为主数据源**（覆盖面不全、大量页面无方向栏位）；
        仅当院系官网不可用时作为兜底，且必须在报告里注明来源。
     """
+    from urllib.parse import urlsplit
+    host = (urlsplit(base).hostname or '').lower()
+    if not (host.startswith(('faculty.', 'teacher.', 'person.'))
+            or re.search(r'tsites\.|xyjslb\.jsp|CollegeTeacherList', page, re.I)):
+        return []
     out, seen = [], set()
     for m in re.finditer(
             r'<a[^>]+href="([^"]*(?:teacher|jsp|info)[^"]*)"[^>]*>(.*?)</a>',
@@ -540,6 +556,8 @@ def eng_interactive(page: str, base: str, section: str, cfg: dict) -> list[dict]
 
 
 ENGINES = {
+    "profile_cards": eng_profile_cards,
+    "semantic_table": eng_semantic_table,
     "wp_news_list": eng_wp_news_list,
     "wp_newsinfo_card": eng_wp_newsinfo_card,
     "wp_teacher_card": eng_wp_teacher_card,
@@ -554,6 +572,8 @@ BROWSER_ENGINES = {"render", "interactive"}
 
 # 家族识别用的结构指纹（命中即加分）
 _FINGERPRINTS = {
+    "profile_cards": [r"/info/[^\"']+\.(?:htm|html)", r"主要研究方向|研究方向|主要从事"],
+    "semantic_table": [r"<table\b", r"<th\b[^>]*>\s*姓名", r"研究方向|研究领域"],
     "wp_news_list": [r'class="[^"]*news_title', r'id="wp_news_w\d+"',
                      r'class="[^"]*news_list'],
     "wp_newsinfo_card": [r'class="[^"]*itemhover', r'class="tit"'],
@@ -571,6 +591,8 @@ def detect_engines(page: str, base: str = "", section: str = "",
     cfg = cfg or {}
     results = []
     for name, fn in ENGINES.items():
+        if name in BROWSER_ENGINES:
+            continue
         try:
             ppl = fn(page, base, section, cfg)
         except Exception:
@@ -592,14 +614,61 @@ def parse_with(engine: str, page: str, base: str, section: str,
     return fn(page, base, section, cfg) if fn else []
 
 
+def select_parser(page: str, base: str = "", section: str = "",
+                  cfg: dict | None = None) -> dict:
+    """Static parsing confidence is independent of roster completeness."""
+    cfg = cfg or {}
+    candidates = []
+    for detection in detect_engines(page, base, section, cfg):
+        name = detection["engine"]
+        people = parse_with(name, page, base, section, cfg)
+        fp = detection["fingerprint_hits"]
+        if people and all(p.get("_semantic_row") for p in people):
+            fp = max(fp, 1)
+        # Per-page structure confidence; total counts belong to collector reconciliation.
+        verdict, score, reasons = score_candidate(name, people, 1, 0, fp)
+        if name in ('profile_cards', 'semantic_table') and people and fp:
+            score = max(score, 40)
+            verdict = 'accept'
+            reasons.append('语义表头或个人卡片结构通过；完整性另行对账')
+        if name == "profile_cards" and people and fp == 0:
+            titled = sum(bool(p.get("title")) for p in people)
+            if titled >= max(2, len(people) // 2):
+                score += 20
+                reasons.append("多数个人卡片含明确职称")
+                if verdict == "reject":
+                    verdict = "review"
+        for person in people:
+            person.setdefault("source_url", base)
+            person["parser_engine"] = name
+        candidates.append({"engine": name, "people": people, "count": len(people),
+                           "verdict": verdict, "score": score, "reasons": reasons,
+                           "fingerprint_hits": fp})
+    rank = {"accept": 2, "review": 1, "reject": 0}
+    candidates.sort(key=lambda c: (rank[c["verdict"]], c["score"], c["count"]), reverse=True)
+    best = candidates[0] if candidates else {"engine": "", "people": [], "verdict": "reject",
+                                           "score": 0, "reasons": ["未识别出可靠个人记录"]}
+    return {**best, "candidates": [{k: v for k, v in c.items() if k != "people"}
+                                   for c in candidates]}
+
+
 def page_count(page: str) -> int:
     """推断总页数：优先「页码 x / y」，退化到 listN.htm 的 N。"""
     t = strip_tags(page)
     m = re.search(r"页码[^0-9]{0,20}(\d+)\s*/\s*(\d+)", t)
     if m:
         return max(1, int(m.group(2)))
+    fraction = re.search(r"共\s*\d+\s*条\s*(?:记录)?\s*(\d+)\s*/\s*(\d+)", t)
+    if fraction:
+        return max(1, int(fraction.group(2)))
+    from faculty_dom import Tree
+    nums = []
+    for node in Tree(page).root.nodes({'div', 'span', 'ul'}):
+        signature = (node.attrs.get('class') or '') + ' ' + (node.attrs.get('id') or '')
+        if re.search(r'pag(?:e|ing)|p_pages|pb_sys', signature, re.I):
+            nums.extend(int(a.text()) for a in node.nodes({'a'}) if a.text().isdigit())
     ns = [int(x) for x in re.findall(r"[Ll]ist(\d+)\.(?:htm|psp)", page)]
-    return max(ns) if ns else 1
+    return max(ns + nums + [1])
 
 
 def declared_total(page: str) -> int:
@@ -622,13 +691,9 @@ def looks_js_rendered(page: str, parsed_count: int) -> bool:
     """
     if parsed_count > 0:
         return False
-    hits = 0
-    for pat in (r'class="[^"]*teacher-list[^"]*"\s*>\s*</ul>',
-                r"ajax", r"getTeacher", r"teacherList", r"\.load\(",
-                r"wp_paging"):
-        if re.search(pat, page, re.I):
-            hits += 1
-    return hits >= 1
+    # A script filename or ordinary CMS pagination does not prove JS dependence.
+    empty = re.search(r"<(?:ul|div)[^>]*(?:class|id)=[\"'][^\"']*(?:teacher-list|faculty-list|teacherList)[^\"']*[\"'][^>]*>\s*</(?:ul|div)>", page, re.I)
+    return bool(empty)
 
 
 def score_candidate(engine: str, people: list[dict], pages: int, declared: int,
@@ -672,9 +737,12 @@ def score_candidate(engine: str, people: list[dict], pages: int, declared: int,
     # ③ 计数对账（主锚）
     est = n * max(1, pages)
     if declared:
-        if est >= declared:
+        if est == declared:
             score += 30
-            reasons.append(f"计数对账通过：{n}×{pages}={est} ≥ 官网自称 {declared}")
+            reasons.append(f"分页容量与官网总数一致：{n}×{pages}={est}；仍需逐页核对")
+        elif est > declared:
+            score += 8
+            reasons.append(f"分页容量 {est} 大于官网总数 {declared}（非完整性证明）")
         elif est >= declared * 0.8:
             score += 12
             reasons.append(f"计数对账接近：{est} vs 官网 {declared}")
@@ -700,6 +768,10 @@ def score_candidate(engine: str, people: list[dict], pages: int, declared: int,
         reasons.append(f"规模与链接形态符合教师名录（{n} 条，"
                        f"{link_ratio:.0%} 有详情页）")
 
+    if nav_ratio > 0.30:
+        return "reject", score, reasons
+    if declared and (est < declared * 0.8 or (pages == 1 and n != declared)):
+        return "review", score, reasons + ["计数不一致，须复核"]
     if score >= 40:
         return "accept", score, reasons
     if score >= 10:

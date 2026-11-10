@@ -58,6 +58,8 @@ import os
 import pathlib
 import sys
 
+from keyword_contract import keyword_contract
+
 from logutil import run_root as _run_root  # noqa: E402
 from run_status import calculate_status, write_status  # noqa: E402
 
@@ -728,6 +730,8 @@ def main() -> int:
             "authors": gbt_authors(rec.get("authors")),
             "my_position": my_position(rec.get("authors"), tokens),
             "abstract": abstract,
+            "author_keywords": rec.get("author_keywords") or [],
+            "keyword_contract": keyword_contract(),
             "pdf": pdfname,
             "pages": pages,
             "evidence_source": src,

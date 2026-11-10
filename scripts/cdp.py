@@ -203,275 +203,11 @@ STEALTH_JS = r"""
 })();
 """
 
-# ── Cookie / 同意书弹窗自动关闭（默认开启）──────────────────
-# 说明：Chromium/Edge **没有**屏蔽 cookie 同意弹窗的启动参数
-#   （Edge 的「阻止 cookie 横幅」是浏览器设置项，不对应命令行开关），
-#   因此这里用一段**保守**的页内脚本来处理。
-#
-# 与「指纹伪装」的区别：本脚本**不改动任何 navigator/screen 属性**，
-#   只做人类本来就会做的动作 —— 点「同意」按钮、移除遮挡层、
-#   恢复被锁的页面滚动。不产生可检测的自动化指纹。
-#
-# 保守原则（避免误点正文里的按钮）：
-#   1) 只在**已知的同意管理平台容器**内寻找按钮（OneTrust / Cookiebot /
-#      Quantcast / Osano / Didomi / TrustArc / 自建 .cookie-banner 等）；
-#   2) 找不到已知容器就**什么都不做**，绝不全局搜按钮文字；
-#   3) 只隐藏这些已知容器本身，不动其他元素。
-#
-# v6 修复（三处导致「弹窗关不掉」的实质缺陷）：
-#   ① **固定定位弹窗被误判为不可见** —— 旧 `visible()` 用
-#      `el.offsetParent !== null` 判可见，而规范规定 position:fixed 元素的
-#      offsetParent **恒为 null**。于是 Cookiebot(#CybotCookiebotDialog)、
-#      Osano(.osano-cm-window)、Didomi(#didomi-host)、.cky-consent-container
-#      这些**本身就是 fixed** 的横幅从不被处理。改用 getBoundingClientRect。
-#   ② **只取首个命中** —— 旧实现 `querySelector` 每个选择器只处理第一个元素，
-#      同页多个同意组件（横幅 + 偏好中心 + 浮标）时后面的都漏掉。改
-#      querySelectorAll（每选择器上限 5 个，总上限 60 个，防性能劣化）。
-#   ③ **shadow DOM 查不到** —— Usercentrics v2 等把横幅渲染在 shadow root 内，
-#      document.querySelector 不可见。新增 roots() 收集 shadow root 后逐个查询。
-#   另：`dismiss_consent()` 旧实现恒返回 False（IIFE 无 return），现返回本次
-#   实际是否处理到弹窗；巡查时长由 14.4s 延长到 30s；接受按钮文字表补充
-#   「Accept cookies / Agree and continue / 同意并继续 / 确认」等，
-#   并去掉尾随的 →» 等装饰符后再匹配。
-CONSENT_JS = r"""
-(() => {
-  // ── 已知同意管理平台容器（含各自**偏好中心**）─────────────
-  //   顺序无关；每个选择器最多取 5 个命中，总数上限 MAX_BOXES。
-  const BOXES = [
-    // OneTrust（横幅 + 偏好中心 + 浮动设置按钮）
-    '#onetrust-consent-sdk', '#onetrust-banner-sdk', '#onetrust-pc-sdk',
-    '.onetrust-pc-dark-filter', '.ot-sdk-container', '#ot-sdk-btn-floating',
-    // Cookiebot
-    '#CybotCookiebotDialog', '#CookiebotWidget', '.CybotCookiebotDialogBodyUnderlay',
-    // Quantcast
-    '#qc-cmp2-container', '.qc-cmp2-container', '#qc-cmp2-ui',
-    // Osano
-    '.osano-cm-window', '#osano-cm-window',
-    // Didomi
-    '#didomi-host', '#didomi-popup', '.didomi-popup-container', '#didomi-notice',
-    '.didomi-notice-popup', '.didomi-consent-popup',
-    // TrustArc
-    '#truste-consent-track', '.truste_box_overlay', '#truste-consent-content',
-    '.truste_overlay', '#consent_blackbar',
-    // Usercentrics（v2 内容在 shadow DOM 内，见下方 roots()）
-    '#usercentrics-root', '#usercentrics-cmp-ui', '#uc-center-container',
-    // SourcePoint
-    '[id^="sp_message_container"]', '.message-component', '.sp_veil',
-    // 自建 / 常见第三方
-    '#cookiescript_injected', '#cookie-law-info-bar', '.cli-modal-backdrop', '.cli-modal',
-    '#cookiebanner', '.cookie-banner', '#cookie-banner', '.cookie-notice', '#cookie-notice',
-    '#cookiebar', '.cookiebar', '#cookie-bar', '.cookie-bar',
-    '.cc-window', '.cc-banner', '#gdpr-consent-tool-wrapper',
-    '.cmp-container', '#cmpbox', '.cmpbox', '#cmpbox2', '#cmpwrapper', '.cmpwrapper',
-    '.cky-consent-container', '.cky-overlay', '.cky-preference-center', '#cookieyes',
-    '.cmplz-cookiebanner', '#cmplz-cookiebanner-container', '#cmplz-manage-consent',
-    '#iubenda-cs-banner', '.iubenda-cs-container',
-    '#axeptio_overlay', '.fc-consent-root', '.fc-dialog-overlay',
-    '#klaro', '.klaro', '#termly-code-snippet-support', '.termly-consent-banner',
-    '#cookie-consent', '.cookie-consent', '.cookie-consent-banner', '#cookieConsent',
-    '#gdpr-banner', '.gdpr-banner', '#privacy-banner',
-    '#_evidon-banner', '#evidon-barrier-wrapper',
-    // Moove GDPR / HubSpot / Borlabs / Drupal EU Cookie Compliance
-    '#moove_gdpr_cookie_info_bar', '.moove-gdpr-info-bar-container',
-    '#hs-eu-cookie-confirmation', '#BorlabsCookieBox',
-    '.eu-cookie-compliance-banner', '#eu-cookie-policy', '.eupopup',
-    // 同意书 iframe 容器（跨域 iframe 内部无法操作，但可隐藏容器）
-    'iframe[src*="consent"]', 'iframe[id*="sp_message"]', 'iframe[title*="consent" i]',
-    'iframe[src*="privacy"]', 'iframe[src*="cmp"]',
-    // 通用兜底：**必须带 cookie/consent 关键字**，否则会误伤正文
-    'div[class*="cookie-consent" i]', 'div[id*="cookie-consent" i]',
-    'div[class*="consent-banner" i]', 'div[id*="consent-banner" i]',
-    '[class*="cookiebanner" i]', '[id*="cookiebanner" i]',
-    '[role="dialog"][aria-label*="cookie" i]', '[role="dialog"][class*="cookie" i]'
-  ];
-  const BTN_SEL = 'button, a[role="button"], input[type="button"], input[type="submit"], [role="button"], .button, .btn';
-  // 只认「明确表示接受」的按钮文字。刻意**不含** reject/decline/settings ——
-  // 那是拒绝或二次选择，不是本脚本该替用户做的决定；找不到接受按钮时走隐藏兜底。
-  const ACCEPT = /^\s*(accept(\s+(all|necessary|selected|recommended|cookies))?(\s+cookies)?|accept\s*(&|and)\s*(continue|close)|allow(\s+(all|necessary|cookies)){1,2}|agree(\s+to\s+all)?(\s+and\s+continue)?|i\s+(agree|accept|understand)|got\s+it|ok(ay)?|sounds\s+good|that'?s\s+(ok|fine)|alright|understood|consent|continue\s+to\s+site|同意(全部|所有)?|接受(全部|所有)?|我(已)?(同意|接受|知道了|明白了)|知道了|明白了|确定|确认|允许(全部|所有)?|同意并(继续|关闭)|接受并(继续|关闭))\s*$/i;
-  const MAX_BOXES = 60;
-
-  // 去掉首尾空白与装饰性符号（"Accept all →" / "Accept all »" 也要能命中）
-  function norm(s) {
-    return (s || '').replace(/\s+/g, ' ').trim().replace(/[\s»>→›«·.…!]+$/, '').trim();
-  }
-
-  // ── 收集可查询的根：document + 各 shadow root ────────────────
-  //   必要性：Usercentrics v2 / 部分 OneTrust 把横幅渲染在 shadow DOM 内，
-  //     document.querySelector 查不到，会表现为「弹窗一直不关」。
-  //   3 秒缓存，避免每个选择器都全量遍历一次 DOM。
-  let _rootsAt = -1, _rootsCache = null;
-  function roots() {
-    const now = Date.now();
-    if (_rootsCache && now - _rootsAt < 3000) return _rootsCache;
-    const out = [document];
-    try {
-      for (const el of document.querySelectorAll('*')) {
-        if (el.shadowRoot) { out.push(el.shadowRoot); if (out.length >= 24) break; }
-      }
-    } catch (e) {}
-    _rootsCache = out; _rootsAt = now;
-    return out;
-  }
-
-  function fixScroll() {
-    try {
-      for (const el of [document.documentElement, document.body]) {
-        if (!el) continue;
-        const ov = getComputedStyle(el).overflow;
-        if (ov === 'hidden' || ov === 'clip') el.style.setProperty('overflow', 'auto', 'important');
-      }
-    } catch (e) {}
-  }
-
-  // v6 修复「固定定位弹窗永远关不掉」：
-  //   旧实现用 `el.offsetParent !== null` 判可见，而**规范规定
-  //   position:fixed 元素的 offsetParent 恒为 null** —— 于是绝大多数
-  //   cookie 横幅（Cookiebot #CybotCookiebotDialog、Osano .osano-cm-window、
-  //   Didomi #didomi-host、.cky-consent-container 等本身就是 fixed）
-  //   被误判为「不可见」而从不处理。改用 getBoundingClientRect 的几何尺寸。
-  function visible(el) {
-    try {
-      const cs = getComputedStyle(el);
-      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
-      if (parseFloat(cs.opacity || '1') === 0) return false;
-      const r = el.getBoundingClientRect();
-      const minW = el.tagName === 'IFRAME' ? 40 : 30;
-      if (r.width >= minW && r.height >= 16) return true;
-      // 宿主元素本身 0 尺寸、真实内容在 shadow DOM 里
-      try {
-        if (el.shadowRoot) {
-          const inner = el.shadowRoot.querySelector('*');
-          if (inner) {
-            const ir = inner.getBoundingClientRect();
-            return ir.width >= 30 && ir.height >= 16;
-          }
-        }
-      } catch (e) {}
-      return false;
-    } catch (e) { return false; }
-  }
-
-  function hide(el) {
-    try { el.style.setProperty('display', 'none', 'important'); } catch (e) {}
-  }
-
-  // 在容器内 + 容器的 shadow root 内 + 容器所在 shadow root 内找按钮
-  function findAccept(box) {
-    const out = [];
-    const grab = (root) => {
-      if (!root || !root.querySelectorAll || out.length >= 40) return;
-      try {
-        for (const b of root.querySelectorAll(BTN_SEL)) {
-          out.push(b);
-          if (out.length >= 40) return;
-        }
-      } catch (e) {}
-    };
-    grab(box);
-    try { if (box.shadowRoot) grab(box.shadowRoot); } catch (e) {}
-    try {
-      const r = box.getRootNode ? box.getRootNode() : null;
-      if (r && r !== document && r.querySelectorAll) grab(r);
-    } catch (e) {}
-    return out;
-  }
-
-  // v6：同一个容器**只点一次**「接受」。
-  //   必要性：站点若「接受按钮只写 cookie、不销毁 DOM」（SKILL §5 已记录该形态），
-  //   每次巡查都会再点一遍；而且点击本身会派发 click 事件 → 触发下面的
-  //   click 补扫 → 又点一遍，形成自放大。实测 2 秒内同一个按钮被点了 3~4 次。
-  //   重复点击会向站点重复提交同意请求，也属于流程明令避免的「机械化重复动作」。
-  //   用挂在 window 上的**不可枚举** WeakSet 记账：同文档内每个元素至多一次；
-  //   SPA 重新渲染出新元素时 WeakSet 不命中，会正常再点（这是期望行为）。
-  const SKEY = '__cdpConsentClicked__';
-  let clickedSet;
-  try {
-    clickedSet = window[SKEY];
-    if (!clickedSet || typeof clickedSet.has !== 'function') {
-      clickedSet = new WeakSet();
-      Object.defineProperty(window, SKEY, {value: clickedSet, enumerable: false,
-                                          configurable: true, writable: true});
-    }
-  } catch (e) {
-    clickedSet = new WeakSet();          // 极端情况下退化为「每次调用一份」
-  }
-
-  function dismiss() {
-    let touched = false, processed = 0;
-    const rs = roots();
-    const seen = new Set();
-    for (const sel of BOXES) {
-      if (processed >= MAX_BOXES) break;
-      // 取**全部**命中（旧实现用 querySelector 只取第一个，同页多个
-      //   同意组件时后面的永远处理不到）
-      const found = [];
-      for (const r of rs) {
-        try {
-          for (const e of r.querySelectorAll(sel)) {
-            found.push(e);
-            if (found.length >= 5) break;
-          }
-        } catch (e) {}
-        if (found.length >= 5) break;
-      }
-      for (const box of found) {
-        if (processed >= MAX_BOXES) break;
-        if (seen.has(box)) continue;
-        seen.add(box);
-        processed++;
-        let vis = false;
-        try { vis = visible(box); } catch (e) {}
-        if (!vis) continue;
-
-        // ① 优先点「接受」按钮 —— 让站点自己的逻辑正常收尾（并写下同意 cookie，
-        //    这样后续导航不会再弹）；跨域 iframe 内部点不到，直接走 ② 隐藏。
-        //    已在本次文档内点过的容器不再重复点击（见上方 clickedSet 说明）。
-        let clicked = false;
-        if (box.tagName !== 'IFRAME' && !clickedSet.has(box)) {
-          try {
-            for (const b of findAccept(box)) {
-              const label = norm(b.innerText || b.value || b.getAttribute('aria-label') || b.textContent);
-              if (ACCEPT.test(label)) {
-                try { b.click(); } catch (e) {}
-                try { clickedSet.add(box); } catch (e) {}
-                clicked = true;
-                break;
-              }
-            }
-          } catch (e) {}
-        }
-        touched = true;
-
-        // ② 复查兜底：点击后站点若没撤下弹窗（或压根没有接受按钮），强制隐藏。
-        //    实测有些站点接受按钮只改 cookie 不销毁 DOM，弹窗会一直挡着正文。
-        const t = box;
-        setTimeout(() => { try { if (visible(t)) hide(t); } catch (e) {} }, clicked ? 1500 : 0);
-      }
-    }
-    if (touched) fixScroll();
-    return touched;
-  }
-
-  // 立即跑一次并返回本次结果 —— Runtime.evaluate 直接调用时（dismiss_consent）
-  // 返回值才有意义（旧实现 IIFE 无 return，dismiss_consent 恒返回 False）。
-  let touchedNow = false;
-  try { touchedNow = dismiss(); } catch (e) {}
-
-  // 弹窗出现时机不一：DOM 就绪、load、定时巡查（30s）、滚动/点击后各补扫一次
-  const kick = () => { try { dismiss(); } catch (e) {} };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', kick, {once: true});
-  }
-  window.addEventListener('load', kick, {once: true});
-  let n = 0;
-  const t = setInterval(() => { kick(); if (++n >= 25) clearInterval(t); }, 1200);
-  const once = () => { kick(); window.removeEventListener('scroll', once); window.removeEventListener('click', once); };
-  window.addEventListener('scroll', once, {passive: true});
-  window.addEventListener('click', once);
-
-  return touchedNow;
-})();
-"""
+# Conservative cookie policy; kept as a string for new-document injection.
+from pathlib import Path as _PolicyPath
+CLICK_SAFETY_JS = (_PolicyPath(__file__).with_name("click_safety.js")).read_text(encoding="utf-8")
+CONSENT_JS = "(() => { const safety = " + CLICK_SAFETY_JS + "; return (" + (
+    _PolicyPath(__file__).with_name("consent_logic.js")).read_text(encoding="utf-8") + " ); })()"
 
 
 class CDP:
@@ -550,11 +286,11 @@ class CDP:
     def _recv_until(self, mid: int, deadline: float):
         """收消息直到拿到 id==mid 的应答；丢弃事件消息。超时抛 CDPTimeout。"""
         while True:
-            remain = deadline - time.time()
+            remain = deadline - time.monotonic()
             if remain <= 0:
                 raise CDPTimeout(f"调用超时（{self.timeout:.0f}s 预算已耗尽）")
             try:
-                self.ws.settimeout(max(remain, 0.5))
+                self.ws.settimeout(max(remain, 0.001))
                 raw = self.ws.recv()
             except Exception as e:
                 name = type(e).__name__
@@ -575,15 +311,23 @@ class CDP:
 
     def call(self, method: str, params: dict | None = None, timeout: float | None = None):
         budget = float(timeout if timeout is not None else self.timeout)
-        deadline = time.time() + budget
-        with self._lock:
+        deadline = time.monotonic() + budget
+        if not self._lock.acquire(timeout=max(0.0, budget)):
+            raise CDPTimeout("等待CDP会话锁超时")
+        try:
             self._id += 1
             mid = self._id
+            remain = deadline - time.monotonic()
+            if remain <= 0:
+                raise CDPTimeout("调用预算已耗尽")
             try:
+                self.ws.settimeout(remain)
                 self.ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
             except Exception as e:
                 raise CDPClosed(f"发送失败: {type(e).__name__}: {str(e)[:80]}") from e
             return self._recv_until(mid, deadline)
+        finally:
+            self._lock.release()
 
     def eval(self, expr: str, timeout: float | None = None):
         r = self.call("Runtime.evaluate", {
@@ -651,16 +395,36 @@ class CDP:
                 time.sleep(0.3)
         return self
 
-    def dismiss_consent(self, timeout: float = 8.0) -> bool:
-        """按需执行一次同意书弹窗清理（页面已加载后再补一刀）。
+    def dismiss_consent_report(self, timeout: float = 8.0) -> dict:
+        """Return observed DOM outcome; a dispatched click is not success.
 
-        CONSENT_JS 只在**新文档创建前**注入；对于「加载后才弹出」的站点，
-        或者注入失败的历史标签页，用本方法在现有文档上直接跑一次。
+        Counts are cumulative within this document. No layer is hidden or removed
+        by this policy. verified requires the original banner to disappear.
         """
-        try:
-            return bool(self.eval(CONSENT_JS, timeout=timeout))
-        except CDPError:
-            return False
+        deadline = time.monotonic() + max(0.0, timeout)
+        report = {"status": "unchanged", "attempted": 0, "clicked": 0,
+                  "verified": 0, "blocked": 0, "unchanged": True,
+                  "manual_required": False, "items": []}
+        while time.monotonic() < deadline:
+            try:
+                result = self.eval(CONSENT_JS, timeout=max(0.001, deadline - time.monotonic()))
+                if isinstance(result, dict):
+                    report = result
+                if report.get("verified") or report.get("manual_required") or not report.get("clicked"):
+                    break
+            except CDPError as exc:
+                report["error"] = str(exc)
+                break
+            time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+        self._consent_report = report
+        return report
+
+    def get_consent_report(self, timeout: float = 8.0) -> dict:
+        return self.dismiss_consent_report(timeout=timeout)
+
+    def dismiss_consent(self, timeout: float = 8.0) -> bool:
+        """Legacy bool: true only for an observed banner disappearance."""
+        return bool(self.dismiss_consent_report(timeout).get("verified", 0))
 
     def get_text(self, selector: str = "document.body", timeout: float | None = None):
         return self.eval(f"({selector} && {selector}.innerText) || ''", timeout=timeout)
