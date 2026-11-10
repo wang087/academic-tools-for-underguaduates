@@ -197,7 +197,7 @@ def resolve_unit(cfg: dict, key: str) -> tuple[str, str, dict]:
 
 
 # ══════════════════════════════════════════════════════════════
-# 通用清洗（与 harvest_colleges / harvest_mentors 判据保持一致）
+# 通用清洗（`is_direction` 是全流程唯一判据入口，`merge_roster.py` 直接复用）
 # ══════════════════════════════════════════════════════════════
 
 # 栏目名 / 导航 / 面包屑 / UI 标签 —— 实测假阳性
@@ -268,9 +268,8 @@ def strip_fund(t: str) -> str:
 def is_direction(t: str) -> bool:
     """判断一段文本像不像「研究方向」。
 
-    这是**唯一**判据入口 —— harvest_faculty / harvest_colleges /
-      harvest_mentors 三处共用同一套规则，避免标准漂移
-      （曾经漂移导致 9 条残留漏网）。
+    这是**唯一**判据入口 —— `harvest_faculty` 与 `merge_roster` 共用同一套规则，
+      避免标准漂移（曾经漂移导致 9 条残留漏网）。
     """
     if not t:
         return False

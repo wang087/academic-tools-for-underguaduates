@@ -113,7 +113,6 @@
 | `scripts/fulltext_router.py` | fallback / 联网入口 | 是 | 是 | 仅在主链路已失败且显式声明后使用，不替代主链路 |
 | `scripts/faculty_discover.py --explain` | **调试入口** | 通常是 | 否 | 解释站点家族判定；不使用 `--write` 时不写配置 |
 | `scripts/selftest_engines.py` | **调试入口** | 否 | 否 | 导师引擎离线自检 |
-| `scripts/harvest_mentors.py` | **历史兼容入口** | 视旧命令 | 视旧命令 | 仅为旧调用保留；新运行不要从此处开始，暂不删除 |
 | `scripts/prepare_stage.py --check/--show` | **离线入口** | 否 | 否 | 查询阶段闸门或计划参数；不改变运行状态 |
 | `scripts/selftest_pipeline.py --offline` | **离线入口** | 否 | 是临时目录 | 契约自检；仅写临时自检产物 |
 | `scripts/agent_poll.py` | **只读命令** | 否 | 否 | 查看子代理进度；不提交或覆盖顶层运行状态 |
