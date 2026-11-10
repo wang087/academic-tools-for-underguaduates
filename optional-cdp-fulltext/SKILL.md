@@ -59,7 +59,28 @@ uv run python 流程1/scripts/reviews_fulltext.py --layer1 --layer2 --cdp --fall
 | `check_challenge.py` | 站点体检（人机验证 / 封禁 / 可达性），返回明确退出码 |
 | `check_access.py` | 检测本机是否具备 IP 级机构订阅授权 |
 | `save_pdf_via_browser.py` | 单篇：把当前页面另存为 PDF（4 种方法依次尝试） |
+| `asset_pdf.py` | **资产 CDN 验证页**（Elsevier `cfts/init`、`Request Verification`）：导航 + 宿主机点击 + Network 抓 PDF + 渲染兜底 |
+| `turnstile_click.py` | 截图定位复选框 + 宿主机 `SendInput` 点击（每篇 ≤2 次；需交互式桌面） |
+| `host_click.py` | 窗口/客户区截图、`SendInput`、OCR 基础函数 |
 | `cdp_up_nosandbox.py` | 无沙箱启动器（本机 Edge renderer 沙箱起不来时的办法） |
+
+### 4.1 资产 CDN 验证页（2026-11-09 实测）
+
+现象：落地页正常，取 PDF 时跳到
+`pdf.sciencedirectassets.com/craft/capi/cfts/init?...main.pdf`，标题 `Security verification`，
+正文 `Request Verification: In Progress`，中间是 Cloudflare 复选框。
+此时**页内 `fetch(pdf_url)` 只会拿到 601B HTML**，必须让浏览器**导航**到该 URL 才会出验证页。
+
+```python
+from asset_pdf import save_with_asset
+res = save_with_asset(cdp_session, browser_hwnd, landing_url, pdf_url, out_path)
+# 四策略 -> 导航 PDF URL -> 识别 cfts/Request Verification -> 宿主机点击
+#        -> Network.getResponseBody 抓页面自己请求的 PDF -> 渲染兜底
+```
+
+前提：**交互式桌面**（`GetForegroundWindow() != 0`）；RDP 断开/锁屏时按键事件被拒，
+`turnstile_click` 会立即返回 False，不要重试。
+兜底结果为 `render(asset-blocked)`（网页打印版），必须在清单里如实标注。
 
 ## 五、排错（原主手册的 CDP 行，随手册一起抽走）
 
@@ -70,6 +91,8 @@ uv run python 流程1/scripts/reviews_fulltext.py --layer1 --layer2 --cdp --fall
 | 脚本「死机」 | 无输出、长时间不动 | 所有 CDP 调用带**绝对截止时间**；不再有 `while True: recv()`；`wait_for_manual` 默认关闭 |
 | 误触发 CAPTCHA（形态一） | 短页面/勘误页被当成验证页，弹窗空等 15 分钟 | 用 `detect.judge()` 精确判定，**绝不用文本长度当判据** |
 | 误触发 CAPTCHA（形态二） | Cloudflare 的 JS 挑战会**自动放行**，但一见 `just a moment` 就放弃 | `settle_challenge()` 宽限期（默认 25s，`--grace=` 可调） |
+| 资产 CDN 601B | `not-a-pdf(601B)` / `Request Verification` | 用 `asset_pdf.save_with_asset`；需要交互桌面 |
+| 宿主机点击无效 | `SendInput 失败 err=5` | 桌面非交互（`fg==0`）或前台为高完整性进程；转人工/恢复桌面 |
 | 泛词误报封禁 | 正文含 `forbidden` / `blocked by` → 全局中止 | 封禁用精确短语；模糊词仅「短页面开头」才算数 |
 | 杀进程失败 | `Invalid argument/option - 'C:/Program Files/Git/PID'` | Git Bash 路径转换所致，用 `MSYS_NO_PATHCONV=1 taskkill /PID <pid> /T /F` |
 | 浏览器找不到 | `FileNotFoundError: 未找到 Chrome / Chromium / Edge` | 设 `PAPER_BROWSER=<绝对路径>`（候选见 `cdp_pool.py` / `render_html_pdf.py`） |

@@ -1,0 +1,1246 @@
+{
+  "schema_version": "1.0",
+  "language": "zh-CN",
+  "note": [
+    "方向-关键词层级表。用途：把用户给的学科方向（中文/英文/同义词）匹配到一个叶子方向，",
+    "输出该方向的英文关键词底座（不细分研究方向）。",
+    "keywords 只放可直接进入检索式的英文词/短语；同义词放 synonyms。",
+    "concepts 可选：给出该方向最常用的概念分组，便于组装多概念检索式；没有 concepts 的叶子只有单块关键词。",
+    "键以下划线开头的条目为说明，程序忽略。"
+  ],
+  "disciplines": [
+    {
+      "id": "biology",
+      "zh": "生物学",
+      "en": "Biology",
+      "synonyms": ["生命科学", "生物科学", "biological sciences", "life sciences"],
+      "children": [
+        {
+          "id": "biology.immunology_microbiology",
+          "zh": "免疫与微生物",
+          "en": "Immunology and Microbiology",
+          "synonyms": ["免疫学", "微生物学", "immunology", "microbiology"],
+          "children": [
+            {
+              "id": "biology.immunology_microbiology.human_microbiome",
+              "zh": "人体微生物组学",
+              "en": "Human Microbiome",
+              "synonyms": ["人类微生物组", "人体微生物群", "人体微生物组", "human microbiota", "human microbiome"],
+              "keywords": ["human microbiome", "human microbiota", "microbiome", "microbiota", "gut microbiome", "metagenomics", "microbial community", "host-microbe interaction"],
+              "scope_terms": ["human", "patient", "clinical", "gut", "intestinal", "oral", "skin", "vaginal", "lung", "infant", "child", "adult", "fecal", "faecal", "stool"],
+              "concepts": {
+                "核心对象": ["human microbiome", "human microbiota", "microbiome", "microbiota"],
+                "定植部位": ["gut microbiome", "oral microbiome", "skin microbiome", "vaginal microbiome", "lung microbiome"],
+                "方法": ["metagenomics", "16S rRNA sequencing", "shotgun metagenomics", "metabolomics", "metatranscriptomics"],
+                "宿主互作": ["host-microbe interaction", "microbial colonization", "dysbiosis", "immune maturation"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.innate_immunity",
+              "zh": "固有免疫",
+              "en": "Innate Immunity",
+              "synonyms": ["天然免疫", "先天免疫", "innate immune response"],
+              "keywords": ["innate immunity", "innate immune", "pattern recognition receptor", "toll-like receptor", "inflammasome", "macrophage", "neutrophil", "cytokine", "interferon", "myeloid cell"],
+              "concepts": {
+                "识别": ["pattern recognition receptor", "toll-like receptor", "NOD-like receptor", "cGAS-STING"],
+                "效应细胞": ["macrophage", "neutrophil", "dendritic cell", "natural killer cell"],
+                "效应分子": ["cytokine", "interferon", "complement", "antimicrobial peptide"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.adaptive_immunity",
+              "zh": "适应性免疫",
+              "en": "Adaptive Immunity",
+              "synonyms": ["获得性免疫", "特异性免疫", "adaptive immune response"],
+              "keywords": ["adaptive immunity", "T cell", "B cell", "antibody", "T cell receptor", "B cell receptor", "germinal center", "immunological memory", "CD4 T cell", "CD8 T cell"],
+              "concepts": {
+                "T 细胞": ["T cell", "CD4 T cell", "CD8 T cell", "regulatory T cell", "T cell receptor"],
+                "B 细胞与抗体": ["B cell", "antibody", "plasma cell", "germinal center", "B cell receptor"],
+                "记忆与耐受": ["immunological memory", "immune tolerance", "autoimmunity"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.mucosal_immunology",
+              "zh": "黏膜免疫",
+              "en": "Mucosal Immunology",
+              "synonyms": ["粘膜免疫", "mucosal immune"],
+              "keywords": ["mucosal immunology", "mucosal immunity", "intestinal immunity", "mucosal barrier", "secretory IgA", "Peyer patch", "intraepithelial lymphocyte", "immune tolerance"],
+              "concepts": {
+                "屏障": ["mucosal barrier", "epithelial barrier", "mucus layer", "tight junction"],
+                "免疫组织": ["Peyer patch", "mesenteric lymph node", "lamina propria", "intraepithelial lymphocyte"],
+                "效应分子": ["secretory IgA", "defensin", "mucin", "regulatory T cell"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.pathogenic_microbiology",
+              "zh": "病原微生物学",
+              "en": "Pathogenic Microbiology",
+              "synonyms": ["医学微生物学", "病原微生物", "pathogen microbiology"],
+              "keywords": ["pathogenic bacteria", "bacterial pathogenesis", "virulence factor", "host-pathogen interaction", "bacterial infection", "biofilm", "toxin", "adhesion", "invasion", "type III secretion system"],
+              "concepts": {
+                "致病机制": ["virulence factor", "bacterial pathogenesis", "toxin", "adhesion", "invasion"],
+                "感染模型": ["bacterial infection", "biofilm", "in vivo infection model", "organoid infection model"],
+                "宿主应答": ["host-pathogen interaction", "innate immune evasion", "inflammasome"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.virology",
+              "zh": "病毒学",
+              "en": "Virology",
+              "synonyms": ["病毒", "virus research"],
+              "keywords": ["virology", "virus", "viral infection", "viral replication", "antiviral", "viral pathogenesis", "virus-host interaction", "bacteriophage", "virome", "viral evolution"],
+              "concepts": {
+                "病毒类型": ["RNA virus", "DNA virus", "bacteriophage", "virome"],
+                "感染与复制": ["viral infection", "viral replication", "viral entry", "viral pathogenesis"],
+                "干预": ["antiviral", "vaccine", "neutralizing antibody", "CRISPR screen"]
+              }
+            },
+            {
+              "id": "biology.immunology_microbiology.amr",
+              "zh": "抗菌耐药",
+              "en": "Antimicrobial Resistance",
+              "synonyms": ["抗生素耐药", "耐药性", "antibiotic resistance"],
+              "keywords": ["antimicrobial resistance", "antibiotic resistance", "multidrug resistance", "resistance gene", "beta-lactamase", "efflux pump", "horizontal gene transfer", "antibiotic stewardship", "mobile genetic element", "one health"],
+              "concepts": {
+                "耐药机制": ["resistance gene", "beta-lactamase", "efflux pump", "horizontal gene transfer", "mobile genetic element"],
+                "流行病学": ["multidrug resistance", "surveillance", "one health", "nosocomial infection"],
+                "干预": ["antibiotic stewardship", "antimicrobial peptide", "phage therapy", "combination therapy"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.cell_molecular",
+          "zh": "细胞与分子生物学",
+          "en": "Cell and Molecular Biology",
+          "synonyms": ["分子生物学", "细胞生物学", "molecular biology", "cell biology"],
+          "children": [
+            {
+              "id": "biology.cell_molecular.cell_signaling",
+              "zh": "细胞信号转导",
+              "en": "Cell Signaling",
+              "synonyms": ["信号通路", "signal transduction"],
+              "keywords": ["cell signaling", "signal transduction", "kinase", "phosphorylation", "G protein coupled receptor", "second messenger", "receptor tyrosine kinase", "MAPK", "Wnt", "Notch"],
+              "concepts": {
+                "通路": ["MAPK", "PI3K-AKT", "Wnt", "Notch", "JAK-STAT", "TGF-beta"],
+                "分子事件": ["phosphorylation", "kinase", "second messenger", "protein-protein interaction"],
+                "受体": ["G protein coupled receptor", "receptor tyrosine kinase", "nuclear receptor", "ion channel"]
+              }
+            },
+            {
+              "id": "biology.cell_molecular.cell_death_autophagy",
+              "zh": "细胞死亡与自噬",
+              "en": "Cell Death and Autophagy",
+              "synonyms": ["程序性死亡", "凋亡", "自噬", "apoptosis", "autophagy"],
+              "keywords": ["apoptosis", "autophagy", "ferroptosis", "necroptosis", "pyroptosis", "cell death", "mitophagy", "lysosome", "BCL-2 family", "caspase"],
+              "concepts": {
+                "死亡方式": ["apoptosis", "ferroptosis", "necroptosis", "pyroptosis"],
+                "自噬": ["autophagy", "mitophagy", "lysosome", "autophagosome"],
+                "调控": ["BCL-2 family", "caspase", "death receptor", "mTOR"]
+              }
+            },
+            {
+              "id": "biology.cell_molecular.gene_expression",
+              "zh": "基因表达调控",
+              "en": "Gene Expression Regulation",
+              "synonyms": ["转录调控", "基因调控", "transcriptional regulation"],
+              "keywords": ["gene expression", "transcriptional regulation", "promoter", "enhancer", "transcription factor", "chromatin", "RNA processing", "non-coding RNA", "mRNA stability", "epitranscriptome"],
+              "concepts": {
+                "转录层": ["promoter", "enhancer", "transcription factor", "RNA polymerase II"],
+                "染色质层": ["chromatin", "histone modification", "chromatin accessibility", "enhancer-promoter interaction"],
+                "转录后层": ["RNA processing", "mRNA stability", "non-coding RNA", "epitranscriptome"]
+              }
+            },
+            {
+              "id": "biology.cell_molecular.protein_homeostasis",
+              "zh": "蛋白质折叠与稳态",
+              "en": "Protein Folding and Homeostasis",
+              "synonyms": ["蛋白稳态", "蛋白质折叠", "proteostasis"],
+              "keywords": ["protein folding", "proteostasis", "chaperone", "unfolded protein response", "proteasome", "aggregation", "amyloid", "heat shock protein", "quality control", "phase separation"],
+              "concepts": {
+                "折叠与伴侣": ["protein folding", "chaperone", "heat shock protein", "folding intermediate"],
+                "降解": ["proteasome", "ubiquitin", "autophagy", "unfolded protein response"],
+                "错误折叠": ["aggregation", "amyloid", "inclusion body", "phase separation"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.genetics_development",
+          "zh": "遗传与发育",
+          "en": "Genetics and Development",
+          "synonyms": ["遗传学", "发育生物学", "genetics", "developmental biology"],
+          "children": [
+            {
+              "id": "biology.genetics_development.epigenetics",
+              "zh": "表观遗传学",
+              "en": "Epigenetics",
+              "synonyms": ["表观遗传", "epigenomics"],
+              "keywords": ["epigenetics", "DNA methylation", "histone modification", "chromatin remodeling", "epigenetic inheritance", "non-coding RNA", "chromatin accessibility", "epigenome-wide association study", "imprinting", "single-cell epigenomics"],
+              "concepts": {
+                "修饰": ["DNA methylation", "histone modification", "chromatin remodeling", "RNA modification"],
+                "调控": ["chromatin accessibility", "enhancer", "imprinting", "epigenetic inheritance"],
+                "方法": ["epigenome-wide association study", "single-cell epigenomics", "ATAC-seq", "bisulfite sequencing"]
+              }
+            },
+            {
+              "id": "biology.genetics_development.developmental_biology",
+              "zh": "发育生物学",
+              "en": "Developmental Biology",
+              "synonyms": ["胚胎发育", "发育", "embryonic development"],
+              "keywords": ["developmental biology", "embryonic development", "organogenesis", "cell fate", "morphogen", "stem cell", "organoid", "gastrulation", "differentiation", "developmental timing"],
+              "concepts": {
+                "过程": ["embryonic development", "gastrulation", "organogenesis", "cell fate specification"],
+                "信号": ["morphogen", "Wnt", "BMP", "Hedgehog", "Notch"],
+                "模型": ["organoid", "stem cell", "single-cell transcriptomics", "lineage tracing"]
+              }
+            },
+            {
+              "id": "biology.genetics_development.genomics",
+              "zh": "基因组学",
+              "en": "Genomics",
+              "synonyms": ["基因组", "genome science"],
+              "keywords": ["genomics", "genome sequencing", "whole genome sequencing", "genome assembly", "structural variation", "single nucleotide polymorphism", "comparative genomics", "pangenome", "genome annotation", "population genomics"],
+              "concepts": {
+                "测序与组装": ["whole genome sequencing", "genome assembly", "long-read sequencing", "pangenome"],
+                "变异": ["structural variation", "single nucleotide polymorphism", "copy number variation", "mutation"],
+                "比较与群体": ["comparative genomics", "population genomics", "genome-wide association study", "phylogenomics"]
+              }
+            },
+            {
+              "id": "biology.genetics_development.gene_editing",
+              "zh": "基因编辑",
+              "en": "Gene Editing",
+              "synonyms": ["基因组编辑", "CRISPR", "genome editing"],
+              "keywords": ["gene editing", "CRISPR", "CRISPR-Cas9", "base editing", "prime editing", "homology directed repair", "off-target effect", "guide RNA", "gene therapy", "genome engineering"],
+              "concepts": {
+                "工具": ["CRISPR-Cas9", "base editing", "prime editing", "guide RNA"],
+                "精度": ["off-target effect", "homology directed repair", "editing efficiency", "specificity"],
+                "应用": ["gene therapy", "genome engineering", "functional genomics", "disease model"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.neurobiology",
+          "zh": "神经生物学",
+          "en": "Neurobiology",
+          "synonyms": ["神经科学", "neuroscience"],
+          "children": [
+            {
+              "id": "biology.neurobiology.neural_circuits",
+              "zh": "神经环路",
+              "en": "Neural Circuits",
+              "synonyms": ["神经回路", "circuit neuroscience"],
+              "keywords": ["neural circuit", "synaptic connectivity", "optogenetics", "chemogenetics", "circuit mapping", "electrophysiology", "neural ensemble", "connectome", "projection neuron", "in vivo imaging"],
+              "concepts": {
+                "解剖与连接": ["circuit mapping", "connectome", "projection neuron", "synaptic connectivity"],
+                "操控与记录": ["optogenetics", "chemogenetics", "electrophysiology", "in vivo imaging", "calcium imaging"],
+                "计算": ["neural ensemble", "population coding", "oscillation", "network model"]
+              }
+            },
+            {
+              "id": "biology.neurobiology.synaptic_plasticity",
+              "zh": "突触与可塑性",
+              "en": "Synaptic Plasticity",
+              "synonyms": ["突触可塑性", "synaptic plasticity"],
+              "keywords": ["synaptic plasticity", "long-term potentiation", "long-term depression", "spine density", "glutamate receptor", "GABA receptor", "neuromodulation", "critical period", "memory formation", "dendritic spine"],
+              "concepts": {
+                "形式": ["long-term potentiation", "long-term depression", "homeostatic plasticity", "spike timing dependent plasticity"],
+                "结构": ["dendritic spine", "spine density", "synapse", "postsynaptic density"],
+                "功能": ["memory formation", "critical period", "neuromodulation", "learning"]
+              }
+            },
+            {
+              "id": "biology.neurobiology.neurodegeneration",
+              "zh": "神经退行性疾病",
+              "en": "Neurodegeneration",
+              "synonyms": ["神经退行", "neurodegenerative disease"],
+              "keywords": ["neurodegeneration", "Alzheimer disease", "Parkinson disease", "amyotrophic lateral sclerosis", "protein aggregation", "neuroinflammation", "axon degeneration", "tau", "amyloid beta", "disease model"],
+              "scope_terms": ["neuro", "brain", "cognitive", "dementia", "patient", "clinical", "neuron", "axon", "mouse", "model"],
+              "concepts": {
+                "疾病": ["Alzheimer disease", "Parkinson disease", "amyotrophic lateral sclerosis", "frontotemporal dementia"],
+                "机制": ["protein aggregation", "neuroinflammation", "axon degeneration", "mitochondrial dysfunction"],
+                "病理": ["amyloid beta", "tau", "alpha-synuclein", "TDP-43"]
+              }
+            },
+            {
+              "id": "biology.neurobiology.glia",
+              "zh": "胶质细胞",
+              "en": "Glia",
+              "synonyms": ["神经胶质细胞", "glial cell"],
+              "keywords": ["glia", "astrocyte", "microglia", "oligodendrocyte", "myelin", "neuroinflammation", "glial activation", "astrocyte-neuron interaction", "microglial priming", "white matter"],
+              "concepts": {
+                "类型": ["astrocyte", "microglia", "oligodendrocyte", "NG2 glia"],
+                "功能": ["myelin", "glial activation", "synapse pruning", "metabolic support"],
+                "病理": ["neuroinflammation", "microglial priming", "white matter injury", "reactive astrocyte"]
+              }
+            },
+            {
+              "id": "biology.neurobiology.neural_stem_cells",
+              "zh": "神经干细胞与脑发育",
+              "en": "Neural Stem Cells and Brain Development",
+              "synonyms": ["神经干细胞多样性", "神经干细胞", "人脑发育", "人脑发育功能", "neural stem cell diversity", "human brain development"],
+              "keywords": ["neural stem cell", "neural progenitor", "radial glia", "outer radial glia", "cortical neurogenesis", "human brain development", "progenitor diversity", "cerebral organoid"],
+              "scope_terms": ["brain", "cortex", "cortical", "neurogenesis", "glia", "fetal"],
+              "concepts": {
+                "细胞类型": ["neural stem cell", "neural progenitor", "radial glia", "outer radial glia", "intermediate progenitor", "glial progenitor"],
+                "发育过程": ["neurogenesis", "gliogenesis", "cortical lamination", "cell fate specification", "progenitor proliferation", "neuronal migration"],
+                "人脑特征": ["human brain", "human cortex", "fetal brain", "cortical expansion", "outer subventricular zone", "cerebral organoid"],
+                "方法": ["single-cell RNA sequencing", "lineage tracing", "spatial transcriptomics", "live imaging", "CRISPR screen"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.ecology_evolution",
+          "zh": "生态与进化",
+          "en": "Ecology and Evolution",
+          "synonyms": ["生态学", "进化生物学", "ecology", "evolutionary biology"],
+          "children": [
+            {
+              "id": "biology.ecology_evolution.microbial_ecology",
+              "zh": "微生物生态",
+              "en": "Microbial Ecology",
+              "synonyms": ["环境微生物生态", "microbial community ecology"],
+              "keywords": ["microbial ecology", "microbial community", "community assembly", "metagenomics", "biogeography", "synthetic community", "strain-level analysis", "ecological network", "nutrient cycling", "environmental microbiome"],
+              "concepts": {
+                "群落": ["microbial community", "community assembly", "diversity", "ecological network"],
+                "尺度": ["biogeography", "environmental microbiome", "spatial pattern", "temporal dynamics"],
+                "方法": ["metagenomics", "strain-level analysis", "synthetic community", "stable isotope probing"]
+              }
+            },
+            {
+              "id": "biology.ecology_evolution.evolutionary_genomics",
+              "zh": "进化基因组学",
+              "en": "Evolutionary Genomics",
+              "synonyms": ["分子进化", "进化基因组", "molecular evolution"],
+              "keywords": ["evolutionary genomics", "molecular evolution", "selection", "phylogenomics", "adaptation", "gene family evolution", "comparative genomics", "population genetics", "convergent evolution", "ancient DNA"],
+              "concepts": {
+                "模式": ["selection", "adaptation", "convergent evolution", "gene family evolution"],
+                "方法": ["phylogenomics", "comparative genomics", "population genetics", "ancient DNA"],
+                "过程": ["speciation", "introgression", "horizontal gene transfer", "genome reduction"]
+              }
+            },
+            {
+              "id": "biology.ecology_evolution.biodiversity",
+              "zh": "生物多样性",
+              "en": "Biodiversity",
+              "synonyms": ["生物多样性保护", "biodiversity conservation"],
+              "keywords": ["biodiversity", "species richness", "community structure", "ecosystem function", "conservation", "macroecology", "global change", "DNA barcoding", "biodiversity monitoring", "extinction risk"],
+              "concepts": {
+                "格局": ["species richness", "community structure", "macroecology", "latitudinal gradient"],
+                "变化": ["global change", "extinction risk", "range shift", "ecosystem function"],
+                "方法": ["DNA barcoding", "biodiversity monitoring", "citizen science", "species distribution model"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.plant_agriculture",
+          "zh": "植物与农业生物学",
+          "en": "Plant and Agricultural Biology",
+          "synonyms": ["植物学", "植物科学", "plant science"],
+          "children": [
+            {
+              "id": "biology.plant_agriculture.plant_stress",
+              "zh": "植物逆境生理",
+              "en": "Plant Stress Physiology",
+              "synonyms": ["植物抗逆", "非生物胁迫", "abiotic stress"],
+              "keywords": ["plant stress", "abiotic stress", "drought stress", "salt stress", "heat stress", "reactive oxygen species", "stomatal conductance", "transcription factor", "stress signaling", "crop yield"],
+              "concepts": {
+                "胁迫类型": ["drought stress", "salt stress", "heat stress", "cold stress", "flooding"],
+                "响应": ["reactive oxygen species", "stress signaling", "osmotic adjustment", "stomatal conductance"],
+                "调控": ["transcription factor", "ABA signaling", "antioxidant enzyme", "epigenetic regulation"]
+              }
+            },
+            {
+              "id": "biology.plant_agriculture.plant_microbe",
+              "zh": "植物-微生物互作",
+              "en": "Plant-Microbe Interaction",
+              "synonyms": ["植物微生物互作", "根际微生物", "rhizosphere microbiome"],
+              "keywords": ["plant-microbe interaction", "rhizosphere", "mycorrhiza", "nitrogen fixation", "plant immunity", "root exudate", "microbiome assembly", "biological control", "symbiosis", "soil microbiome"],
+              "concepts": {
+                "互作类型": ["mycorrhiza", "nitrogen fixation", "symbiosis", "biological control"],
+                "界面": ["rhizosphere", "root exudate", "root microbiome", "plant immunity"],
+                "群落": ["microbiome assembly", "soil microbiome", "community composition", "strain specificity"]
+              }
+            },
+            {
+              "id": "biology.plant_agriculture.crop_genetics",
+              "zh": "作物遗传改良",
+              "en": "Crop Genetic Improvement",
+              "synonyms": ["作物育种", "分子育种", "crop breeding"],
+              "keywords": ["crop breeding", "quantitative trait locus", "genomic selection", "germplasm", "yield trait", "disease resistance", "marker-assisted selection", "genome editing", "phenotyping", "heterosis"],
+              "concepts": {
+                "性状": ["yield trait", "disease resistance", "quality trait", "stress tolerance"],
+                "方法": ["quantitative trait locus", "genomic selection", "marker-assisted selection", "genome editing"],
+                "资源": ["germplasm", "pangenome", "phenotyping", "heterosis"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.biochemistry",
+          "zh": "生物化学与代谢",
+          "en": "Biochemistry and Metabolism",
+          "synonyms": ["生物化学", "代谢生物学", "biochemistry"],
+          "children": [
+            {
+              "id": "biology.biochemistry.metabolomics",
+              "zh": "代谢组学",
+              "en": "Metabolomics",
+              "synonyms": ["代谢组", "metabolic profiling"],
+              "keywords": ["metabolomics", "metabolite", "mass spectrometry", "metabolic profiling", "lipidomics", "untargeted metabolomics", "metabolic pathway", "biomarker discovery", "flux analysis", "metabolite annotation"],
+              "concepts": {
+                "技术": ["mass spectrometry", "nuclear magnetic resonance", "liquid chromatography", "untargeted metabolomics"],
+                "分析": ["metabolite annotation", "metabolic pathway", "flux analysis", "pathway enrichment"],
+                "应用": ["biomarker discovery", "metabolic profiling", "lipidomics", "clinical metabolomics"]
+              }
+            },
+            {
+              "id": "biology.biochemistry.enzymology",
+              "zh": "酶学与催化",
+              "en": "Enzymology and Biocatalysis",
+              "synonyms": ["酶学", "生物催化", "enzymology"],
+              "keywords": ["enzyme", "catalysis", "enzyme kinetics", "substrate specificity", "active site", "protein engineering", "biocatalysis", "cofactor", "allosteric regulation", "directed evolution"],
+              "concepts": {
+                "机制": ["catalysis", "active site", "cofactor", "allosteric regulation"],
+                "动力学": ["enzyme kinetics", "substrate specificity", "turnover number", "inhibition"],
+                "工程": ["protein engineering", "directed evolution", "biocatalysis", "enzyme design"]
+              }
+            },
+            {
+              "id": "biology.biochemistry.lipid_metabolism",
+              "zh": "脂质代谢",
+              "en": "Lipid Metabolism",
+              "synonyms": ["脂代谢", "lipid biology"],
+              "keywords": ["lipid metabolism", "fatty acid oxidation", "lipogenesis", "cholesterol", "sphingolipid", "phospholipid", "lipid droplet", "lipotoxicity", "lipidomics", "metabolic disease"],
+              "concepts": {
+                "合成与分解": ["lipogenesis", "fatty acid oxidation", "cholesterol synthesis", "triglyceride"],
+                "脂质类别": ["sphingolipid", "phospholipid", "fatty acid", "lipid droplet"],
+                "病理": ["lipotoxicity", "insulin resistance", "metabolic disease", "ferroptosis"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "biology.bioinformatics",
+          "zh": "生物信息与计算生物学",
+          "en": "Bioinformatics and Computational Biology",
+          "synonyms": ["生物信息学", "计算生物学", "bioinformatics"],
+          "children": [
+            {
+              "id": "biology.bioinformatics.single_cell",
+              "zh": "单细胞组学",
+              "en": "Single-cell Omics",
+              "synonyms": ["单细胞测序", "single-cell sequencing"],
+              "keywords": ["single-cell RNA sequencing", "single-cell omics", "cell atlas", "cell type annotation", "trajectory inference", "spatial transcriptomics", "batch effect", "cell-cell communication", "multiome", "pseudotime"],
+              "concepts": {
+                "数据": ["single-cell RNA sequencing", "spatial transcriptomics", "multiome", "cell atlas"],
+                "分析": ["cell type annotation", "trajectory inference", "pseudotime", "cell-cell communication"],
+                "质控": ["batch effect", "doublet detection", "normalization", "imputation"]
+              }
+            },
+            {
+              "id": "biology.bioinformatics.multiomics",
+              "zh": "多组学整合",
+              "en": "Multi-omics Integration",
+              "synonyms": ["多组学", "multi-omics", "integrative omics"],
+              "keywords": ["multi-omics", "integrative analysis", "genomics", "transcriptomics", "proteomics", "metabolomics", "data integration", "network analysis", "causal inference", "biomarker"],
+              "concepts": {
+                "层次": ["genomics", "transcriptomics", "proteomics", "metabolomics", "epigenomics"],
+                "整合": ["data integration", "network analysis", "latent factor", "multi-view learning"],
+                "推断": ["causal inference", "mediation analysis", "biomarker", "molecular subtype"]
+              }
+            },
+            {
+              "id": "biology.bioinformatics.ml_biology",
+              "zh": "生物数据机器学习",
+              "en": "Machine Learning in Biology",
+              "synonyms": ["计算生物学方法", "机器学习与生物信息"],
+              "keywords": ["machine learning", "deep learning", "prediction model", "feature selection", "benchmark", "interpretability", "graph neural network", "transformer", "self-supervised learning", "biological network"],
+              "concepts": {
+                "模型": ["deep learning", "graph neural network", "transformer", "self-supervised learning"],
+                "评估": ["benchmark", "cross-validation", "generalization", "interpretability"],
+                "应用": ["prediction model", "feature selection", "biological network", "drug response prediction"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "medicine",
+      "zh": "医学",
+      "en": "Medicine",
+      "synonyms": ["临床医学", "medical science", "clinical medicine"],
+      "children": [
+        {
+          "id": "medicine.oncology",
+          "zh": "肿瘤学",
+          "en": "Oncology",
+          "synonyms": ["癌症研究", "cancer research"],
+          "children": [
+            {
+              "id": "medicine.oncology.tumor_immunology",
+              "zh": "肿瘤免疫",
+              "en": "Tumor Immunology",
+              "synonyms": ["肿瘤免疫学", "cancer immunology"],
+              "keywords": ["tumor immunology", "tumor microenvironment", "immune checkpoint", "PD-1", "CAR-T", "tumor-infiltrating lymphocyte", "immunotherapy", "neoantigen", "myeloid-derived suppressor cell", "immune evasion"],
+              "concepts": {
+                "免疫治疗": ["immune checkpoint", "PD-1", "CAR-T", "immunotherapy", "cancer vaccine"],
+                "微环境": ["tumor microenvironment", "tumor-infiltrating lymphocyte", "myeloid-derived suppressor cell", "tumor-associated macrophage"],
+                "抗原": ["neoantigen", "antigen presentation", "MHC", "T cell exhaustion"]
+              }
+            },
+            {
+              "id": "medicine.oncology.tumor_microenvironment",
+              "zh": "肿瘤微环境",
+              "en": "Tumor Microenvironment",
+              "synonyms": ["TME", "肿瘤基质"],
+              "keywords": ["tumor microenvironment", "cancer-associated fibroblast", "hypoxia", "angiogenesis", "extracellular matrix", "tumor-associated macrophage", "stroma", "metabolic reprogramming", "single-cell profiling", "spatial transcriptomics"],
+              "concepts": {
+                "细胞成分": ["cancer-associated fibroblast", "tumor-associated macrophage", "endothelial cell", "T cell"],
+                "物理化学": ["hypoxia", "extracellular matrix", "angiogenesis", "interstitial pressure"],
+                "方法": ["single-cell profiling", "spatial transcriptomics", "organoid co-culture", "imaging mass cytometry"]
+              }
+            },
+            {
+              "id": "medicine.oncology.precision_oncology",
+              "zh": "精准肿瘤学",
+              "en": "Precision Oncology",
+              "synonyms": ["肿瘤精准治疗", "precision cancer medicine"],
+              "keywords": ["precision oncology", "molecular targeted therapy", "genomic profiling", "actionable mutation", "tumor mutation burden", "biomarker", "resistance mechanism", "liquid biopsy", "clinical trial", "real-world evidence"],
+              "concepts": {
+                "分型": ["genomic profiling", "actionable mutation", "tumor mutation burden", "molecular subtype"],
+                "治疗": ["molecular targeted therapy", "resistance mechanism", "combination therapy", "clinical trial"],
+                "监测": ["liquid biopsy", "ctDNA", "real-world evidence", "biomarker"]
+              }
+            },
+            {
+              "id": "medicine.oncology.early_detection",
+              "zh": "肿瘤早筛",
+              "en": "Cancer Early Detection",
+              "synonyms": ["癌症早筛", "早期筛查", "early detection"],
+              "keywords": ["cancer early detection", "screening", "liquid biopsy", "circulating tumor DNA", "methylation marker", "multi-cancer early detection", "sensitivity", "specificity", "overdiagnosis", "cost-effectiveness"],
+              "concepts": {
+                "标志物": ["circulating tumor DNA", "methylation marker", "protein biomarker", "extracellular vesicle"],
+                "技术": ["liquid biopsy", "multi-cancer early detection", "low-dose CT", "endoscopy"],
+                "评价": ["sensitivity", "specificity", "overdiagnosis", "cost-effectiveness"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.cardiovascular",
+          "zh": "心血管医学",
+          "en": "Cardiovascular Medicine",
+          "synonyms": ["心血管", "cardiology"],
+          "children": [
+            {
+              "id": "medicine.cardiovascular.atherosclerosis",
+              "zh": "动脉粥样硬化",
+              "en": "Atherosclerosis",
+              "synonyms": ["动脉硬化", "atherosclerotic disease"],
+              "keywords": ["atherosclerosis", "plaque", "LDL cholesterol", "inflammation", "endothelial dysfunction", "macrophage foam cell", "vulnerable plaque", "statins", "cardiovascular risk", "vascular smooth muscle cell"],
+              "concepts": {
+                "机制": ["endothelial dysfunction", "macrophage foam cell", "inflammation", "vascular smooth muscle cell"],
+                "斑块": ["plaque", "vulnerable plaque", "plaque rupture", "calcification"],
+                "干预": ["statins", "LDL cholesterol", "PCSK9 inhibitor", "cardiovascular risk"]
+              }
+            },
+            {
+              "id": "medicine.cardiovascular.heart_failure",
+              "zh": "心力衰竭",
+              "en": "Heart Failure",
+              "synonyms": ["心衰", "cardiac failure"],
+              "keywords": ["heart failure", "ejection fraction", "cardiac remodeling", "natriuretic peptide", "SGLT2 inhibitor", "ventricular dysfunction", "fibrosis", "hemodynamics", "quality of life", "readmission"],
+              "concepts": {
+                "分型": ["ejection fraction", "heart failure with preserved ejection fraction", "ventricular dysfunction"],
+                "机制": ["cardiac remodeling", "fibrosis", "neurohormonal activation", "hemodynamics"],
+                "治疗": ["SGLT2 inhibitor", "natriuretic peptide", "device therapy", "readmission"]
+              }
+            },
+            {
+              "id": "medicine.cardiovascular.hypertension",
+              "zh": "高血压",
+              "en": "Hypertension",
+              "synonyms": ["血压", "high blood pressure"],
+              "keywords": ["hypertension", "blood pressure", "antihypertensive", "resistant hypertension", "ambulatory blood pressure", "salt sensitivity", "vascular stiffness", "renin angiotensin system", "primary aldosteronism", "cardiovascular outcome"],
+              "concepts": {
+                "测量": ["blood pressure", "ambulatory blood pressure", "home blood pressure", "central blood pressure"],
+                "机制": ["salt sensitivity", "vascular stiffness", "renin angiotensin system", "sympathetic activation"],
+                "治疗": ["antihypertensive", "resistant hypertension", "combination therapy", "cardiovascular outcome"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.neuropsychiatry",
+          "zh": "神经与精神医学",
+          "en": "Neurology and Psychiatry",
+          "synonyms": ["神经医学", "精神医学", "psychiatry", "neurology"],
+          "children": [
+            {
+              "id": "medicine.neuropsychiatry.depression",
+              "zh": "抑郁症",
+              "en": "Depression",
+              "synonyms": ["抑郁障碍", "重性抑郁", "major depressive disorder"],
+              "keywords": ["depression", "major depressive disorder", "antidepressant", "treatment-resistant depression", "cognitive behavioral therapy", "inflammation", "gut-brain axis", "biomarker", "anhedonia", "suicidal ideation"],
+              "concepts": {
+                "临床": ["major depressive disorder", "treatment-resistant depression", "anhedonia", "suicidal ideation"],
+                "机制": ["inflammation", "neuroplasticity", "hypothalamic-pituitary-adrenal axis", "gut-brain axis"],
+                "干预": ["antidepressant", "cognitive behavioral therapy", "psychotherapy", "neuromodulation"]
+              }
+            },
+            {
+              "id": "medicine.neuropsychiatry.alzheimer",
+              "zh": "阿尔茨海默病",
+              "en": "Alzheimer's Disease",
+              "synonyms": ["老年痴呆", "AD", "Alzheimer disease"],
+              "keywords": ["Alzheimer disease", "dementia", "amyloid beta", "tau", "mild cognitive impairment", "biomarker", "neuroimaging", "cognitive decline", "anti-amyloid therapy", "caregiver"],
+              "concepts": {
+                "病理": ["amyloid beta", "tau", "neurofibrillary tangle", "neuroinflammation"],
+                "诊断": ["mild cognitive impairment", "biomarker", "neuroimaging", "cognitive assessment"],
+                "干预": ["anti-amyloid therapy", "cognitive decline", "caregiver", "disease-modifying therapy"]
+              }
+            },
+            {
+              "id": "medicine.neuropsychiatry.stroke",
+              "zh": "脑卒中",
+              "en": "Stroke",
+              "synonyms": ["中风", "脑血管病", "cerebrovascular disease"],
+              "keywords": ["stroke", "ischemic stroke", "thrombectomy", "thrombolysis", "secondary prevention", "neurovascular unit", "reperfusion injury", "functional outcome", "vascular cognitive impairment", "telestroke"],
+              "concepts": {
+                "类型": ["ischemic stroke", "intracerebral hemorrhage", "subarachnoid hemorrhage", "transient ischemic attack"],
+                "急性期": ["thrombectomy", "thrombolysis", "reperfusion injury", "neurovascular unit"],
+                "预后": ["functional outcome", "secondary prevention", "vascular cognitive impairment", "telestroke"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.infectious",
+          "zh": "感染性疾病",
+          "en": "Infectious Diseases",
+          "synonyms": ["感染病学", "传染病", "infectious disease"],
+          "children": [
+            {
+              "id": "medicine.infectious.sepsis",
+              "zh": "脓毒症",
+              "en": "Sepsis",
+              "synonyms": ["败血症", "septic shock"],
+              "keywords": ["sepsis", "septic shock", "organ dysfunction", "antimicrobial therapy", "biomarker", "immune dysregulation", "fluid resuscitation", "critical care", "mortality", "early warning"],
+              "concepts": {
+                "定义与分型": ["sepsis", "septic shock", "organ dysfunction", "SOFA score"],
+                "机制": ["immune dysregulation", "endothelial dysfunction", "coagulopathy", "mitochondrial dysfunction"],
+                "处置": ["antimicrobial therapy", "fluid resuscitation", "critical care", "early warning"]
+              }
+            },
+            {
+              "id": "medicine.infectious.respiratory_infection",
+              "zh": "呼吸道感染",
+              "en": "Respiratory Infection",
+              "synonyms": ["肺部感染", "respiratory tract infection"],
+              "keywords": ["respiratory infection", "pneumonia", "influenza", "respiratory syncytial virus", "COVID-19", "ventilator-associated pneumonia", "antiviral", "vaccination", "diagnostic stewardship", "outbreak"],
+              "concepts": {
+                "病原": ["influenza", "respiratory syncytial virus", "SARS-CoV-2", "Streptococcus pneumoniae"],
+                "临床": ["pneumonia", "ventilator-associated pneumonia", "acute respiratory distress syndrome", "outbreak"],
+                "防控": ["vaccination", "antiviral", "diagnostic stewardship", "infection control"]
+              }
+            },
+            {
+              "id": "medicine.infectious.hai",
+              "zh": "医院感染",
+              "en": "Healthcare-associated Infection",
+              "synonyms": ["院内感染", "nosocomial infection"],
+              "keywords": ["healthcare-associated infection", "nosocomial infection", "infection control", "hand hygiene", "carbapenem-resistant", "catheter-related bloodstream infection", "surgical site infection", "outbreak investigation", "antimicrobial stewardship", "environmental cleaning"],
+              "concepts": {
+                "类型": ["catheter-related bloodstream infection", "surgical site infection", "ventilator-associated pneumonia", "Clostridioides difficile infection"],
+                "耐药": ["carbapenem-resistant", "multidrug-resistant organism", "colonization", "transmission"],
+                "防控": ["infection control", "hand hygiene", "antimicrobial stewardship", "outbreak investigation"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.endocrine",
+          "zh": "内分泌与代谢",
+          "en": "Endocrinology and Metabolism",
+          "synonyms": ["内分泌", "代谢病", "endocrinology"],
+          "children": [
+            {
+              "id": "medicine.endocrine.diabetes",
+              "zh": "糖尿病",
+              "en": "Diabetes",
+              "synonyms": ["糖尿病学", "diabetes mellitus"],
+              "keywords": ["diabetes", "type 2 diabetes", "insulin resistance", "glycemic control", "GLP-1 receptor agonist", "continuous glucose monitoring", "diabetic complication", "beta cell", "prediabetes", "precision medicine"],
+              "concepts": {
+                "分型": ["type 1 diabetes", "type 2 diabetes", "gestational diabetes", "prediabetes"],
+                "机制": ["insulin resistance", "beta cell dysfunction", "glucotoxicity", "inflammation"],
+                "管理": ["glycemic control", "GLP-1 receptor agonist", "continuous glucose monitoring", "diabetic complication"]
+              }
+            },
+            {
+              "id": "medicine.endocrine.obesity",
+              "zh": "肥胖",
+              "en": "Obesity",
+              "synonyms": ["肥胖症", "obesity"],
+              "keywords": ["obesity", "body mass index", "adipose tissue", "energy balance", "bariatric surgery", "weight loss", "metabolic syndrome", "appetite regulation", "obesity phenotype", "lifestyle intervention"],
+              "concepts": {
+                "表型": ["body mass index", "visceral adiposity", "obesity phenotype", "metabolic syndrome"],
+                "机制": ["adipose tissue", "energy balance", "appetite regulation", "gut hormone"],
+                "干预": ["bariatric surgery", "weight loss", "lifestyle intervention", "pharmacotherapy"]
+              }
+            },
+            {
+              "id": "medicine.endocrine.thyroid",
+              "zh": "甲状腺疾病",
+              "en": "Thyroid Disease",
+              "synonyms": ["甲状腺", "thyroid"],
+              "keywords": ["thyroid", "hypothyroidism", "hyperthyroidism", "thyroid nodule", "thyroid cancer", "autoimmune thyroiditis", "thyroid hormone", "radioiodine", "TSH", "active surveillance"],
+              "concepts": {
+                "功能异常": ["hypothyroidism", "hyperthyroidism", "subclinical thyroid dysfunction", "thyroid hormone"],
+                "结节与肿瘤": ["thyroid nodule", "thyroid cancer", "papillary thyroid carcinoma", "active surveillance"],
+                "自身免疫": ["autoimmune thyroiditis", "TSH receptor antibody", "Graves disease", "Hashimoto thyroiditis"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.gastroenterology",
+          "zh": "消化系统疾病",
+          "en": "Gastroenterology",
+          "synonyms": ["消化病学", "gastroenterology"],
+          "children": [
+            {
+              "id": "medicine.gastroenterology.ibd",
+              "zh": "炎症性肠病",
+              "en": "Inflammatory Bowel Disease",
+              "synonyms": ["IBD", "克罗恩病", "溃疡性结肠炎", "Crohn disease"],
+              "keywords": ["inflammatory bowel disease", "Crohn disease", "ulcerative colitis", "biologic therapy", "mucosal healing", "gut microbiome", "fecal microbiota transplantation", "endoscopy", "tight control", "precision medicine"],
+              "concepts": {
+                "表型": ["Crohn disease", "ulcerative colitis", "perianal fistula", "extraintestinal manifestation"],
+                "治疗": ["biologic therapy", "mucosal healing", "fecal microbiota transplantation", "tight control"],
+                "机制": ["gut microbiome", "epithelial barrier", "innate immunity", "genetic susceptibility"]
+              }
+            },
+            {
+              "id": "medicine.gastroenterology.gut_brain_axis",
+              "zh": "肠-脑轴",
+              "en": "Gut-Brain Axis",
+              "synonyms": ["脑肠轴", "gut brain axis"],
+              "keywords": ["gut-brain axis", "microbiota-gut-brain axis", "vagus nerve", "enteric nervous system", "neuroinflammation", "short-chain fatty acid", "behavior", "stress response", "intestinal permeability", "psychobiotic"],
+              "concepts": {
+                "通路": ["vagus nerve", "enteric nervous system", "neuroinflammation", "hypothalamic-pituitary-adrenal axis"],
+                "微生物": ["microbiota-gut-brain axis", "short-chain fatty acid", "psychobiotic", "bacterial metabolite"],
+                "表型": ["behavior", "stress response", "intestinal permeability", "anxiety"]
+              }
+            },
+            {
+              "id": "medicine.gastroenterology.liver_disease",
+              "zh": "肝病",
+              "en": "Liver Disease",
+              "synonyms": ["肝脏疾病", "hepatology"],
+              "keywords": ["liver disease", "nonalcoholic fatty liver disease", "MASLD", "cirrhosis", "hepatocellular carcinoma", "viral hepatitis", "liver fibrosis", "portal hypertension", "transplant", "biomarker"],
+              "concepts": {
+                "病因": ["nonalcoholic fatty liver disease", "MASLD", "viral hepatitis", "alcohol-related liver disease"],
+                "进展": ["liver fibrosis", "cirrhosis", "hepatocellular carcinoma", "portal hypertension"],
+                "管理": ["biomarker", "transplant", "antiviral therapy", "lifestyle intervention"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.respiratory",
+          "zh": "呼吸系统疾病",
+          "en": "Respiratory Medicine",
+          "synonyms": ["呼吸病学", "pulmonology"],
+          "children": [
+            {
+              "id": "medicine.respiratory.copd",
+              "zh": "慢性阻塞性肺疾病",
+              "en": "Chronic Obstructive Pulmonary Disease",
+              "synonyms": ["慢阻肺", "COPD"],
+              "keywords": ["chronic obstructive pulmonary disease", "COPD", "airflow limitation", "exacerbation", "pulmonary rehabilitation", "inhaled corticosteroid", "emphysema", "small airway disease", "phenotype", "mortality"],
+              "concepts": {
+                "表型": ["airflow limitation", "emphysema", "small airway disease", "frequent exacerbator"],
+                "机制": ["airway inflammation", "protease-antiprotease imbalance", "oxidative stress", "lung microbiome"],
+                "管理": ["pulmonary rehabilitation", "inhaled corticosteroid", "exacerbation", "mortality"]
+              }
+            },
+            {
+              "id": "medicine.respiratory.asthma",
+              "zh": "哮喘",
+              "en": "Asthma",
+              "synonyms": ["支气管哮喘", "asthma"],
+              "keywords": ["asthma", "airway inflammation", "eosinophil", "type 2 inflammation", "bronchial hyperresponsiveness", "biologic therapy", "inhaled corticosteroid", "severe asthma", "phenotype", "remission"],
+              "concepts": {
+                "表型": ["type 2 inflammation", "eosinophilic asthma", "severe asthma", "obese asthma"],
+                "机制": ["airway inflammation", "eosinophil", "bronchial hyperresponsiveness", "epithelial barrier"],
+                "治疗": ["inhaled corticosteroid", "biologic therapy", "bronchial thermoplasty", "remission"]
+              }
+            },
+            {
+              "id": "medicine.respiratory.pulmonary_fibrosis",
+              "zh": "肺纤维化",
+              "en": "Pulmonary Fibrosis",
+              "synonyms": ["间质性肺病", "interstitial lung disease", "IPF"],
+              "keywords": ["pulmonary fibrosis", "idiopathic pulmonary fibrosis", "interstitial lung disease", "fibroblast", "extracellular matrix", "antifibrotic", "high-resolution computed tomography", "progressive fibrosis", "biomarker", "lung transplant"],
+              "concepts": {
+                "疾病": ["idiopathic pulmonary fibrosis", "interstitial lung disease", "progressive fibrosis", "acute exacerbation"],
+                "机制": ["fibroblast", "extracellular matrix", "epithelial injury", "senescence"],
+                "管理": ["antifibrotic", "high-resolution computed tomography", "biomarker", "lung transplant"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.maternal_child",
+          "zh": "妇儿与围产医学",
+          "en": "Maternal and Child Health",
+          "synonyms": ["妇幼健康", "围产医学", "maternal health"],
+          "children": [
+            {
+              "id": "medicine.maternal_child.birth_cohort",
+              "zh": "出生队列",
+              "en": "Birth Cohort",
+              "synonyms": ["出生队列研究", "birth cohort study"],
+              "keywords": ["birth cohort", "pregnancy", "child health", "developmental origins of health and disease", "prenatal exposure", "follow-up study", "cord blood", "maternal nutrition", "epigenetic programming", "life course"],
+              "concepts": {
+                "设计": ["birth cohort", "prospective cohort", "follow-up study", "life course"],
+                "暴露": ["prenatal exposure", "maternal nutrition", "environmental exposure", "maternal stress"],
+                "结局": ["child health", "birth outcome", "neurodevelopment", "epigenetic programming"]
+              }
+            },
+            {
+              "id": "medicine.maternal_child.maternal_nutrition",
+              "zh": "母婴营养",
+              "en": "Maternal and Infant Nutrition",
+              "synonyms": ["孕期营养", "母婴营养学"],
+              "keywords": ["maternal nutrition", "pregnancy", "fetal growth", "micronutrient", "breastfeeding", "infant nutrition", "gestational weight gain", "supplementation", "human milk", "child development"],
+              "concepts": {
+                "营养素": ["micronutrient", "folate", "iron", "vitamin D", "omega-3 fatty acid"],
+                "结局": ["fetal growth", "gestational weight gain", "child development", "birth outcome"],
+                "喂养": ["breastfeeding", "infant nutrition", "human milk", "complementary feeding"]
+              }
+            },
+            {
+              "id": "medicine.maternal_child.child_development",
+              "zh": "儿童发育",
+              "en": "Child Development",
+              "synonyms": ["儿童生长发育", "child growth"],
+              "keywords": ["child development", "neurodevelopment", "growth trajectory", "early childhood", "developmental screening", "adverse childhood experience", "language development", "motor development", "school readiness", "intervention"],
+              "concepts": {
+                "领域": ["neurodevelopment", "language development", "motor development", "social-emotional development"],
+                "评价": ["developmental screening", "growth trajectory", "school readiness", "Bayley scale"],
+                "影响因素": ["early childhood", "adverse childhood experience", "nutrition", "intervention"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "medicine.epidemiology",
+          "zh": "流行病学与公共卫生",
+          "en": "Epidemiology and Public Health",
+          "synonyms": ["公共卫生", "流行病学", "public health"],
+          "children": [
+            {
+              "id": "medicine.epidemiology.cohort",
+              "zh": "队列研究",
+              "en": "Cohort Study",
+              "synonyms": ["队列", "cohort study"],
+              "keywords": ["cohort study", "prospective cohort", "hazard ratio", "confounding", "causal inference", "mediation analysis", "competing risk", "follow-up", "exposure assessment", "generalizability"],
+              "concepts": {
+                "设计": ["prospective cohort", "retrospective cohort", "nested case-control", "follow-up"],
+                "分析": ["hazard ratio", "confounding", "causal inference", "mediation analysis", "competing risk"],
+                "质量": ["exposure assessment", "loss to follow-up", "generalizability", "measurement error"]
+              }
+            },
+            {
+              "id": "medicine.epidemiology.burden",
+              "zh": "疾病负担",
+              "en": "Disease Burden",
+              "synonyms": ["全球疾病负担", "global burden of disease"],
+              "keywords": ["disease burden", "global burden of disease", "disability-adjusted life year", "prevalence", "incidence", "mortality", "risk factor", "years of life lost", "health inequality", "cost-effectiveness"],
+              "concepts": {
+                "指标": ["disability-adjusted life year", "years of life lost", "prevalence", "incidence", "mortality"],
+                "分析": ["risk factor", "attributable burden", "health inequality", "trend analysis"],
+                "政策": ["cost-effectiveness", "health policy", "universal health coverage", "priority setting"]
+              }
+            },
+            {
+              "id": "medicine.epidemiology.vaccines",
+              "zh": "疫苗",
+              "en": "Vaccines",
+              "synonyms": ["疫苗学", "vaccination", "immunization"],
+              "keywords": ["vaccine", "vaccination", "immunization", "vaccine effectiveness", "vaccine hesitancy", "clinical trial", "adjuvant", "mRNA vaccine", "herd immunity", "adverse event"],
+              "concepts": {
+                "类型": ["mRNA vaccine", "viral vector vaccine", "protein subunit vaccine", "live attenuated vaccine"],
+                "评价": ["vaccine effectiveness", "immunogenicity", "clinical trial", "adverse event"],
+                "实施": ["vaccination", "vaccine hesitancy", "herd immunity", "coverage"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chemistry",
+      "zh": "化学",
+      "en": "Chemistry",
+      "synonyms": ["化学科学", "chemical science"],
+      "children": [
+        {
+          "id": "chemistry.organic_synthesis",
+          "zh": "有机合成",
+          "en": "Organic Synthesis",
+          "synonyms": ["合成化学", "synthetic chemistry"],
+          "keywords": ["organic synthesis", "total synthesis", "asymmetric catalysis", "reaction mechanism", "C-H activation", "cross-coupling", "photocatalysis", "flow chemistry", "retrosynthesis", "green chemistry"],
+          "concepts": {
+            "方法": ["total synthesis", "asymmetric catalysis", "C-H activation", "cross-coupling", "photocatalysis"],
+            "设计": ["retrosynthesis", "reaction mechanism", "selectivity", "late-stage functionalization"],
+            "工程": ["flow chemistry", "scale-up", "green chemistry", "automation"]
+          }
+        },
+        {
+          "id": "chemistry.catalysis",
+          "zh": "催化化学",
+          "en": "Catalysis",
+          "synonyms": ["催化剂", "catalysis"],
+          "keywords": ["catalysis", "heterogeneous catalysis", "homogeneous catalysis", "electrocatalysis", "photocatalysis", "catalyst design", "reaction kinetics", "selectivity", "active site", "in situ characterization"],
+          "concepts": {
+            "类型": ["heterogeneous catalysis", "homogeneous catalysis", "electrocatalysis", "photocatalysis", "biocatalysis"],
+            "机制": ["active site", "reaction kinetics", "selectivity", "mechanism"],
+            "表征": ["in situ characterization", "operando spectroscopy", "density functional theory", "high-throughput screening"]
+          }
+        },
+        {
+          "id": "chemistry.analytical",
+          "zh": "分析化学",
+          "en": "Analytical Chemistry",
+          "synonyms": ["分析科学", "analytical science"],
+          "keywords": ["analytical chemistry", "mass spectrometry", "chromatography", "biosensor", "electrochemical sensor", "single-molecule detection", "metrology", "sample preparation", "spectroscopy", "microfluidics"],
+          "concepts": {
+            "技术": ["mass spectrometry", "chromatography", "spectroscopy", "electrochemical sensor", "biosensor"],
+            "性能": ["sensitivity", "selectivity", "limit of detection", "reproducibility"],
+            "平台": ["microfluidics", "single-molecule detection", "point-of-care", "sample preparation"]
+          }
+        },
+        {
+          "id": "chemistry.medicinal",
+          "zh": "药物化学",
+          "en": "Medicinal Chemistry",
+          "synonyms": ["药物设计", "medicinal chemistry"],
+          "keywords": ["medicinal chemistry", "drug design", "structure-activity relationship", "lead optimization", "pharmacophore", "molecular docking", "ADMET", "covalent inhibitor", "PROTAC", "drug discovery"],
+          "concepts": {
+            "设计": ["drug design", "structure-activity relationship", "lead optimization", "pharmacophore", "PROTAC"],
+            "性质": ["ADMET", "solubility", "permeability", "metabolic stability"],
+            "发现": ["high-throughput screening", "molecular docking", "fragment-based drug design", "covalent inhibitor"]
+          }
+        },
+        {
+          "id": "chemistry.polymer",
+          "zh": "高分子化学",
+          "en": "Polymer Chemistry",
+          "synonyms": ["高分子", "polymer science"],
+          "keywords": ["polymer", "polymerization", "copolymer", "self-assembly", "polymer brush", "hydrogel", "degradable polymer", "sequence-defined polymer", "mechanical property", "recycling"],
+          "concepts": {
+            "合成": ["polymerization", "copolymer", "sequence-defined polymer", "living polymerization"],
+            "结构": ["self-assembly", "polymer brush", "hydrogel", "nanostructure"],
+            "性能": ["mechanical property", "degradable polymer", "recycling", "conducting polymer"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "materials",
+      "zh": "材料科学",
+      "en": "Materials Science",
+      "synonyms": ["材料", "materials"],
+      "children": [
+        {
+          "id": "materials.nanomaterials",
+          "zh": "纳米材料",
+          "en": "Nanomaterials",
+          "synonyms": ["纳米", "nanoscience"],
+          "keywords": ["nanomaterial", "nanoparticle", "nanostructure", "quantum dot", "two-dimensional material", "surface functionalization", "self-assembly", "nanotoxicology", "synthesis", "characterization"],
+          "concepts": {
+            "类型": ["nanoparticle", "quantum dot", "nanowire", "two-dimensional material"],
+            "合成": ["synthesis", "self-assembly", "surface functionalization", "colloidal synthesis"],
+            "评价": ["characterization", "nanotoxicology", "stability", "scale-up"]
+          }
+        },
+        {
+          "id": "materials.energy_materials",
+          "zh": "能源材料",
+          "en": "Energy Materials",
+          "synonyms": ["电池材料", "energy storage materials"],
+          "keywords": ["energy materials", "lithium-ion battery", "solid-state electrolyte", "electrocatalyst", "perovskite solar cell", "supercapacitor", "hydrogen storage", "interface", "degradation", "scalability"],
+          "concepts": {
+            "器件": ["lithium-ion battery", "solid-state battery", "perovskite solar cell", "supercapacitor", "fuel cell"],
+            "材料": ["electrocatalyst", "solid-state electrolyte", "cathode", "anode", "hydrogen storage"],
+            "问题": ["interface", "degradation", "scalability", "cost"]
+          }
+        },
+        {
+          "id": "materials.biomaterials",
+          "zh": "生物材料",
+          "en": "Biomaterials",
+          "synonyms": ["生物医用材料", "biomedical materials"],
+          "keywords": ["biomaterial", "biocompatibility", "hydrogel", "scaffold", "drug delivery", "tissue engineering", "surface modification", "immune response", "degradation", "organoid culture"],
+          "concepts": {
+            "类型": ["hydrogel", "scaffold", "nanoparticle", "decellularized matrix"],
+            "性能": ["biocompatibility", "degradation", "mechanical property", "immune response"],
+            "应用": ["drug delivery", "tissue engineering", "organoid culture", "wound healing"]
+          }
+        },
+        {
+          "id": "materials.twod",
+          "zh": "二维材料",
+          "en": "Two-dimensional Materials",
+          "synonyms": ["2D材料", "二维材料"],
+          "keywords": ["two-dimensional material", "graphene", "transition metal dichalcogenide", "MXene", "van der Waals heterostructure", "exfoliation", "moiré", "electronics", "optoelectronics", "defect engineering"],
+          "concepts": {
+            "体系": ["graphene", "transition metal dichalcogenide", "MXene", "hexagonal boron nitride"],
+            "制备": ["exfoliation", "chemical vapor deposition", "transfer", "van der Waals heterostructure"],
+            "物性": ["moiré", "optoelectronics", "defect engineering", "strain engineering"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "physics",
+      "zh": "物理学",
+      "en": "Physics",
+      "synonyms": ["物理", "physical science"],
+      "children": [
+        {
+          "id": "physics.condensed_matter",
+          "zh": "凝聚态物理",
+          "en": "Condensed Matter Physics",
+          "synonyms": ["凝聚态", "condensed matter"],
+          "keywords": ["condensed matter", "topological state", "superconductivity", "magnetism", "strongly correlated system", "phase transition", "quantum material", "ARPES", "transport measurement", "first-principles calculation"],
+          "concepts": {
+            "物态": ["topological state", "superconductivity", "magnetism", "strongly correlated system"],
+            "测量": ["ARPES", "transport measurement", "neutron scattering", "scanning tunneling microscopy"],
+            "理论": ["phase transition", "first-principles calculation", "effective model", "quantum simulation"]
+          }
+        },
+        {
+          "id": "physics.optics",
+          "zh": "光学与光子学",
+          "en": "Optics and Photonics",
+          "synonyms": ["光子学", "optics"],
+          "keywords": ["optics", "photonics", "metasurface", "laser", "nonlinear optics", "optical frequency comb", "quantum optics", "waveguide", "imaging", "optical fiber"],
+          "concepts": {
+            "器件": ["metasurface", "laser", "waveguide", "optical fiber"],
+            "效应": ["nonlinear optics", "quantum optics", "optical frequency comb", "slow light"],
+            "应用": ["imaging", "sensing", "optical communication", "spectroscopy"]
+          }
+        },
+        {
+          "id": "physics.quantum_information",
+          "zh": "量子信息",
+          "en": "Quantum Information",
+          "synonyms": ["量子计算", "quantum computing"],
+          "keywords": ["quantum information", "quantum computing", "qubit", "quantum error correction", "entanglement", "quantum simulation", "quantum algorithm", "decoherence", "quantum network", "benchmarking"],
+          "concepts": {
+            "平台": ["superconducting qubit", "trapped ion", "photonic qubit", "neutral atom"],
+            "理论": ["quantum error correction", "entanglement", "quantum algorithm", "quantum simulation"],
+            "工程": ["decoherence", "benchmarking", "quantum network", "scalability"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "cs_ai",
+      "zh": "计算机与人工智能",
+      "en": "Computer Science and Artificial Intelligence",
+      "synonyms": ["计算机科学", "人工智能", "computer science", "AI"],
+      "children": [
+        {
+          "id": "cs_ai.machine_learning",
+          "zh": "机器学习",
+          "en": "Machine Learning",
+          "synonyms": ["ML", "machine learning"],
+          "keywords": ["machine learning", "deep learning", "neural network", "transformer", "self-supervised learning", "reinforcement learning", "generalization", "foundation model", "efficient training", "interpretability"],
+          "concepts": {
+            "范式": ["supervised learning", "self-supervised learning", "reinforcement learning", "contrastive learning"],
+            "架构": ["transformer", "graph neural network", "diffusion model", "state space model"],
+            "评估": ["generalization", "benchmark", "interpretability", "scaling law"]
+          }
+        },
+        {
+          "id": "cs_ai.computer_vision",
+          "zh": "计算机视觉",
+          "en": "Computer Vision",
+          "synonyms": ["视觉计算", "computer vision"],
+          "keywords": ["computer vision", "image segmentation", "object detection", "vision transformer", "multimodal model", "3D reconstruction", "video understanding", "self-supervised learning", "domain adaptation", "benchmark"],
+          "concepts": {
+            "任务": ["image segmentation", "object detection", "3D reconstruction", "video understanding"],
+            "模型": ["vision transformer", "diffusion model", "multimodal model", "foundation model"],
+            "问题": ["domain adaptation", "robustness", "efficiency", "benchmark"]
+          }
+        },
+        {
+          "id": "cs_ai.nlp",
+          "zh": "自然语言处理",
+          "en": "Natural Language Processing",
+          "synonyms": ["NLP", "语言模型", "language model"],
+          "keywords": ["natural language processing", "large language model", "retrieval augmented generation", "instruction tuning", "evaluation", "hallucination", "multilingual", "reasoning", "prompt engineering", "agent"],
+          "concepts": {
+            "模型": ["large language model", "retrieval augmented generation", "instruction tuning", "multimodal language model"],
+            "能力": ["reasoning", "multilingual", "in-context learning", "agent"],
+            "风险": ["hallucination", "evaluation", "bias", "safety"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "environment",
+      "zh": "环境与地球科学",
+      "en": "Environmental and Earth Sciences",
+      "synonyms": ["环境科学", "地球科学", "environmental science"],
+      "children": [
+        {
+          "id": "environment.microbiology",
+          "zh": "环境微生物学",
+          "en": "Environmental Microbiology",
+          "synonyms": ["环境微生物", "environmental microbiome"],
+          "keywords": ["environmental microbiology", "microbial community", "bioremediation", "metagenomics", "antibiotic resistance gene", "nitrogen cycle", "methane oxidation", "biofilm", "soil microbiome", "water microbiome"],
+          "concepts": {
+            "生境": ["soil microbiome", "water microbiome", "sediment", "extreme environment"],
+            "过程": ["bioremediation", "nitrogen cycle", "methane oxidation", "carbon cycling"],
+            "方法": ["metagenomics", "stable isotope probing", "culturomics", "single-cell genomics"]
+          }
+        },
+        {
+          "id": "environment.pollutant",
+          "zh": "污染物降解",
+          "en": "Pollutant Degradation",
+          "synonyms": ["污染治理", "pollutant removal"],
+          "keywords": ["pollutant degradation", "advanced oxidation process", "photocatalysis", "adsorption", "persistent organic pollutant", "microplastics", "heavy metal", "biodegradation", "transformation product", "toxicity"],
+          "concepts": {
+            "污染物": ["persistent organic pollutant", "microplastics", "heavy metal", "pharmaceutical"],
+            "技术": ["advanced oxidation process", "photocatalysis", "adsorption", "biodegradation"],
+            "评价": ["transformation product", "toxicity", "mineralization", "energy consumption"]
+          }
+        },
+        {
+          "id": "environment.climate",
+          "zh": "气候变化",
+          "en": "Climate Change",
+          "synonyms": ["全球变暖", "climate change"],
+          "keywords": ["climate change", "global warming", "carbon emission", "climate model", "extreme event", "carbon neutrality", "adaptation", "mitigation", "climate risk", "tipping point"],
+          "concepts": {
+            "驱动": ["carbon emission", "greenhouse gas", "land use change", "aerosol"],
+            "影响": ["extreme event", "sea level rise", "climate risk", "tipping point"],
+            "响应": ["adaptation", "mitigation", "carbon neutrality", "climate policy"]
+          }
+        },
+        {
+          "id": "environment.wastewater",
+          "zh": "水处理",
+          "en": "Wastewater Treatment",
+          "synonyms": ["污水处理", "water treatment"],
+          "keywords": ["wastewater treatment", "activated sludge", "membrane bioreactor", "nutrient removal", "disinfection", "emerging contaminant", "resource recovery", "anaerobic digestion", "constructed wetland", "life cycle assessment"],
+          "concepts": {
+            "工艺": ["activated sludge", "membrane bioreactor", "anaerobic digestion", "constructed wetland"],
+            "目标": ["nutrient removal", "emerging contaminant", "disinfection", "resource recovery"],
+            "评价": ["life cycle assessment", "energy consumption", "effluent quality", "sludge reduction"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "agriculture_food",
+      "zh": "农业与食品科学",
+      "en": "Agricultural and Food Science",
+      "synonyms": ["农业科学", "食品科学", "agricultural science", "food science"],
+      "children": [
+        {
+          "id": "agriculture_food.soil_microbiology",
+          "zh": "土壤微生物学",
+          "en": "Soil Microbiology",
+          "synonyms": ["土壤微生物", "soil microbiome"],
+          "keywords": ["soil microbiology", "soil microbiome", "rhizosphere", "nitrogen cycling", "mycorrhizal fungi", "soil carbon", "microbial biomass", "biofertilizer", "land management", "metagenomics"],
+          "concepts": {
+            "群落": ["soil microbiome", "microbial biomass", "fungal community", "bacterial community"],
+            "功能": ["nitrogen cycling", "soil carbon", "mycorrhizal fungi", "biofertilizer"],
+            "管理": ["land management", "fertilization", "crop rotation", "conservation agriculture"]
+          }
+        },
+        {
+          "id": "agriculture_food.food_microbiology",
+          "zh": "食品微生物学",
+          "en": "Food Microbiology",
+          "synonyms": ["食品微生物", "food microbiome"],
+          "keywords": ["food microbiology", "food safety", "foodborne pathogen", "fermentation", "probiotic", "spoilage", "antimicrobial", "biofilm", "food microbiome", "risk assessment"],
+          "concepts": {
+            "安全": ["foodborne pathogen", "spoilage", "risk assessment", "outbreak"],
+            "发酵": ["fermentation", "starter culture", "probiotic", "food microbiome"],
+            "控制": ["antimicrobial", "biofilm", "preservation", "hurdle technology"]
+          }
+        },
+        {
+          "id": "agriculture_food.food_safety",
+          "zh": "食品安全",
+          "en": "Food Safety",
+          "synonyms": ["食品安全风险", "food safety risk"],
+          "keywords": ["food safety", "pesticide residue", "mycotoxin", "heavy metal", "risk assessment", "exposure assessment", "food chain", "traceability", "regulation", "surveillance"],
+          "concepts": {
+            "危害": ["pesticide residue", "mycotoxin", "heavy metal", "food additive"],
+            "评估": ["risk assessment", "exposure assessment", "hazard characterization", "surveillance"],
+            "治理": ["traceability", "regulation", "food chain", "good manufacturing practice"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "engineering",
+      "zh": "工程与技术",
+      "en": "Engineering and Technology",
+      "synonyms": ["工程技术", "engineering"],
+      "children": [
+        {
+          "id": "engineering.biomedical",
+          "zh": "生物医学工程",
+          "en": "Biomedical Engineering",
+          "synonyms": ["医工交叉", "biomedical engineering"],
+          "keywords": ["biomedical engineering", "medical device", "biosensor", "wearable sensor", "tissue engineering", "drug delivery", "medical imaging", "rehabilitation robotics", "organ-on-chip", "clinical translation"],
+          "concepts": {
+            "器件": ["medical device", "biosensor", "wearable sensor", "organ-on-chip"],
+            "应用": ["medical imaging", "tissue engineering", "drug delivery", "rehabilitation robotics"],
+            "转化": ["clinical translation", "regulatory approval", "usability", "biocompatibility"]
+          }
+        },
+        {
+          "id": "engineering.chemical",
+          "zh": "化学工程",
+          "en": "Chemical Engineering",
+          "synonyms": ["化工", "chemical engineering"],
+          "keywords": ["chemical engineering", "process design", "reactor engineering", "separation", "catalysis", "process intensification", "techno-economic analysis", "scale-up", "sustainability", "digital twin"],
+          "concepts": {
+            "单元": ["reactor engineering", "separation", "distillation", "membrane process"],
+            "系统": ["process design", "process intensification", "digital twin", "scale-up"],
+            "评价": ["techno-economic analysis", "life cycle assessment", "sustainability", "yield"]
+          }
+        },
+        {
+          "id": "engineering.energy",
+          "zh": "能源工程",
+          "en": "Energy Engineering",
+          "synonyms": ["能源系统", "energy systems"],
+          "keywords": ["energy engineering", "renewable energy", "grid integration", "energy storage", "hydrogen production", "carbon capture", "energy efficiency", "power system", "decarbonization", "techno-economic analysis"],
+          "concepts": {
+            "供给": ["renewable energy", "hydrogen production", "solar photovoltaic", "wind power"],
+            "系统": ["grid integration", "energy storage", "power system", "energy efficiency"],
+            "转型": ["decarbonization", "carbon capture", "techno-economic analysis", "energy policy"]
+          }
+        }
+      ]
+    }
+  ]
+}

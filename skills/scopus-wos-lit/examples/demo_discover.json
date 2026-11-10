@@ -1,0 +1,119 @@
+{
+  "status": "ok",
+  "engine": "scopus-web",
+  "attempts": [
+    {
+      "label": "A_strict",
+      "rationale": "strict: synonyms on, exact phrases, all filters",
+      "query": "TITLE-ABS-KEY(({human microbiome} OR {human microbiota} OR microbiome OR microbiota OR {gut microbiome} OR metagenomics OR {microbial community} OR {host-microbe interaction})) AND PUBYEAR > 2018 AND DOCTYPE(re) AND (LANGUAGE(english))",
+      "sha256": "ae8c468471f5fa969e5ea183f67b6a8fea3f812c7e81b797d7df950dcc541e18",
+      "count": 19941,
+      "cached": false
+    }
+  ],
+  "chosen": {
+    "label": "A_strict",
+    "query": "TITLE-ABS-KEY(({human microbiome} OR {human microbiota} OR microbiome OR microbiota OR {gut microbiome} OR metagenomics OR {microbial community} OR {host-microbe interaction})) AND PUBYEAR > 2018 AND DOCTYPE(re) AND (LANGUAGE(english))",
+    "sha256": "ae8c468471f5fa969e5ea183f67b6a8fea3f812c7e81b797d7df950dcc541e18",
+    "count": 19941
+  },
+  "total": 19941,
+  "candidates": 30,
+  "selected": [
+    {
+      "id": "doi:10.0000/example.2021",
+      "doi": "10.0000/example.2021",
+      "title": "示例综述一：人体微生物组与宿主健康的机制框架",
+      "abstract": "This fictional example abstract illustrates the report format. It summarises how microbial communities colonise host surfaces, how their metabolites signal to immune and neuronal cells, and which methodological limits constrain causal inference. No real findings are claimed.",
+      "authors": [
+        {"name": "Jane Doe", "is_first": true, "is_corresponding": false},
+        {"name": "John Smith", "is_first": false, "is_corresponding": true}
+      ],
+      "first_author": "Jane Doe",
+      "corresponding_authors": ["John Smith"],
+      "corresponding_inferred": false,
+      "journal": "Nature Reviews Microbiology",
+      "year": 2021,
+      "cited_by": 512,
+      "document_type": "review",
+      "url": "https://doi.org/10.0000/example.2021",
+      "source_db": "scopus-web",
+      "journal_rank": {
+        "matched": true,
+        "title": "Nature Reviews Microbiology",
+        "percentile": 98.0,
+        "quartile": "Q1",
+        "cas_tier": 1,
+        "passes": true,
+        "approx": false,
+        "basis": "jif_percentile",
+        "reason": "JIF percentile 98.0 >= 80.0"
+      },
+      "selection": {
+        "selected": true,
+        "score": 0.91,
+        "score_parts": {"rank": 0.98, "citations": 0.74, "recency": 0.84},
+        "reasons": ["rank: JIF percentile 98.0 >= 80.0", "published 2021", "cited 512 (>= 20)"],
+        "reject_reasons": []
+      },
+      "fulltext": {"status": "pdf", "path": "fulltext/10.0000_example.2021/fulltext.pdf", "chars": 48210}
+    },
+    {
+      "id": "doi:10.0000/example.2022",
+      "doi": "10.0000/example.2022",
+      "title": "示例综述二：微生物代谢产物与免疫调节",
+      "abstract": "This second fictional abstract exists only to demonstrate the layout. It describes short-chain fatty acids, bile acid derivatives and tryptophan metabolites as candidate mediators, and stresses that most evidence remains associative.",
+      "authors": [
+        {"name": "Alex Lee", "is_first": true, "is_corresponding": true}
+      ],
+      "first_author": "Alex Lee",
+      "corresponding_authors": ["Alex Lee"],
+      "corresponding_inferred": false,
+      "journal": "Cell Host & Microbe",
+      "year": 2022,
+      "cited_by": 240,
+      "document_type": "review",
+      "url": "https://doi.org/10.0000/example.2022",
+      "source_db": "scopus-web",
+      "journal_rank": {
+        "matched": true,
+        "title": "Cell Host & Microbe",
+        "percentile": 96.0,
+        "quartile": "Q1",
+        "cas_tier": 1,
+        "passes": true,
+        "approx": false,
+        "basis": "jif_percentile",
+        "reason": "JIF percentile 96.0 >= 80.0"
+      },
+      "selection": {
+        "selected": true,
+        "score": 0.86,
+        "score_parts": {"rank": 0.96, "citations": 0.65, "recency": 0.91},
+        "reasons": ["rank: JIF percentile 96.0 >= 80.0", "published 2022", "cited 240 (>= 20)"],
+        "reject_reasons": []
+      },
+      "fulltext": {"status": "paywalled", "url": "https://doi.org/10.0000/example.2022"}
+    }
+  ],
+  "rejected": [
+    {
+      "title": "示例被拒记录：某低分区期刊综述",
+      "journal": "Journal of Example Studies",
+      "year": 2020,
+      "cited_by": 90,
+      "document_type": "review",
+      "selection": {"selected": false, "score": 0.41, "reject_reasons": ["journal_not_top20"], "reasons": []}
+    }
+  ],
+  "stats": {
+    "candidates": 30,
+    "eligible": 9,
+    "selected": 2,
+    "rejected": 28,
+    "rejected_by_reason": {"journal_not_top20": 18, "not_a_review": 4, "older_than_6y": 3, "citations_12_below_floor_20": 3},
+    "warnings": ["示例数据：仅用于展示报告格式，不是真实检索结果"]
+  },
+  "journal_table": {"entries": 145, "with_percentile": 2, "cas_tier1": 138},
+  "notes": ["示例数据（虚构）；真实运行时 selected/rejected 由检索与筛选产生"]
+}

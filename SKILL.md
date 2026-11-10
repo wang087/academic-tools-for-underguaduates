@@ -33,8 +33,11 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 >    这两个文件只描述**当前有效的可操作流程**；历史沿革、缺陷修复过程、
 >    被取代的旧规则，**一律归 [版本变动.md](版本变动.md)**。
 >    执行流程时**不需要读** `版本变动.md` —— 它是冷证据，不参与决策。
-> 5. **红线** —— §5.1 **分层获取策略**与 §5.2 鼠标自动化禁令优先级最高；
+> 5. **红线** —— §5.1 **分层获取策略**与 §5.2 **鼠标自动化政策**优先级最高；
 >    一旦违反，按各自「违规处置」章节执行（**立即停止 + 如实报告**）。
+>    §5.2 已**取消“一律禁止”**：允许用**宿主机级 `SendInput`** 点击人机验证复选框
+>    （每篇最多 2 次、失败即停、禁止循环试探）；CDP `Input.*` 仍不用于验证。
+>    细则见 §5.2。
 >    §5.1 是**分层**规则而非一刀切：摘要 / 综述题录 / 白名单开源库**允许直连**，
 >    **原文全文必须走 CDP**；第一层取不到转 CDP。细则见 §5.1。
 >    **学部官网师资页属"公开元数据"**，走第一层直连（阶段 S 的
@@ -98,8 +101,10 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 > **② 出版社内容站禁直连** —— 验证类站点
 > （ScienceDirect/Cell/OUP/SAGE/Wiley/ACS/RSC/Springer/T&F）
 > 绝不用 `curl`/`urllib` 直连（含探活请求）；
-> **③ 鼠标自动化禁令** —— 绝不用 CDP `Input.*` 事件尝试通过人机验证
-> （实测 `isTrusted=True` 但对判定无效），人机验证一律**转人工**。
+> **③ 鼠标自动化政策（§5.2）** —— **允许**用**宿主机级 `SendInput`**
+> 点击 Turnstile / 验证复选框（每篇最多 2 次、失败即停、禁止循环试探）；
+> CDP `Input.*` 事件（`isTrusted=True`）**仍不用于**验证，因为判定不依赖该次点击。
+> 宿主级点击失败 → 转人工 / 换 profile / 换网络。
 
 ---
 
@@ -412,8 +417,8 @@ N 大方向确定（无交互：拆解用户输入 + 匹配关键词群）
 
    ```json
    {
-     "school": "中国科学技术大学",
-     "unit": "生命科学与医学部",
+     "school": "<学校>",
+     "unit": "<学院>",
      "level": "本科",
      "topic_cn": "阿尔茨海默病的早期诊断",
      "topic_terms_cn": ["阿尔茨海默病", "老年痴呆", "认知障碍"],
@@ -1006,6 +1011,7 @@ uv run python 流程1/scripts/route_databases.py --self-test         # 自检路
 | `citation-management`          | 综述选定后校验 DOI/PMID、去重、生成规范引用                                                                                                                                                                                             |
 | `scientific-critical-thinking` | 对综述质量做证据分级（GRADE 等），避免拿低质量综述当权威                                                                                                                                                                                |
 | `bgpt-paper-search`            | 需要**从全文抽取结构化实验数据**（方法/样本量/结论）时使用                                                                                                                                                                        |
+| `scopus-wos-lit`               | **可选增强**：Scopus / Web of Science 的综述发现、分区过滤、摘要与全文、一作/通讯；输出阶段 R 认识的 `reviews.json`。见 [docs/综述获取增强_scopus_wos.md](docs/综述获取增强_scopus_wos.md) |
 
 > **不要重复造轮子**：检索式构造、多库降级、去重、计数对账、引用格式化
 > 上述 skill 已经覆盖（`paginate.py` 已内建"计数对账 + 限流 + 停止原因"）。
@@ -1039,6 +1045,19 @@ uv run python 流程1/scripts/route_databases.py --self-test         # 自检路
 > **省事做法**：不必手工拼 `reviews.json` —— 把 `paginate.py` 的原始输出
 > 直接喂给阶段 R① 的 `reviews_prepare.py --from-europepmc`，
 > 它会自动归一字段、判定综述类型、排序（综述优先 + 被引降序）。
+>
+> **可选增强（Scopus / Web of Science）**：需要按 Scopus/WoS 收录取综述、用 JCR/中科院分区筛“前 20%”，
+> 或补一作/通讯与 DOI 时，按需调用本流程自带的增强技能（默认不启用，不改变上面任何步骤）：
+>
+> ```bash
+> uv run python 流程1/scripts/reviews_discover_scopus.py \
+>     --direction "神经科学" --source scopus --limit 8
+> uv run python 流程1/scripts/reviews_prepare.py \
+>     --input .work_cdp/reviews/reviews_scopus.json --fetch-abstracts
+> ```
+>
+> 输出 `{"records":[...]}`，字段与 `reviews_prepare.py` 对齐；可用 `--merge-into .work_cdp/reviews/reviews.json` 合并。
+> 详见 [docs/综述获取增强_scopus_wos.md](docs/综述获取增强_scopus_wos.md)。
 
 ---
 
@@ -1108,7 +1127,7 @@ uv run python 流程1/scripts/reviews_fulltext.py --backfill
 > 所以「页面打开了」**不等于**「拿到正文」：字数不足 `MIN_FULLTEXT_CHARS` 时，
 > 脚本按页内**功能入口**（`Full text` / `PDF` / `View on publisher site`）逐个导航后重读，
 > 仍不足则如实记 `too-short`（交副链路或人工），**不写入伪全文**。
-> [X] 兜底只走正文入口 —— 人机验证控件一律不碰（§5.2 鼠标自动化禁令）。
+> [X] 兜底只走正文入口 —— 人机验证按 §5.2：允许宿主机级点击（≤2 次），失败即停。
 
 > ### 副链路
 >
@@ -1779,6 +1798,15 @@ uv run python 流程1/scripts/refs_backfill.py
 4. **渲染兜底**：PDF 端点被拦但有全文权限时，用 `Page.printToPDF` 把正文页转 PDF（Wiley 常用）。
    渲染前必须确认正文长度 > 15000，否则会产出 1 页空壳。
 
+> **资产 CDN 验证页（Elsevier 专用，2026-11-09 新增）**：取 PDF 时若跳到
+> `pdf.sciencedirectassets.com/craft/capi/cfts/init?...main.pdf`，页面显示
+> `Request Verification: In Progress` + Cloudflare 复选框，则页内 fetch 只会得到
+> 601B HTML。改用 `optional-cdp-fulltext/asset_pdf.py` 的
+> `save_with_asset(cdp, hwnd, landing, pdf_url, out)`：
+> **导航**到 PDF URL → 识别 `cfts`/`Request Verification` → 宿主机 `SendInput` 点复选框
+> → `Network.getResponseBody` 抓页面随后请求的 PDF → 失败才渲染兜底（标 `render(asset-blocked)`）。
+> 需要**交互式桌面**（`GetForegroundWindow() != 0`）；锁屏/RDP 断开时按键事件被拒。
+
 > **先查机构授权**：若本机处于校园网/机构 IP 段，出版社页面会显示 **"Subscribed"**，
 > 此时**无需登录凭据**即可读全文与下载 PDF。该授权是 **IP 级**的，CDP 启动的独立
 > profile 同样享有，**不必复制用户 Cookie/密码库**。
@@ -2283,6 +2311,11 @@ uv run python 流程1/scripts/refs_build.py
 > 三张图都要吃「最终」产物 —— 解读卡、综述终表、review 结果；
 > 早画出来的图，等后面补了数据就全过期了。
 
+> **定位说明（v18）**：overview 是**「研究结构叙事图」**——作者→阶段→方向→综述的
+> 归属树 + 方法外环，**不是**共现网络。它的距离表示层级归属，不表示主题相关性；
+> 想要「按共现强度布局」的图，用 `keywords_three_layer.py --export` 导出的
+> VOSviewer map+network（见下）。两者不要互相替代，也不要拿一张图去解释另一张。
+
 > **依赖（硬依赖）**：本阶段需要 `matplotlib` / `networkx` / **`python-igraph`** /
 > **`adjustText`** / **`wordcloud`**。缺任何一个都**直接退出码 2**并打印完整命令 ——
 > **不产出降级图、不留半成品**。
@@ -2305,6 +2338,8 @@ uv run --with matplotlib --with networkx --with python-igraph --with adjustText 
 #                         剔除词记入 graph_data.json 的 drop_reasons 可审计）。
 #                         需 torch/transformers/peft —— 环境自检：
 #                         python 流程1/scripts/selftest_small_model.py
+#    --strict-fonts       任一图在目标尺寸下低于 5 pt 就**硬失败（退出码 4）**，
+#                         并指名哪张图哪个条目、低到多少（默认只 WARN，照旧出图）
 ```
 
 > **本地小模型适配器通道**（不写死设备，CPU 可跑但有速度警告）：
@@ -2323,9 +2358,11 @@ uv run --with matplotlib --with networkx --with python-igraph --with adjustText 
 > `SMALL_MODEL_ROOT` 指定缓存根，`HF_ENDPOINT` 指定下载源，
 > `SMALL_MODEL_TORCH_INDEX` / `SMALL_MODEL_PIP_INDEX` 指定包索引，
 > `SMALL_MODEL_OFFLINE=1` 禁止联网（离线前必须已完成一次下载）。
-#    --wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
-#                         词的来源权重：文章关键词 > 题名 > 摘要 > 卡片方法描述
+```   
+--wc-weight-keywords=3 / -title=2 / -abstract=2 / -methods=1
 ```
+#                         词的来源权重：文章关键词 > 题名 > 摘要 > 卡片方法描述
+
 
 **三张图（用户指定）**
 
@@ -2419,6 +2456,32 @@ x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠
 
 + `.work_cdp/graph/*.svg|png` + `graph_data.json`
   （含 `wordcloud.stats`、`figure_notes` 与 **`overview_layout`** —— 节点坐标与布局元信息）。
+
+**VOSviewer 图（v18 新增，可选但推荐）**
+
+卡片带关键词三层（§6.7）时，用 `keywords_three_layer.py` 额外导出一套 VOSviewer 文件：
+
+```bash
+# ① 校验卡片关键词（缺字段只 WARN，不阻断）
+uv run python 流程1/scripts/keywords_three_layer.py --check
+
+# ② 导出 VOSviewer（词云只吃 core；method 单独做方法画像）
+uv run python 流程1/scripts/keywords_three_layer.py \
+    --export --out .work_cdp/graph/vos --min-doc 1
+
+# ③ 卡片没带关键词时，退回“全文建图”
+uv run python 流程1/scripts/keywords_three_layer.py \
+    --fulltext --corpus <MinerU md 目录> --out .work_cdp/graph/vos --min-doc 5
+```
+
+产物：`.work_cdp/graph/vos/{map.txt,network.txt,thesaurus.txt,vocab.csv,corpus.txt}`
+
+> **格式由脚本保证**：`map.txt` 必须有 `id/label/x/y/weight` 表头（缺 `x`/`y` 会被
+> VOSviewer 拒绝），`network.txt` 是 `id1/id2/strength` 稀疏格式且**无表头**。
+> 打开方式：VOSviewer → File → Open → 两个文件都选 → Analysis → Layout/Clustering。
+
+> **VOSviewer 只支持英文文本挖掘**（§3.5.4）；中文标签走 map+network 没问题，
+> 但**不要**把中文喂给 corpus 路线。
 
 > **诚实性约束**：挂不上方向的综述、放不下的低频词、不足 N 年的方向样本、
 > 样本不足而不做热点簇着色的方向 —— 全部**显式报出数量或名字**，不静默丢弃；
@@ -2536,7 +2599,7 @@ uv run python 流程1/scripts/ppt_brief.py --check-svg <project>/svg_output
 | **抓到的是补充材料而非正文**             | AHA/Circ 等站点`links` 首位常是 `suppl_file/*.pdf`（补充材料）或图注页，2 页却通过校验                                    | 下载后校验页数；正文一般 ≥6 页。残缺件改名`【补充材料】…` 保留，用 `history/*.pdf` 或 `/doi/pdf/...?download=true` 重抓                                                                                                  |
 | **翻译 PDF 空白/无中文**                 | HTML 未写入中文或字体未嵌入                                                                                                   | `render_html_pdf.py` 退出码 2 = CJK < 50，需回查 HTML；正常输出 `OK pages=… cjk_first_page=…`                                                                                                                              |
 | **自编脚本直连抓取原文（含 curl 探活）** | 用`curl -I` 测出版社连通性、或用 `urllib`/`requests` 直下**全文** → 同样触发风控且拿不到内容，还无法纳入流程判定 | **严禁**（§ 5.1 **第二层**）；连通性判断交给浏览器（`detect.navStatus` 即真实 HTTP 状态）。**OA 全文同样走 CDP**。摘要/综述题录/白名单开源库属**第一层**，**允许**直连 —— 边界见 §5.1 分层表 |
-| **用鼠标事件自动过验证**                 | 「CDP 点击`isTrusted=True`，应该能骗过 Turnstile」——**错误**：判定不靠该次点击，循环试探还会升级为封禁              | **严禁**（鼠标自动化禁令，§ 5.2）；人机验证一律转人工（`--manual-wait=N` + 窗口置前 + cookie 留存）。仅 Cookie 弹窗/功能按钮可自动化                                                                                    |
+| **用 CDP `Input.*` 过验证** | 「CDP 点击`isTrusted=True`，应该能骗过 Turnstile」——**错误**：判定不靠该次点击 | **禁止**用 CDP `Input.*` 过验证（§5.2）；**允许**用**宿主机级 `SendInput`** 点复选框（每篇 ≤2 次，失败即停）。只点复选框，不点“重试/换题” |
 | **浏览器「找不到」时报 WinError 87** | `Popen` 抛 `OSError: [WinError 87] The parameter is incorrect`，浏览器起不来 | 已修复：`cdp_pool.EDGE_CANDIDATES` **剔除空值** —— 未设 `PAPER_BROWSER` / `EDGE_PATH` 时它们是空串，而 `Path("").exists()` 恒为真（指当前目录），会让候选表**假命中**并返回 `""`，`Popen([""])` 即报此错 |
 | **检索子进程输出非 GBK 字符** | 阶段 R `search_run.py` 整源 `exit 1`，子进程 stderr 是 `UnicodeEncodeError: 'gbk' codec` | 已修复：给 `paginate.py` 子进程显式设 `PYTHONIOENCODING=utf-8` —— 父进程按 UTF-8 解码，就不该让子进程按**控制台代码页**写 stdout |
 | **CDP 可用性探测偶发失败** | `reviews_fulltext` 报「无可用 CDP 实例」，而端口其实正常 | 已修复：`renderer_count` **串行化 + 失败重试**（探测失败 `-1` ≠ renderer 为 0）；仍不稳时用 `--ports 9222,9223` 跳过探测 |
@@ -2647,68 +2710,59 @@ uv run python 流程1/scripts/fetch_direct.py
 
 ---
 
-## 5.2 [STOP] 鼠标自动化禁令（与「分层获取策略」「封禁应急规则」同级）
+## 5.2 鼠标自动化政策（2026-11-09 修订；原“鼠标自动化禁令”已取消）
 
-> **本禁令来源**：2026-09-13 用户要求 —— 将鼠标自动化验证成果固化为禁令。
-> **适用对象**：CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` /
-> `Input.insertText` / `Input.synthesizeScrollGesture` 及任何等价手段。
-> **核心条款**：**禁止**用上述手段**尝试通过人机验证**（Turnstile / CAPTCHA / 滑块 / 挑战页）。
-> **一句话**：CDP 鼠标事件适合点**按钮**，不适合破**验证** —— 对后者不实现、不尝试、只转人工。
+> **修订依据**：2026-11-07~09 实测。CDP `Input.dispatchMouseEvent` 虽然
+> `isTrusted=true`，但 Turnstile 不放行（token=0）；**宿主机级 `SendInput`**
+> 在 ScienceDirect / OUP / ACS 均放行，且不点击的对照组 20 s 内都不放行。
+> 定制 Chromium（`navigator.webdriver=false`）下，刘波 15 篇抓取 15/15 通过。
+> 取证见 [实测结果汇总.md](实测结果汇总.md#m-2)。
 
-### 一、禁止清单（红线）
+### 一、允许（新政策）
 
-| # | 禁止行为                                                                         | 说明                           |
-| - | -------------------------------------------------------------------------------- | ------------------------------ |
-| 1 | 用`Input.*` 点击 Turnstile / reCAPTCHA / hCaptcha 的**复选框或验证组件** | 单次、循环均禁止               |
-| 2 | 合成`mouseMoved` 轨迹模拟**滑块 / 拼图 / 按住**手势                      | 属绕过安全机制                 |
-| 3 | 对验证页做**批量 / 循环 / 退避式试探点击**                                 | 即「反复试探」，直接升级为封禁 |
-| 4 | 页内 JS 伪造（`element.click()`、改写 `isTrusted`、劫持验证回调）            | 既无效又违规                   |
-| 5 | 把人工验证环节「自动化」以提升流程自动化率                                       | 本流程**只做转人工**     |
-| 6 | 将上述任一行为写入脚本 / 宏 / 定时任务                                           | 含「实验性」「一次性」尝试     |
+| 场景 | 做法 |
+|---|---|
+| Turnstile / 人机验证**复选框** | **宿主机级** `user32!SendInput` 绝对坐标点击；每次挑战**最多 2 次**，失败即停 |
+| 等待验证组件渲染 | 逐秒截图轮询；**连续两帧**框位置一致再点（复选框常 3–8 s 才出现） |
+| Cookie / 同意书 / 页面功能按钮 | 既有 `CONSENT_JS` / `dismiss_consent()`；必要时同样可用宿主机点击 |
 
-### 二、允许范围（边界，避免误伤）
+### 二、仍禁止（红线）
 
-对**非验证类**的常规页面元素做自动化点击是**允许的**（属常规 UI 自动化，不在禁令内）：
+| # | 禁止行为 | 原因 |
+|---|---|---|
+| 1 | 用 CDP `Input.dispatchMouseEvent` / `Input.*` 过验证 | 实测无效（`isTrusted` 为真但 token=0） |
+| 2 | 合成**滑块 / 拼图 / 按住**手势 | 属绕过安全机制，且最易触发升级封禁 |
+| 3 | 对同一验证页**循环 / 退避式试探**（超过 2 次点击） | 单次挑战会升级为站点级封禁 |
+| 4 | 页内 JS 伪造（`element.click()`、改写 `isTrusted`、劫持回调） | 既无效又违规 |
+| 5 | 无失败熔断的无人值守验证点击（定时任务里无限重试） | 违背「失败即停」 |
 
-| 场景                                                         | 做法                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Cookie / 同意书弹窗                                          | `CONSENT_JS` + `dismiss_consent()`                                   |
-| 「View PDF」/「Download」/「Accept」等**页面功能按钮** | 落地页上下文`fetch` 直取直链；必要时 `Input.dispatchMouseEvent` 点击 |
-| 页内导航 / 滚动                                              | 常规操作                                                                 |
+### 三、判定分界与**桌面前提**
 
-> **判定分界**：看元素**用途** —— 「**安全验证**」一律转人工；「**页面功能**」可自动化。
+- **前提（硬性）**：宿主机点击要求**交互式桌面**（`GetForegroundWindow() != 0`）。
+  锁屏 / 已断开的 RDP 会话里按键事件被拒绝（`SendInput` 返回 `ERROR_ACCESS_DENIED`），
+  此时**不要重试**，直接转人工或等桌面恢复；批量任务应在有人值守/桌面已连接时跑。
+- **看输入通道**：`SendInput`（系统输入队列）允许用于验证；`Input.dispatch*`（DevTools）不允许。
+- **看次数**：一次挑战 ≤2 次点击；第 2 次仍失败 → 停止，转人工或换 profile。
+- **看对象**：只点复选框本身；不得点“重试 / 换题 / 提交”等验证流程按钮。
 
-### 三、禁止依据 1：「点了也没用」（isTrusted 取证）
+### 四、失败处置（不可跳过）
 
-`Input.dispatchMouseEvent` 经浏览器**输入管线**注入，产出事件 `isTrusted === true`
-（与 JS `element.click()` 的 `false` 不同）——页面**无法从事件属性上区分**它和真实点击。
+1. **立即停止**该站点的自动点击，终止该站点的后续重试；
+2. **如实记录**：站点、点击次数、点击前后标题、token/状态；
+3. **转人工**：`--manual-wait=N` → 弹窗（TTL 自动关闭）+ 窗口置前，人点一次；
+   放行 cookie 留在该 profile，后续同站直接通过；
+4. 仍不可得 → 换新 profile / 机构 VPN / 图书馆代查，或在《全文清单.md》注明限制。
 
-**推论**：既然属性上区分不了、却照样过不了验证，反爬的判据就**必然在别处**（见依据 2）——
-「能发出可信点击」**不等于**「能过验证」。
+### 五、实现位置
 
-> 取证脚本与逐事件输出见 [实测结果汇总.md](实测结果汇总.md#m-1)
-> （`.work_cdp/test_input_events.py`，本地页面、零网络请求，仅作技术取证）。
-
-### 四、禁止依据 2：反爬判定不依赖那一次点击
-
-| 判定维度      | 反爬实际看什么                                                | 为什么自动点击过不了                                  |
-| ------------- | ------------------------------------------------------------- | ----------------------------------------------------- |
-| 协议/环境痕迹 | CDP 会话存在性、`Runtime.enable` 时序侧信道、自动化框架特征 | 与「点得像不像」无关                                  |
-| 行为生物特征  | 轨迹加速度/抖动/停顿、悬停犹豫、直线度、间隔规律性            | **单点瞬移点击**是最典型异常样本                |
-| 风险评分      | IP 信誉、环境一致性、请求频次                                 | 勾选框常只是 UI 摆设，**评分不过照样循环/拒绝** |
-
-### 五、禁止依据 3：代价不可承受
-
-机械重复试探会把「单次挑战」升级为「**站点级封禁**」，并波及后续所有站点；
-这正是 § 5 与「封禁应急规则」明令禁止的「反复试探」。
-
-### 六、违规处置（不可跳过）
-
-1. **立即停止**该行为与相关脚本，终止本轮全部后续尝试；
-2. **如实报告**站点、时间、影响范围；
-3. **转人工**：`--manual-wait=N` → 弹窗（TTL 自动关闭）+ 窗口置前，人在 Edge 点一次；
-   **放行 cookie 留在该 profile**，后续同站请求直接通过；
-4. 仍不可得 → 机构 VPN / 图书馆代查，或在《全文清单.md》中如实注明限制。
+- `optional-cdp-fulltext/turnstile_click.py`：截图 → 阈值 180 → 22–50 px 空心方框 →
+  连续两帧确认 → `SendInput` 点击 → 等标题脱离挑战；每次挑战 ≤2 次。
+  可直接跑：`python turnstile_click.py [--keyword 请稍候] [--dry]`。
+- `optional-cdp-fulltext/host_click.py`：窗口/客户区截图/OCR/`SendInput` 基础函数。
+- 取件四策略：`optional-cdp-fulltext/save_pdf_via_browser.py`
+  （Network 捕获 → 落地页 fetch → 重定向 fetch → 渲染兜底）。
+- 资产 CDN 验证：`optional-cdp-fulltext/asset_pdf.py`（`save_with_asset`）——
+  导航 PDF URL → 识别 `cfts`/`Request Verification` → 宿主机点击 → Network 抓 PDF → 渲染兜底。
 
 ---
 
@@ -2887,6 +2941,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | **`merge_roster.py`**        | **合并 + 清洗**（仅在两源并存时用）。把学院官网方向并入 roster 再统一清洗。**必须在一次运行内按「恢复→合并→清洗」完成** —— 分多次串跑会误差累积（曾把名单砍掉近四分之一，数据见 [实测结果汇总.md](实测结果汇总.md#s-8)）。单一数据源场景**不再需要**本步骤                                                                                                                                                                                                                                                                                                                        | `uv run python merge_roster.py --roster … --college … --from-backup`                                                                                                                                        |
 | **`make_delivery_index.py`** | **生成《交付物索引.md》**：汇总产物清单、数据来源、方向获取途径、结构化字段覆盖率、「为什么有人没有方向」的原因分布、检索与 PRISMA 计数、**解读证据层级**。**按链路分模式**（判据 = 是否找到 `*_论文列表.md` 等作者链路产物）：入门链路读 `outputs/01_导师名单/` + `outputs/07_检索*/` + `.work_cdp/reviews/`；**作者链路**读 `*_论文列表.md` / `*_论文解读.md` / `*_研究方向综述.md` / `*_知识图谱.md` / `*_汇报PPT*` / `*_Exports/全文清单.md`，证据层级改读 **`interpret/manifest.json`**。两条链路的产物**同处一个日期根**（入门 `outputs/…`、作者 `<作者名>/…`），索引统一写到 `<日期根>/交付物索引.md`；只跑了一条链路时只出那一条的索引，**两条都没产物则 exit 2**（不再产出一份「全是未产出」的文件） | `uv run python make_delivery_index.py`（自动判别链路）/ `--paper-only` / `--mentor-only` / `--root <路径>` / `--direction <方向>` |
 | **`reviews_prepare.py`**     | **阶段 R①：综述任务包组装**。把阶段 R 的检索结果转成**与 `interpret_prepare` 逐字段同名**的任务包，使 §7.2 的并行 subagent 机制可原样套用。产物写 `.work_cdp/reviews/`，与 `interpret/`、`refs/` **互不干扰**。支持 `--fetch-abstracts` 按 DOI/PMID 从 Europe PMC 补摘要                                                                                                                                                                                                                                                     | `uv run python reviews_prepare.py --from-europepmc .work_cdp/reviews/europepmc.json --fetch-abstracts`                                                                                                        |
+| **`reviews_discover_scopus.py`** | **阶段 R 可选增强（默认不启用）**：调用 `skills/scopus-wos-lit` 从 Scopus / WoS / OpenAlex 发现综述，输出阶段 R 认识的 `{"records":[...]}`；可用 `--merge-into` 合并到既有 `reviews.json`。不改原检索链，失败可停用。详见 [docs/综述获取增强_scopus_wos.md](docs/综述获取增强_scopus_wos.md) | `uv run python reviews_discover_scopus.py --direction "神经科学" --source scopus --limit 8` |
 | **`reviews_build.py`**       | **阶段 R②：领域概貌汇总**。把解读卡机械合并为《领域概貌.md》：术语按**出现篇数**排序、共识标 、**争议原样并列不替用户判定**、阅读顺序按「入门→奠基→方法」排。卡不全时**如实告警**并注明报告基于部分文献                                                                                                                                                                                                                                                                                                                         | `uv run python reviews_build.py --topic "阿尔茨海默病早期诊断"--status` 只看进度                                                                                                                              |
 | **`reviews_fulltext.py`**    | **阶段 R①.5：综述全文获取（skill 先试 / CDP 兜底）**。把阶段 R 任务包接到 §5.1 分层链路上：**补 PMCID**（原检索漏采，是下游停在摘要级的根因）→ **第一层** EPMC `fullTextXML`（白名单授权通道）→ **第二层-A** 缺口转 `download_all_fulltexts.py` → **第二层-B** `--repo` 出版社被 CAPTCHA 时改走 **PMC 仓库副本（仍经 CDP）** → **回填**（按字数**择优**，防付费墙残页盖住真正文）→ **副链路** `--fallback` 三层都没拿到时转 `fulltext_router.py`（CDP 备用，产物由回填第 ④ 通道收取）。**取不到就如实保持 `abstract`，不臆造**。用法见 `docs/阶段R全文获取模块.md` | `uv run python reviews_fulltext.py --all --cdp --repo --fallback --backfill`（分步：`--probe` / `--layer1` / `--layer2` / `--cdp` / `--repo` / `--fallback [--fallback-mode off\|oa\|oa+api] [--fallback-arxiv]` / `--backfill`。**`--fallback` 必须在 `--cdp`/`--repo` 之后、`--backfill` 之前**）                                                |
 | **`fulltext_router.py`**     | **阶段 R①.5 的副链路路由（CDP 备用）**。把 nature-downloader `routeDoiDownload` 的**编排层**搬进来（不外链 nature-skills）：Crossref 元数据 →（中文硬分流）CNKI → 出版商 API → OA 瀑布 → 浏览器交接 → API 兜底需显式授权；真正的取件全部委托给既有 `oa_candidates` / `white_list_policy` / `fulltext_publishers` / `fulltext_credentials` / `fetch_pacing` / `jats_fulltext` / `fulltext_result`。**[STOP] 两个前提**：① CDP 主链路**已失败**（`cdp_failed` 非 `True` 直接拒绝，退出码 3）；② 候选**必须在 `templates/直连白名单.json` 内**（白名单文件不得为此改动）。**不代填、不代登录、不代持凭据** | `uv run python fulltext_router.py --plan 10.xxxx/yyy`（零网络干跑）；`--from-json .work_cdp/reviews/fallback_gap.json --out …/fallback --report …/reviews_fallback.json [--mode off\|oa\|oa+api]`；`--self-test`                                                |
@@ -3007,6 +3062,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | **`refs_build.py`**        | **阶段 H2③**：回收综述解读卡 → 《`<作者名>_研究方向综述.md`》（含网络角色 / 缺卡清单 / 限制申报）；**不联网**                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `uv run python refs_build.py [--self-test]`                                                                                                                                                                                                                                                       |
 | **`ppt_brief.py`**         | **阶段 P**：汇编 PPT 材料 + **确定性生成** `design_spec.md` / `spec_lock.md`（= 简化的 Strategist Phase）+ 调 ppt-master 初始化与校验。项目落**流程输出根**（默认 `PAPER_WORKDIR`），**不落** `vendor/ppt-master/projects/`。另提供**手写 SVG 转义预检**：正文里的裸 `<`（`p < 0.05`）与裸 `&`（`R&D`）会让 XML 无法解析，上游质检器只报 `invalid token`、看不出根因；本预检**定位到行并给修法**，应在 `svg_quality_checker.py` **之前**跑                                                                                                                                                                                                                                                                                                                                                                                                                             | `uv run python ppt_brief.py [--pages=short\|standard\|long] [--outdir=<路径>] [--check-svg=<project>/svg_output] [--dry-run] [--self-test]`                                                                                                                                                                                                              |
 | **`knowledge_graph.py`**   | [**]**阶段 K**：三张图（overview / 词云 / 方向聚类）。overview 用 **igraph 径向整齐树**（作者在圆心 → 阶段扇区 → 方向 → 综述编号；方法词另置外环；记忆连接沿环画弧），标签避让交给 **adjustText**（只移文字、不动节点）；词云**按「文章关键词 > 题名 > 摘要 > 解读卡方法描述」加权取词**（中文用**左右邻接熵**挡跨词碎片、剔除单位/试剂缩写与受控范式标签），**布局用 `wordcloud` 库自绘**（`to_image()` 位图直接嵌进 matplotlib 画布，位置即所见；标题/图注/图例仍矢量，见 v17.11）；纯 ASCII 词按词切**拉丁等宽字体**并收紧字距，最大字号 ≤ 6×最小字号（v17.12）；方向聚类改为 **CiteSpace 式时间线**（行=方向、x=年份）；三张图都做**字号自述**，overview 坐标落盘可审计 | `uv run --with matplotlib --with networkx --with python-igraph --with adjustText --with wordcloud python knowledge_graph.py [--recent-years=3] [--also-png] [--format=svg\|png\|auto] [--wc-engine=library\|custom] [--wc-lang=both\|zh\|en] [--wc-min-docs=3] [--wc-weight-keywords=3] [--self-test]` |
+| **`keywords_three_layer.py`** | **关键词三层校验 + VOSviewer 导出**（v18）。`--check` 校验卡片 `keywords_core/method/reagent/keyword_evidence`（数量上限、core 混入常用方法、core/method 重复、evidence 按 NFKC+去空白对 `fulltext_path` 回溯）；`--export` 把某一层导出成 VOSviewer `map/network/thesaurus/vocab/corpus`；`--fulltext` 在没有卡片关键词时用 MinerU 全文直接建图 | `uv run python keywords_three_layer.py --check` / `--export --out .work_cdp/graph/vos --min-doc 1` / `--fulltext --corpus <md目录>` / `--selftest` |
 | **`pack_release.py`**      | **打包发行版**：把本流程 + 全部依赖（含 `vendor/ppt-master`）输出为一个可独立运行的目录（默认 `<仓库根>/流程1/`），并把文档里的 `流程1/` 路径**同步重写成新目录名**（幂等，重复打包不会变成 `流程11/`）；产出 `PACKAGE_MANIFEST.json`（逐文件 sha256）与 `README-PACKAGE.md`                                                                                                                                                                                                                                                                              | `uv run python pack_release.py [--dest=路径] [--slim] [--force] [--no-vendor] [--dry-run] [--self-test]`                                                                                                                                                                                          |
 | **`selftest_pipeline.py`** | [**]**端到端自检**：在临时工作目录里跑一遍 阶段 0 → D2 → G2 → H → H2 → P，验证**脚本之间的契约**（闸门收敛、字段命名、产物格式、外部校验器）。**为必跑项** —— 它挡下过 4 类静态看不出的缺陷（[版本变动.md](版本变动.md)）                                                                                                                                                                                                                                                                                                                                 | `uv run python selftest_pipeline.py [--offline] [--limit=4] [--keep] [--verbose]`                                                                                                                                                                                                                 |
 
@@ -3040,7 +3096,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 - [ ] [NEW] **第一层直连未越界**：所有 HTTP 直连请求的目标域名都在 `templates/直连白名单.json` 内；未把白名单外的域名当作"开源库"直接取
 - [ ] [NEW] **第一层失败已转 CDP**：`fetch_direct.py` 的缺口清单（`.work_cdp/direct_failed.json`）已交给 `grab_abstracts.py --retry-failed`，未卡在第一层反复重试
 - [ ] [NEW] **摘要来源已标注**：直连取得的摘要写进 `abstracts_openalex.json` 时带 `source` 字段，未冒充 CDP 路径产物
-- [ ] [NEW] **未用 CDP `Input.*` 事件尝试通过人机验证**（鼠标自动化禁令）；遇到人机验证一律**转人工**（`--manual-wait=N` > 0 + 弹窗 + 窗口置前 + cookie 留存，N 必须为正）
+- [ ] [NEW] **人机验证按 §5.2**：如用自动点击，必须是**宿主机级 `SendInput`**、每篇 ≤2 次、失败即停；未用 CDP `Input.*` 过验证；失败已转人工或如实注明（`--manual-wait=N` > 0）
 - [ ] [NEW] 未对验证类站点（ScienceDirect/OUP/SAGE/Wiley/Cell/ACS/RSC/Springer/T&F）做任何**直连**尝试（直连禁令）
 - [ ] [NEW] 自动化点击仅限**非验证类**元素（Cookie 弹窗 / 功能按钮 / 页内导航）
 - [ ] 确认作者身份唯一（同名作者用 ORCID/单位/代表作交叉验证）

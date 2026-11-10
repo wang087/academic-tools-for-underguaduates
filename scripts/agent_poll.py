@@ -359,6 +359,20 @@ def survey(stage: str, expect: int) -> dict:
     shape_bad = sorted([{"file": n, "problems": p} for n, p in shape.items() if p],
                        key=lambda x: x["file"])
 
+    # 关键词三层（v18，SKILL §6.7）：**只警告、不阻断**。
+    #   老卡片没有这些字段是合法的（阶段 H 早期产物），把它们判成坏卡会误伤；
+    #   但一张都没有时要显式提示，避免"以为带了关键词其实没带"。
+    kw_missing = []
+    if stage in ("H", "H2", "R2"):
+        for n in good:
+            try:
+                c = json.loads((rdir / n).read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not any(isinstance(c.get(k), list) and c.get(k)
+                       for k in ("keywords_core", "keywords_method", "keywords_reagent")):
+                kw_missing.append(n)
+
     total = len(tasks)
     n_done = len(tasks) - len(missing)
     in_flight = max(0, len(missing) - max(0, expect))
@@ -402,6 +416,8 @@ def survey(stage: str, expect: int) -> dict:
         "rejected": rejected[:20],
         "shape_bad_count": len(shape_bad),
         "shape_bad": shape_bad[:20],
+        "keywords_missing_count": len(kw_missing),
+        "keywords_missing": kw_missing[:20],
         "progress_pct": round(n_done / total * 100, 1) if total else 0.0,
         "verdict": verdict,
         "suggest_batch_size": suggest_batch,
@@ -469,6 +485,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    [STOP] 字段类型不合规 {r['shape_bad_count']} 张，需重派：")
             for it in r["shape_bad"][:5]:
                 print(f"      · {it['file']} → {'；'.join(it['problems'][:3])}")
+        if r.get("keywords_missing_count"):
+            print(f"    [WARN] 关键词三层缺失 {r['keywords_missing_count']}/"
+                  f"{r['results_good']} 张（不阻断；阶段 K 词云会退化为旧口径）：")
+            print(f"      · 补跑：python scripts/keywords_three_layer.py --check")
         if r["missing_count"]:
             print(f"    → 建议：下一批派 {r['suggest_batch_size']} 个，"
                   f"{r['suggest_interval_s']} 秒后再查")

@@ -12,7 +12,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 > - **不得**用本文件替代主流程，也**不得**绕过主流程的抓取/下载步骤；
 > - 主流程的三条最高优先级红线在本阶段**同样完全适用**（见 § 3）：
 >   **分层获取策略**（原文走 CDP；摘要/综述题录/白名单开源库允许直连）、
->   出版社内容站禁直连、鼠标自动化禁令。
+>   出版社内容站禁直连、鼠标自动化政策（§5.2：验证点击仅限宿主机 `SendInput`）。
 
 > ## 与上一版的差异（改造说明）
 >
@@ -65,7 +65,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 | # | 铁律                                       | 在本阶段的含义                                                                                                                                                                                                                                                                                                                                                |
 | - | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 | **分层获取策略（§5.1）**            | subagent **不得**发起任何网络请求。任务包里**已经**备好：作者论文的本地 PDF 文本、参考文献的摘要，以及**开放获取综述的全文**（阶段 D2 通过 Europe PMC 结构化接口取好的，见 `evidence.source`）。缺什么就用现有层级解读，并**如实标注**证据层级。**禁止** subagent「顺手用 curl/urllib 补一篇」—— 那既越界，也破坏可复现性。 |
-| 2 | **鼠标自动化禁令**                   | 本阶段不涉及浏览器，天然不适用；但**不得**为「看得更清楚」去驱动浏览器截图。                                                                                                                                                                                                                                                                            |
+| 2 | **鼠标自动化政策（§5.2）**           | 本阶段不涉及浏览器，天然不适用；但**不得**为「看得更清楚」去驱动浏览器截图或点击。                                                                                                                                                                                                                                          |
 | 3 | **不臆造**                           | 论文里没写的数字、结论、机制，**一律不得**出现在解读卡里。拿不准就写进 `open_questions` 或留空。                                                                                                                                                                                                                                                      |
 | 4 | **区分「已验证结论」与「作者主张」** | `verified_conclusions` 只收**有数据/实验支撑**的结论；纯推测、展望、未做的设想归入 `open_questions`。                                                                                                                                                                                                                                               |
 | 5 | **保留原文数值**                     | 量化数据必须**原样引用**（含单位、条件、基线），不得换算、不得四舍五入、不得改写措辞。                                                                                                                                                                                                                                                                  |
@@ -262,9 +262,22 @@ uv run python 流程1/scripts/interpret_build.py
   ],
   "direction_tags": ["研究方向标签，2–4 个"],
   "paradigm_tags": ["方法范式标签，1–3 个"],
+  "keywords_core": ["核心关键词 5–8 个（本文研究/发现/提出了什么；不要方法、作者、期刊、泛词）"],
+  "keywords_method": ["方法/软件/数据库，≤8 个（常用方法 M1、特定方法 M2、软件/数据库 M3）"],
+  "keywords_reagent": ["突变体/抗体/细胞系/动物品系/质粒病毒，≤4 个"],
+  "keyword_evidence": [
+    {"term": "与上面某个字段一致的词", "category": "core|method|reagent",
+     "rule": "C1/C2/C3/M1/M2/M3/R1/R2/R3", "evidence": "原文逐字片段（≤100 字符）",
+     "confidence": 3}
+  ],
   "evidence": {"source": "fulltext 或 abstract", "text_chars": 12345}
 }
 ```
+
+> **v18 新增（用户指令）**：在原有 11 个字段之上追加
+> `keywords_core / keywords_method / keywords_reagent / keyword_evidence` 四个字段。
+> 它们与解读**同一次生成**，不另派“关键词子代理”，避免重复读全文与 token 浪费。
+> 统计口径见 §6.7。
 
 ### 6.0 解读档位
 
@@ -414,6 +427,56 @@ subagent** 分别产出 —— 同一概念会写成
 
 ---
 
+### 6.7 关键词三层（core / method / reagent）
+
+> **v18 新增（用户指令）**：关键词不是单独阶段，而是**解读卡的一部分**。
+> 同一次读全文、同一次生成；禁止另派“关键词抽取子代理”。
+
+#### 字段与数量
+
+| 字段 | 数量 | 含义 |
+|---|---|---|
+| `keywords_core` | 5–8 | 本文研究/发现/提出了什么；去掉它主结论不完整 |
+| `keywords_method` | ≤8 | 实验手段、软件、数据库 |
+| `keywords_reagent` | ≤4 | 突变体、抗体、细胞系、动物品系、质粒/病毒 |
+| `keyword_evidence` | 与词数一致 | 每个词的 `term/category/rule/evidence/confidence` |
+
+#### core 判据
+
+- 具体术语，不是句子；不要作者、期刊、机构、年份、单位、泛词（`study`/`cell`/`protein`）。
+- 同一概念只留最长表述；同义/缩写只留一个。
+- **C2 硬条件**：论文明确写 `we developed/established/created` + 该方法是题名/摘要主贡献 + 无同名既有方法；否则只记 C1。
+- 出现 `pHb`/`NAc`/`CSF`/`SCN`/`FLIM` 等缩写时，**展开成全称**再入 core（如 `perihabenular nucleus`、`nucleus accumbens`）。
+
+#### method 判据
+
+- 常用方法（ChIP-seq、ATAC-seq、RNA-seq、western blot、co-IP、shRNA、qPCR、流式）→ `M1`，权重 0.3。
+- 特定/本文建立的方法 → `M2`，权重 0.7；软件/数据库 → `M3`，权重 0.3。
+- **一次性操作不收**：`five-day handling`、麻醉、灌注、切片、染色、housing 等，除非全文反复出现且是本文关键条件。
+
+#### reagent 判据
+
+- 突变体/质粒/病毒 → `R1`；抗体 → `R2`；细胞系/动物品系 → `R3`；权重 0.1。
+- **细胞类型本身不是试剂**（神经元/星形胶质细胞进 core 或不收）；染料/探针可 `R1`，confidence ≤2。
+- 正文没有的不要硬凑；review/软件/队列/公共数据允许为空，并在 `open_questions` 或卡内说明。
+
+#### evidence 与校验
+
+- 每个词必须有 `evidence`：从**该篇全文/摘要**逐字摘录，≤100 字符；找不到就不收。
+- `category` 与所在数组一致；`rule` 取 C1–C3 / M1–M3 / R1–R3。
+- 回收时校验：数量、字段、evidence 子串、core 是否混入常用方法、core/method 是否重复（C2 除外）。
+- **evidence 校验对象是 `fulltext_path` 的全文**，不是任务包里可能只有 2000 字符的 `text` 摘录；
+  归一化规则固定为 **NFKC + 去空白**（连字符/连字/全角由 NFKC 处理），不要用“去连字符”的土办法。
+  全文 sidecar 不存在时才退回 `text`，并在报告里注明。
+
+#### 与词云的关系
+
+- 阶段 K 词云**只吃 `keywords_core`**（权重最高，3）；
+- `keywords_method` 单独做“方法画像”，**不进词云**；
+- `keywords_reagent` 不进球云。
+
+---
+
 ## 7. Subagent 提示词模板
 
 ```
@@ -425,6 +488,13 @@ subagent** 分别产出 —— 同一概念会写成
 请先读该文件，再完成解读。
 
 **解读档位**：以任务包里的 `interpret_tier` 为准（`L1` / `L2` / `L3`）。
+
+**关键词三层（与解读同一次生成，不另派代理）**：按 § 6.7 在同一个 JSON 里写
+  `keywords_core`（5–8）、`keywords_method`（≤8）、`keywords_reagent`（≤4）
+  以及 `keyword_evidence`（每条 term/category/rule/evidence/confidence）。
+  core 不写方法名、作者、期刊、泛词；常用方法只进 method；C2 必须同时满足
+  「we developed/established + 主贡献 + 无同名既有方法」；每条 evidence 必须逐字来自原文。
+
   按 § 6.0 的「字段 × 档位」表决定每个字段写多深：
   L1 不写方法清单、不写误差项与样本量、结论只留最硬的 2–4 条、关键数字只留 2–5 个；
   L2 补齐误差项、样本量、有限实验过程与排除性证据；L3 再补完整论证链与逐条局限。
@@ -492,6 +562,10 @@ subagent** 分别产出 —— 同一概念会写成
   低档会丢掉排除性证据与作者语气限定，而那恰恰是综述最需要的部分。
   [STOP] **三档只差细节量，不差断言强度**：与原文同级，不要把「提示」写成「证实」。
   规范定义见 skill `paper-interpretation-writing`。
+
+**关键词三层（与解读同一次生成，不另派代理）**：按 § 6.7 在同一个 JSON 里写
+  `keywords_core`（5–8）、`keywords_method`（≤8）、`keywords_reagent`（≤4）
+  与 `keyword_evidence`；综述卡的 core 应是本文讨论的主题/机制，不是被引文献的作者或期刊。
 
 [STOP] 硬性约束：
 1. 不要发起任何网络请求 —— 任务包里已有全部可用信息。
@@ -715,6 +789,7 @@ subagent** 分别产出 —— 同一概念会写成
 | **档位漂移（v13）**     | 同一批 subagent 各写各的深度，汇总后卡片深浅不一 | 提示词原样带上 § 6.0 的档位说明；任务包已嵌 `interpret_tier`，subagent 以它为准                                        |
 | **档位越界（v13）**     | L1 卡片里出现误差项、样本量、图表引用或实验步骤  | 回收时按 § 6.0 的「字段 × 档位」表校验；命中即重派。也可用 skill 的校验器：`check_interpretation.py <草稿> --tier L1` |
 | **语气越档升级（v13）** | 为了"表格好看"把 L1 的「提示」写成「证实」       | 三档语气必须同级且与原文同级；逐条回查原文动词                                                                            |
+| **关键词缺失/污染（v18）** | 卡片没有 `keywords_core`；或 core 混入 ChIP-seq/RNA-seq；或 evidence 不是原文 | 回收时按 § 6.7 校验：四个字段存在、core 5–8、method/reagent 上限、core 不含常用方法、evidence 按 NFKC+去空白对 fulltext_path 校验为原文子串；缺失先标 WARN，连续两批缺失则重派 |
 
 ---
 
@@ -757,6 +832,14 @@ subagent** 分别产出 —— 同一概念会写成
 - [ ] [NEW] **标签取自受控词表**（§6.5）；自造标签带 `自定义:` 前缀；
   **未归一的标签已在报告中保留并列出**
 - [ ] [NEW] `.work_cdp/tag_vocabulary.json` 已存在（模板：`流程1/templates/方法范式标签词表.json`）
+
+**v18 新增（关键词三层，H/H2/R2 都适用）**
+
+- [ ] [NEW] 每份 result 含 `keywords_core / keywords_method / keywords_reagent / keyword_evidence` 四个字段
+- [ ] [NEW] core 5–8、method ≤8、reagent ≤4；core 不含 ChIP-seq/RNA-seq/western 等常用方法
+- [ ] [NEW] `keyword_evidence` 每条 term 与数组一致，evidence 归一化后为原文子串
+- [ ] [NEW] core 与 method 不重复（C2 新方法除外）；同义/缩写已归一
+- [ ] [NEW] 阶段 K 词云只读 `keywords_core`，method/reagent 不进词云
 
 **v17 新增（仅阶段 H 的 paper-card 引擎；`interpret_engine=paper-card` 时逐条核）**
 

@@ -1,0 +1,28 @@
+{
+  "_note": [
+    "把本文件复制为 <WORK>/selectors.json 即可覆盖默认选择器，不需要改代码。",
+    "站点改版时用 lq web probe 保存快照，再从快照里找新的 selector。",
+    "每个列表按顺序尝试，命中第一个存在的元素即用。"
+  ],
+  "scopus": {
+    "search_inputs": [
+      "input[data-testid='search-input']",
+      "textarea[data-testid='search-input']",
+      "#searchterm",
+      "input[name='searchterm']",
+      "[contenteditable='true']"
+    ],
+    "search_buttons": [
+      "button[data-testid='search-button']",
+      "button[type='submit']",
+      "button[aria-label*='Search' i]"
+    ],
+    "result_row": "tr",
+    "record_link": "a[href*='/pages/publications/']"
+  },
+  "wos": {
+    "query_input": "#advancedSearchInputArea",
+    "run_button": "[data-ta='run-search']",
+    "record": "app-record"
+  }
+}

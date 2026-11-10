@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0",
+  "note": [
+    "大类学科目录，用于批量整理各领域权威综述。",
+    "field 的 zh/en 用作标题；keywords 进入 OpenAlex 检索锚点与主题相关性筛选；",
+    "overview_zh 是领域导读，供索引与单篇文档开头使用。",
+    "口径参考流程1的学科大类与《研究方法与关键词总表》，并补充用户示例中的神经、免疫、生物信息学、流行病与群体调查。"
+  ],
+  "fields": [
+    {
+      "id": "neuroscience",
+      "zh": "神经科学",
+      "en": "Neuroscience",
+      "keywords": ["neuroscience", "neural circuit", "synaptic plasticity", "neurodegeneration", "glia", "neuroimaging", "cognitive neuroscience", "brain development", "neurotransmitter", "nervous system"],
+      "overview_zh": "神经科学关注神经元与胶质细胞如何构成环路、传递信号并产生行为。综述主线包括环路解剖与操控、突触可塑性、神经退行与神经炎症，以及人脑影像与认知映射。"
+    },
+    {
+      "id": "immunology",
+      "zh": "免疫学",
+      "en": "Immunology",
+      "keywords": ["immunology", "innate immunity", "adaptive immunity", "T cell", "B cell", "cytokine", "inflammation", "immune tolerance", "vaccine", "immunotherapy"],
+      "overview_zh": "免疫学研究宿主如何识别自身与非自身并组织防御。综述常围绕固有免疫识别、T/B 细胞分化与记忆、黏膜免疫、炎症调控，以及肿瘤与自身免疫中的免疫干预。"
+    },
+    {
+      "id": "microbiology",
+      "zh": "微生物学",
+      "en": "Microbiology",
+      "keywords": ["microbiology", "microbiome", "microbiota", "bacterial pathogenesis", "virology", "antimicrobial resistance", "microbial ecology", "host-microbe interaction", "biofilm", "metagenomics"],
+      "overview_zh": "微生物学覆盖细菌、病毒与群落层面的结构、致病与生态。综述重点包括病原体致病机制、抗菌耐药传播、宿主-微生物互作，以及宏基因组与培养组学驱动的群落研究。"
+    },
+    {
+      "id": "bioinformatics",
+      "zh": "生物信息学",
+      "en": "Bioinformatics",
+      "keywords": ["bioinformatics", "computational biology", "genomics", "transcriptomics", "single-cell analysis", "multi-omics", "sequence analysis", "structural bioinformatics", "biological network", "genome-wide association"],
+      "overview_zh": "生物信息学把高通量生物数据转化为可检验的生物学结论。综述主线包括基因组/转录组分析、单细胞与多组学整合、序列与结构预测，以及机器学习在生物数据中的应用与评估。"
+    },
+    {
+      "id": "epidemiology",
+      "zh": "流行病学与群体调查",
+      "en": "Epidemiology and Population Studies",
+      "keywords": ["epidemiology", "cohort study", "population health", "incidence", "prevalence", "risk factor", "causal inference", "surveillance", "disease burden", "public health"],
+      "overview_zh": "流行病学与群体调查关注人群中疾病分布、暴露与结局的关联及因果解释。综述常覆盖队列与病例对照设计、偏倚与混杂控制、疾病负担测算，以及监测与公共卫生干预。"
+    },
+    {
+      "id": "oncology",
+      "zh": "肿瘤学",
+      "en": "Oncology",
+      "keywords": ["oncology", "cancer", "tumor microenvironment", "immunotherapy", "precision oncology", "metastasis", "cancer genomics", "clinical trial", "biomarker", "carcinogenesis"],
+      "overview_zh": "肿瘤学从基因突变、细胞状态与微环境解释肿瘤发生、演进与治疗抵抗。综述主线包括肿瘤免疫与微环境、精准分型与靶向治疗、转移机制，以及早筛与临床试验终点。"
+    },
+    {
+      "id": "cardiovascular",
+      "zh": "心血管医学",
+      "en": "Cardiovascular Medicine",
+      "keywords": ["cardiovascular disease", "atherosclerosis", "heart failure", "hypertension", "myocardial infarction", "cardiac remodeling", "vascular biology", "statin", "cardiology", "stroke"],
+      "overview_zh": "心血管医学关注动脉粥样硬化、心肌重构与心衰等过程的机制与干预。综述常覆盖脂质与炎症通路、血管生物学、心衰分型与器械治疗，以及高血压与卒中的风险管理。"
+    },
+    {
+      "id": "cell_molecular",
+      "zh": "细胞与分子生物学",
+      "en": "Cell and Molecular Biology",
+      "keywords": ["cell biology", "molecular biology", "cell signaling", "apoptosis", "autophagy", "gene expression", "protein interaction", "organelle", "cell cycle", "stem cell"],
+      "overview_zh": "细胞与分子生物学研究细胞结构、信号与命运决定的基本机制。综述主线包括信号转导、细胞死亡与自噬、基因表达调控、蛋白质稳态与细胞器功能。"
+    },
+    {
+      "id": "genetics_development",
+      "zh": "遗传与发育",
+      "en": "Genetics and Development",
+      "keywords": ["genetics", "genomics", "epigenetics", "gene editing", "developmental biology", "embryogenesis", "cell fate", "inheritance", "mutation", "gene regulation"],
+      "overview_zh": "遗传与发育连接基因型、表观状态与个体发育。综述常覆盖基因组变异与疾病、表观遗传调控、胚胎与器官发生、细胞命运决定，以及基因编辑与功能验证。"
+    },
+    {
+      "id": "biochemistry",
+      "zh": "生物化学与代谢",
+      "en": "Biochemistry and Metabolism",
+      "keywords": ["biochemistry", "metabolism", "metabolomics", "enzyme", "lipid metabolism", "metabolic pathway", "proteomics", "metabolic disease", "mitochondria", "biosynthesis"],
+      "overview_zh": "生物化学与代谢研究分子转化、能量流与代谢调控。综述主线包括酶学与催化、脂质与糖代谢、线粒体功能、代谢组学，以及代谢紊乱与疾病的关系。"
+    },
+    {
+      "id": "pharmacology",
+      "zh": "药理学与临床研究",
+      "en": "Pharmacology and Clinical Research",
+      "keywords": ["pharmacology", "drug discovery", "pharmacokinetics", "pharmacodynamics", "clinical trial", "drug safety", "precision medicine", "therapeutics", "adverse drug reaction", "randomized controlled trial"],
+      "overview_zh": "药理学与临床研究关注药物如何作用于靶点、如何在体内处置，以及如何在人群中验证获益与风险。综述常覆盖药物发现与机制、药代/药效、临床试验设计与终点、真实世界证据与安全性。"
+    },
+    {
+      "id": "medical_imaging",
+      "zh": "医学影像与数字病理",
+      "en": "Medical Imaging and Digital Pathology",
+      "keywords": ["medical imaging", "radiology", "MRI", "CT", "PET", "digital pathology", "image segmentation", "deep learning", "diagnostic imaging", "radiomics"],
+      "openalex_filter": "primary_topic.field.id:27",
+      "overview_zh": "医学影像与数字病理把图像信号转化为诊断与预后信息。综述主线包括多模态成像、影像组学、深度学习分割与检测、数字病理，以及影像标志物的临床验证。"
+    },
+    {
+      "id": "ecology_evolution",
+      "zh": "生态与进化",
+      "en": "Ecology and Evolution",
+      "keywords": ["ecology", "community ecology", "ecosystem functioning", "biodiversity", "phylogenetics", "evolutionary biology", "speciation", "conservation biology", "ecological networks", "species interactions"],
+      "overview_zh": "生态与进化研究生物多样性如何形成、维持与响应环境变化。综述常覆盖群落构建、物种形成与选择、系统发育与比较基因组、生态系统功能与保护。"
+    },
+    {
+      "id": "environmental",
+      "zh": "环境科学",
+      "en": "Environmental Science",
+      "keywords": ["environmental science", "climate change", "pollution", "bioremediation", "environmental microbiology", "carbon emission", "water treatment", "environmental health", "sustainability", "ecosystem"],
+      "overview_zh": "环境科学研究污染物、气候与人类活动的环境过程及治理。综述主线包括环境微生物与生物修复、污染物转化与去除、气候变化影响与减排，以及水/土环境管理。"
+    },
+    {
+      "id": "materials",
+      "zh": "材料科学",
+      "en": "Materials Science",
+      "keywords": ["materials science", "nanomaterials", "biomaterials", "energy materials", "polymer", "catalysis", "two-dimensional materials", "mechanical properties", "nanostructure", "materials design"],
+      "overview_zh": "材料科学研究成分-结构-性能关系并据此设计新材料。综述常覆盖纳米与二维材料、能源与生物材料、催化与高分子，以及合成、表征与器件化。"
+    },
+    {
+      "id": "computer_ai",
+      "zh": "计算机与人工智能",
+      "en": "Computer Science and Artificial Intelligence",
+      "keywords": ["deep learning", "computer vision", "natural language processing", "large language model", "reinforcement learning", "graph neural network", "self-supervised learning", "foundation model", "generative model", "robotics"],
+      "openalex_filter": "primary_topic.field.id:17",
+      "overview_zh": "计算机与人工智能研究算法、模型与系统如何从数据中学习并完成任务。综述主线包括深度表示学习、视觉与语言模型、强化学习与智能体，以及评测、可解释性与安全。"
+    }
+  ]
+}

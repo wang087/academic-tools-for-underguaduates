@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # ─────────────────────────────────────────────────────────────
 # 批量下载论文全文（IP 级机构订阅授权 + 多 CDP 实例并行）
 #
@@ -249,6 +249,36 @@ def wait_for_manual(c: CDP, doi: str, max_wait: float, log) -> bool:
     activate_edge_window()
     t0 = time.time()
     last = -1
+    # UC: try the validated host-level click first (real SendInput).
+    if os.environ.get("UC_HOST_CLICK") == "1":
+        import subprocess as _sp
+        try:
+            solver = os.environ.get(
+                "UC_HOST_SOLVER", r"C:\s2\tools\uc_host_solve.py")
+            if os.path.exists(solver):
+                log.info("  尝试宿主机级点击（SendInput）...")
+                _sp.run(
+                    [sys.executable, solver, "--rounds", "2", "--wait", "40",
+                     "--out", os.path.join(
+                         os.environ.get("UC_HOST_OUT", r"C:\s2\artifacts\cf\flow"),
+                         re.sub(r"[^0-9A-Za-z]+", "_", doi)[:60])],
+                    timeout=200, stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL)
+                r0 = detect.judge(c, timeout=15)
+                if r0["state"] == CHALLENGE:
+                    log.info("  第二次宿主机点击 ...")
+                    _sp.run(
+                        [sys.executable, solver, "--rounds", "2", "--wait", "40",
+                         "--out", os.path.join(
+                             os.environ.get("UC_HOST_OUT", r"C:\s2\artifacts\cf\flow"),
+                             re.sub(r"[^0-9A-Za-z]+", "_", doi)[:60] + "_b")],
+                        timeout=200, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                    r0 = detect.judge(c, timeout=15)
+                if r0["state"] in (OK, PAYWALL):
+                    log.ok(f"宿主机点击已通过（{r0['reason']}，文本 {r0.get('textlen')}）")
+                    return True
+        except Exception as e:
+            log.warn(f"  宿主机点击失败: {str(e)[:80]}")
     while time.time() - t0 < max_wait:
         time.sleep(6)
         try:

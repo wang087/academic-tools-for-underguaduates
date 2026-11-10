@@ -102,7 +102,15 @@ _DIALOG_ARGS = [
     "--disable-session-crashed-bubble", "--hide-crash-restore-bubble",
     "--disable-prompt-on-repost",
     "--disable-search-engine-choice-screen",
-    "--disable-features=Translate,TranslateUI",
+    # 账号/同步类首启弹窗（"We are now syncing your browsing data"）——
+    #   Edge 首次用新 profile 启动时，会拿 Windows/Microsoft 账号自动登录并弹同步确认，
+    #   遮挡页面、抢焦点，还会把个人账号写进自动化 profile。
+    #   msEdge* 是 Edge 特有 feature 名；未知 feature 会被 Chromium 静默忽略。
+    "--disable-features=Translate,TranslateUI,msEdgeSyncPromo,"
+    "msEdgeIdentityFeature,msEdgeFirstRunExperience,SigninPromo,"
+    "msEdgeAccountConsistency",
+    # 彻底关掉同步（不弹同步确认，也不上传书签/密码/历史）
+    "--disable-sync",
 ]
 
 LEVELS = [
@@ -132,7 +140,7 @@ LEVELS = [
      "--deny-permission-prompts", "--disable-notifications",
      *_DIALOG_ARGS,
      "--disable-background-networking", "--disable-component-update",
-     "--disable-sync", "--disable-default-apps", "--no-service-autorun",
+     "--disable-default-apps", "--no-service-autorun",
      "--disable-client-side-phishing-detection", "--disable-domain-reliability"],
 ]
 

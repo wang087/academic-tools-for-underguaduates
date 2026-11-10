@@ -29,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"阶段 {args.stage}：{report['verdict']}，"
               f"任务 {report['tasks_total']}，结果 {report['results_good']}，"
               f"缺失 {report['missing_count']}，类型错误 {report['shape_bad_count']}")
+        if report.get("keywords_missing_count"):
+            print(f"[WARN] 关键词三层缺失 {report['keywords_missing_count']}/"
+                  f"{report['results_good']} 张（不阻断；补跑 "
+                  f"`python scripts/keywords_three_layer.py --check`）")
     return int(report["exit_code"])
 
 

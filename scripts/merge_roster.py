@@ -78,9 +78,9 @@ except Exception:
 
 WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
-# 判据集中在这里引用的 harvest_mentors._is_direction —— 不要在本文件另写一套，
+# 判据集中引用 harvest_faculty.is_direction —— 不要在本文件另写一套，
 # 否则两处标准会漂移（曾经漂移导致 9 条残留漏网）。
-import harvest_mentors as HM  # noqa: E402
+import harvest_faculty as HF  # noqa: E402
 
 
 def _norm(n: str) -> str:
@@ -98,7 +98,7 @@ def _valid(ds) -> list[str]:
     out = []
     for d in (ds or []):
         t = re.sub(r"\s+", " ", d).strip()
-        if HM._is_direction(t):
+        if HF.is_direction(t):
             out.append(t)
     return out
 
@@ -150,7 +150,7 @@ def _strip_fund(t: str) -> str:
 def clean(roster: list[dict]) -> int:
     """统一清洗（**只做一遍**）。返回剔除条数。
 
-    步骤：先剥基金括号 → 再用 HM._is_direction 判定。
+    步骤：先剥基金括号 → 再用 HF.is_direction 判定。
     顺序很重要：先剥再判，否则带基金括号的真方向会被整条误杀。
     """
     removed = 0
@@ -160,7 +160,7 @@ def clean(roster: list[dict]) -> int:
         for d in before:
             t = re.sub(r"\s+", " ", d).strip()
             t = _strip_fund(t)              # 先剥括号
-            if t and HM._is_direction(t):   # 再判定
+            if t and HF.is_direction(t):   # 再判定
                 if t not in keep:
                     keep.append(t)
             else:

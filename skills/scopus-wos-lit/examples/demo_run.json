@@ -1,0 +1,64 @@
+{
+  "status": "ok",
+  "engine": "scopus-web",
+  "target_min": 15,
+  "attempts": [
+    {"label": "A_strict", "rationale": "strict: synonyms on, exact phrases, all filters", "query": "TITLE-ABS-KEY(({probiotic} OR {gut microbiota}) AND (depression OR {depressive disorder})) AND PUBYEAR > 2017 AND LANGUAGE(english)", "sha256": "demo-a", "count": 312, "cached": false, "lint_ok": true},
+    {"label": "B_truncation", "rationale": "add truncation and broader terms", "query": "TITLE-ABS-KEY((probiotic* OR microbiome) AND depress*) AND PUBYEAR > 2014 AND LANGUAGE(english)", "sha256": "demo-b", "count": 901, "cached": false, "lint_ok": true}
+  ],
+  "chosen": {"label": "A_strict", "query": "TITLE-ABS-KEY(({probiotic} OR {gut microbiota}) AND (depression OR {depressive disorder})) AND PUBYEAR > 2017 AND LANGUAGE(english)", "sha256": "demo-a", "count": 312},
+  "records": [
+    {
+      "id": "doi:10.0000/example.2021",
+      "doi": "10.0000/example.2021",
+      "title": "示例综述一：人体微生物组与宿主健康的机制框架",
+      "abstract": "This fictional example abstract illustrates the report format. It summarises how microbial communities colonise host surfaces and how their metabolites signal to immune cells.",
+      "authors": [{"name": "Jane Doe", "is_first": true, "is_corresponding": false}, {"name": "John Smith", "is_first": false, "is_corresponding": true}],
+      "first_author": "Jane Doe",
+      "corresponding_authors": ["John Smith"],
+      "corresponding_inferred": false,
+      "journal": "Nature Reviews Microbiology",
+      "year": 2021,
+      "cited_by": 512,
+      "document_type": "review",
+      "url": "https://doi.org/10.0000/example.2021",
+      "source_db": "scopus-web"
+    },
+    {
+      "id": "doi:10.0000/example.2022",
+      "doi": "10.0000/example.2022",
+      "title": "示例综述二：微生物代谢产物与免疫调节",
+      "abstract": "This second fictional abstract exists only to demonstrate the layout. It describes short-chain fatty acids and bile acid derivatives as candidate mediators.",
+      "authors": [{"name": "Alex Lee", "is_first": true, "is_corresponding": true}],
+      "first_author": "Alex Lee",
+      "corresponding_authors": ["Alex Lee"],
+      "corresponding_inferred": false,
+      "journal": "Cell Host & Microbe",
+      "year": 2022,
+      "cited_by": 240,
+      "document_type": "review",
+      "url": "https://doi.org/10.0000/example.2022",
+      "source_db": "scopus-web"
+    },
+    {
+      "id": "doi:10.0000/example.2023",
+      "doi": "10.0000/example.2023",
+      "title": "示例研究论文：某干预对某人群结局的影响",
+      "abstract": "A fictional primary study abstract used to show how an article (not a review) is rendered in the list.",
+      "authors": [{"name": "Chris Wu", "is_first": true, "is_corresponding": false}, {"name": "Dana Kim", "is_first": false, "is_corresponding": false}, {"name": "Eve Chen", "is_first": false, "is_corresponding": true}],
+      "first_author": "Chris Wu",
+      "corresponding_authors": ["Eve Chen"],
+      "corresponding_inferred": false,
+      "journal": "Example Journal of Clinical Research",
+      "year": 2023,
+      "cited_by": 37,
+      "document_type": "article",
+      "url": "https://doi.org/10.0000/example.2023",
+      "source_db": "scopus-web",
+      "doi_source": "scopus-record-page"
+    }
+  ],
+  "records_meta": {"source_total": 312, "returned": 3, "records_available": true},
+  "stats": {"records": 3, "with_abstract": 3, "with_doi": 3, "reviews": 2, "year_min": 2021, "year_max": 2023},
+  "notes": ["示例数据（虚构），仅用于展示版式"]
+}

@@ -701,6 +701,50 @@ def main() -> int:
         L.append(f"| {i} | {w} | {n} |")
     L.append("")
 
+    # ── ③b 关键词三层（SKILL §6.7，v18）──────────────────────
+    #   卡片自带 keywords_core/method/reagent 时，按层统计；老卡片没有则如实说明，
+    #   不假装统计过。这一节是阶段 K 词云的入口：词云只吃 core。
+    core_c, method_c, reagent_c = Counter(), Counter(), Counter()
+    n_has = 0
+    for t in tasks:
+        c = t["card"]
+        if not any(isinstance(c.get(k), list) and c.get(k)
+                   for k in ("keywords_core", "keywords_method", "keywords_reagent")):
+            continue
+        n_has += 1
+        for k, cnt in (("keywords_core", core_c), ("keywords_method", method_c),
+                       ("keywords_reagent", reagent_c)):
+            for x in as_list(c.get(k)):
+                x = str(x).strip()
+                if x:
+                    cnt[x] += 1
+
+    L.append("### 3.3 关键词三层（core / method / reagent）\n")
+    if not n_has:
+        L.append(f"> [WARN] {len(tasks)} 篇**均未带**关键词三层字段"
+                 "（`keywords_core/method/reagent`）。\n")
+        L.append("> 这是阶段 H 早期卡片的正常状态，不影响本报告；"
+                 "但阶段 K 的 VOSviewer 图只能退回“全文建图”路线：\n")
+        L.append("> `python scripts/keywords_three_layer.py --fulltext --corpus <md目录> "
+                 "--out .work_cdp/graph/vos`\n")
+    else:
+        L.append(f"> 覆盖 **{n_has}/{len(tasks)}** 篇；词云只吃 `core`，"
+                 "`method` 单独做方法画像，`reagent` 不进球云。\n")
+        for name, cnt in (("核心 core", core_c), ("方法 method", method_c),
+                          ("试剂 reagent", reagent_c)):
+            L.append(f"**{name}**（Top 20，共 {len(cnt)} 个词型）\n")
+            if not cnt:
+                L.append("（空）\n")
+                continue
+            L.append("| # | 词 | 出现篇数 |")
+            L.append("|---|---|---|")
+            for i, (w, n) in enumerate(cnt.most_common(20), 1):
+                L.append(f"| {i} | {w} | {n} |")
+            L.append("")
+        L.append("导出 VOSviewer（map/network/thesaurus/vocab）：\n")
+        L.append("`python scripts/keywords_three_layer.py --export "
+                 "--out .work_cdp/graph/vos --min-doc 1`\n")
+
     # ── ④ 主要研究方向 ──────────────────────────────────────
     L.append("---\n\n## 四、主要研究方向归纳\n")
     if dirs:

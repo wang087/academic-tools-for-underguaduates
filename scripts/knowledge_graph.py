@@ -748,15 +748,22 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
             dir_methods[tags[0]].update(set(tokenize(str(m))))
 
     # 阶段节点 + 方向节点 + 边
+    #   [FIX v18] 旧版在 (阶段,方向) 双层循环里 append author→阶段，
+    #   同一阶段被重复写 N 次（实测 25 条边只有 3 对端点：阶段1×7/阶段2×9/阶段3×9）。
+    #   后果：Louvain 权重被重复累加、绘图叠画 7–9 遍、布局多边。
+    #   现在先累计每阶段的「篇次」，循环结束后**每个阶段只写一条边**。
+    period_weight: dict[str, int] = {}
     for (per, d), dois in sorted(dir_papers.items()):
         pid = f"period::{per}"
         add_node(pid, "period", per)
-        edges.append({"source": "author", "target": pid, "kind": "阶段",
-                      "weight": len(dois), "label": f"{len(dois)} 篇"})
+        period_weight[per] = period_weight.get(per, 0) + len(dois)
         did = f"dir::{per}::{d}"
         add_node(did, "direction", d, period=per, n_papers=len(dois))
         edges.append({"source": pid, "target": did, "kind": "方向",
                       "weight": len(dois), "label": f"{len(dois)} 篇"})
+    for per, w in sorted(period_weight.items()):
+        edges.append({"source": "author", "target": f"period::{per}", "kind": "阶段",
+                      "weight": w, "label": f"{w} 篇次"})
 
     # ── 方向下挂「关系最紧密的综述」────────────────────────────
     #   来源：refs/final_list.json（阶段 H2① 的最终 review 列表），
@@ -1439,6 +1446,10 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
                 color="#C9D6E4", lw=0.9, zorder=1)
 
     # ── 树边 ─────────────────────────────────────────────────
+    #   [FIX v18] 线宽不再只按类型写死：类型给基准，权重给倍数。
+    #   旧版阶段边一律 1.5、方向边一律 0.9，读者看不出「3 篇」与「29 篇」的差别。
+    _wmax = max([float(e.get("weight") or 1) for e in edges] or [1.0])
+    _lw_base = {"阶段": 1.5, "方向": 0.9, "综述": 0.5}
     for e in edges:
         k = e.get("kind")
         if k not in ("阶段", "方向", "综述"):
@@ -1446,10 +1457,31 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
         s, t = e["source"], e["target"]
         if s not in pos or t not in pos:
             continue
-        w = 1.5 if k == "阶段" else (0.9 if k == "方向" else 0.5)
+        w = float(e.get("weight") or 1)
+        # 0.7×–1.6× 基准，按 log 压缩，避免一条巨边压过全图
+        mult = 0.7 + 0.9 * (math.log1p(w) / math.log1p(_wmax))
+        lw = _lw_base[k] * mult
         col = "#8FA8C4" if k != "综述" else "#E8B69E"
         ax.plot([pos[s][0], pos[t][0]], [pos[s][1], pos[t][1]],
-                ls="-", lw=w, color=col, alpha=0.75, zorder=2)
+                ls="-", lw=lw, color=col, alpha=0.75, zorder=2)
+
+    # ── 方向→方法边（[FIX v18] 旧版建了 40 条却一条都不画）────────
+    #   方法环上的每个点都挂着若干「方向—方法」边（weight=篇数）。
+    #   不画它们，读者看到的是一圈与树毫无关系的标签；画出来才读得出
+    #   「哪个方向用什么方法」。只画**环上方法**（其余方法节点本就没上图）。
+    ring_ids = {r["id"] for r in lmeta.get("ring", [])}
+    n_method_edges = 0
+    for e in edges:
+        if e.get("kind") != "方法":
+            continue
+        s, t = e["source"], e["target"]
+        if s not in pos or t not in ring_ids or t not in pos:
+            continue
+        w = float(e.get("weight") or 1)
+        mult = 0.7 + 0.9 * (math.log1p(w) / math.log1p(_wmax))
+        ax.plot([pos[s][0], pos[t][0]], [pos[s][1], pos[t][1]],
+                ls="-", lw=0.35 * mult, color="#B9C6D4", alpha=0.45, zorder=1)
+        n_method_edges += 1
 
     # ── 节点 ─────────────────────────────────────────────────
     #   关键改动：**节点是「小圆点」，标签是可移动的文字**。
@@ -1500,7 +1532,10 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
             color = cfg["fc"]
             if comm and nid in comm:
                 color = COMM_PALETTE[comm[nid] % len(COMM_PALETTE)]
-            ax.scatter([x], [y], s=cfg["dot"], c=[color],
+            # [FIX v18] 点大小随「该方向篇数」变化（旧版固定 34，多少篇都一个样）
+            n_p = float(nd.get("n_papers") or 0)
+            _s = cfg["dot"] * (0.7 + 0.9 * min(1.0, math.sqrt(n_p) / 6.0))
+            ax.scatter([x], [y], s=_s, c=[color],
                        edgecolors="white", linewidths=0.6, zorder=5)
             off = 0.055 if (n_dir_seen % 2 == 0) else 0.155
             n_dir_seen += 1
@@ -1663,6 +1698,8 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
                       "n_reviews": len(rev_order), "n_review_entries": len(entries),
                       "n_memory_links": len(memory_links or []),
                       "n_memory_arcs_drawn": n_drawn_arcs,
+        "n_method_edges_drawn": n_method_edges,
+        "n_method_edges_total": sum(1 for e in edges if e.get("kind") == "方法"),
                       "label_avoidance": label_note,
                       "layout": lmeta})
     made = save_fig(fig, outdir, stem, fmt, dpi, also_png, tight=False)
@@ -1679,8 +1716,13 @@ def draw_overview(plt, nodes, edges, comm, outdir, stem, fmt, dpi, also_png=Fals
         print(f"[INFO] overview：径向整齐树（igraph layout_reingold_tilford_circular）"
               f"｜树节点 {lmeta['n_tree_nodes']}｜方法外环 "
               f"{lmeta['n_method_nodes_ring']}/{lmeta['n_method_nodes_total']}"
+              f"｜方向→方法边 {n_method_edges}/"
+              f"{sum(1 for e in edges if e.get('kind') == '方法')}"
               f"｜综述编号 {len(rev_order)} 条｜弧线 {n_drawn_arcs}/"
               f"{len(memory_links or [])} 条｜{label_note}")
+        if lmeta['n_method_nodes_total'] > lmeta['n_method_nodes_ring']:
+            print(f"       （未上环的 {lmeta['n_method_nodes_total'] - lmeta['n_method_nodes_ring']}"
+                  f" 个方法节点：环容量上限所限，完整清单见 graph_data.json）")
     return made
 
 
@@ -3695,6 +3737,19 @@ def main() -> int:
             n_contradictions=len(contradictions), files=[f.name for f in made],
             fmt=fmt, dpi=dpi)
     log.info(f"[OK] 阶段 K 完成 → {GRAFDIR}")
+
+    # [FIX v18] 字号门限原先只 WARN、照旧产出：论文排版时 3 pt 的字没人能读。
+    #   `--strict-fonts` 把「低于下限」变成**硬失败**（退出码 4），
+    #   并指名哪张图的哪个条目、低到多少。默认关，保持旧行为。
+    if "--strict-fonts" in sys.argv:
+        bad = {k: v["below_floor"] for k, v in FIG_NOTES.items() if v.get("below_floor")}
+        if bad:
+            print("[X] --strict-fonts：以下图在目标尺寸下低于字号下限：", file=sys.stderr)
+            for k, v in bad.items():
+                print(f"  · {k}：" + "；".join(v), file=sys.stderr)
+            print("  修法：缩小画布、减少右侧清单条目，或改用单栏/双栏专用版式。",
+                  file=sys.stderr)
+            return 4
     return 0 if made else 1
 
 

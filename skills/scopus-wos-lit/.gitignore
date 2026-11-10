@@ -1,0 +1,25 @@
+# Local run artifacts
+.work_lq/
+work/
+snapshots/
+fulltext/
+outputs/
+*.log
+*.jsonl
+
+# Browser profile (contains login cookies)
+browser_profile*/
+.edge-cdp*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Downloaded documents
+*.pdf
+!docs/**/*.pdf
+
+# OS
+Thumbs.db
+.DS_Store
