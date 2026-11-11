@@ -2,6 +2,12 @@
 # ─────────────────────────────────────────────────────────────
 # 批量下载论文全文（IP 级机构订阅授权 + 多 CDP 实例并行）
 #
+# 当前流程（2026-11-11）：
+#   自动阶段最多 3 轮宿主机点击、**不弹人工窗**；全部篇目结束后记录
+#   总数并弹 Yes/No，确认后才对未获取篇目进入人工验证阶段。
+#   并发验证由 VERIFY_LOCK 串行；点击前校验目标标签页可见/聚焦且
+#   URL 仍含 DOI；open/close tab 与验证互斥；后台标签 tiny 时先置前。
+#
 # 本次修复（针对旧版实测暴露的问题）：
 #
 #   [死机] batch2.log 显示：第 1 篇弹窗等待 15 分钟超时后，后续 7 篇全部
@@ -43,6 +49,7 @@ import re
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 
 def _fix_streams() -> None:
@@ -257,54 +264,175 @@ def activate_edge_window(port: int | None = None) -> None:
         pass
 
 
-def wait_for_manual(c: CDP, doi: str, max_wait: float, log) -> bool:
-    """检测到**真实**挑战页时，弹窗请人过一次验证，通过则返回 True。
+_HOST_CLICKS: dict[str, int] = {}
+# 验证阶段的全局锁：多浏览器/多标签并行时，任何会改变前台标签页的动作
+# （bring_to_front、新开/关闭标签）都必须与“定位-截图-点击-判读”互斥，
+# 否则 solver 截图后可能被另一个线程切走标签，点到别的页面。
+VERIFY_LOCK = threading.RLock()
 
-    不会卡死的三重保证：
-      1) 循环总时长硬上限 = max_wait；
-      2) 每次探针调用带超时（detect.judge timeout=15），CDP 失联只记一次警告；
-      3) 弹窗自身带 TTL 自动关闭（notify_user timeout_s），不会残留。
+
+def ask_yes_no(title: str, message: str, timeout_s: float = 600.0) -> bool:
+    """阻塞式 Yes/No 弹窗；超时/无交互桌面返回 False。
+
+    与 notify_user 的区别：本函数等待用户选择，用于“自动阶段结束后是否
+    继续人工验证剩余篇目”。用 WScript.Shell.Popup 的返回值 6=Yes / 7=No。
     """
-    notify_user("需要人工验证（CAPTCHA）",
-                f"检测到人机验证，自动化已暂停。\n\n论文 DOI: {doi}\n\n"
-                f"请在目标浏览器窗口中完成人工验证（勾选 / 拼图）。\n"
-                f"完成后无需操作，流程会自动继续。\n（最长等待 {max_wait/60:.0f} 分钟）",
-                timeout_s=max_wait + 30)
-    log.warn(f"检测到人机验证，请人工处理（最长 {max_wait/60:.0f} 分钟）")
-    c.bring_to_front()
-    activate_edge_window(c.port)
+    import ctypes as _ct
+    if not _ct.windll.user32.GetForegroundWindow():
+        # 无交互桌面时弹窗没人能点，避免白等 10 分钟。
+        return False
+    msg = message.replace("'", "''")
+    ps = ("$w = New-Object -ComObject WScript.Shell;"
+          f"$r = $w.Popup('{msg}',{max(30, int(timeout_s))},"
+          f"'{title.replace(chr(39), chr(39)*2)}',4+32+4096);"
+          "Write-Output $r")
+    try:
+        import subprocess
+        p = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=timeout_s + 30)
+        lines = [x.strip() for x in (p.stdout or "").splitlines() if x.strip()]
+        return bool(lines and lines[-1] == "6")
+    except Exception:
+        try:
+            return input(f"{title}\n{message}\n继续？[y/N] ").strip().lower() in ("y", "yes", "是")
+        except Exception:
+            return False
+
+
+def _ensure_active_tab(c: CDP, landing: str, log) -> bool:
+    """把**本会话的标签页**置前，并核对它确实是当前可见/聚焦的页面。
+
+    这是多标签并发的关键：solver 只能看到“某个挑战窗口”，无法知道它属于
+    哪个标签。先在锁内 bringToFront，再用 visibilityState/hasFocus/URL
+    确认，才允许截图点击。
+    """
+    with VERIFY_LOCK:
+        try:
+            c.bring_to_front()
+            activate_edge_window(getattr(c, "port", None))
+            time.sleep(0.35)
+            raw = c.eval(
+                "JSON.stringify({v:document.visibilityState,"
+                "f:document.hasFocus(),u:location.href})", timeout=8)
+            info = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            if info.get("v") != "visible" or not info.get("f"):
+                log.warn(f"  目标标签页不在前台（visibility={info.get('v')}, "
+                         f"focus={info.get('f')}），本轮不点击")
+                return False
+            want = (urlsplit(landing).hostname or "").lower()
+            got = (urlsplit(str(info.get("u") or "")).hostname or "").lower()
+            cur = str(info.get("u") or "")
+            # doi.org 会跳到出版社域名；只要当前 URL 里仍带同一 DOI，
+            #   就仍是目标文章（不能只看 host，否则 ACS 等跳转会被误判）。
+            doi_path = urlsplit(landing).path.lstrip("/").lower()
+            same_doi = bool(doi_path and doi_path in cur.lower())
+            if want and got and want != got and not same_doi:
+                log.warn(f"  前台标签页不是目标文章（{got} != {want}，"
+                         f"URL 不含 {doi_path}），本轮不点击")
+                return False
+            return True
+        except Exception as e:
+            log.warn(f"  校验前台标签页失败: {type(e).__name__}: {str(e)[:80]}")
+            return False
+
+
+def wait_for_solver(c: CDP, doi: str, landing: str, log,
+                    attempts: int = 3) -> bool:
+    """自动验证：最多 attempts 轮；每轮都重新确认目标标签页在前台。"""
+    with VERIFY_LOCK:
+        for i in range(1, attempts + 1):
+            # 点击前再判一次：上一轮可能已经放行，但页面还在加载；
+            #   若不复查就在文章页上继续点，会点到正文里的链接。
+            pre = detect.judge(c, timeout=15)
+            if pre["state"] in (OK, PAYWALL):
+                return True
+            if pre["state"] != CHALLENGE:
+                return False
+            if not _ensure_active_tab(c, landing, log):
+                time.sleep(1.0)
+                continue
+            log.info(f"  自动验证第 {i}/{attempts} 轮 …")
+            _run_host_solver(c, doi, log, f"auto{i}")
+            time.sleep(1.0)
+            r = detect.judge(c, timeout=20)
+            if r["state"] in (OK, PAYWALL):
+                log.ok(f"  自动验证通过（第 {i} 轮，文本 {r.get('textlen')}）")
+                return True
+            if r["state"] != CHALLENGE:
+                return False
+        log.warn(f"  自动验证 {attempts} 轮仍未通过，转为待人工")
+        return False
+
+
+def _browser_pid(port: int) -> int:
+    try:
+        reg = json.loads((CDPDIR / "cdp_instances.json").read_text(encoding="utf-8"))
+        return int((reg.get(str(port)) or {}).get("pid") or 0)
+    except Exception:
+        return 0
+
+
+def _run_host_solver(c: CDP, doi: str, log, tag: str = "host") -> bool:
+    """调用宿主机级点击；自动阶段最多 3 轮，每轮一次点击。"""
+    if os.environ.get("UC_HOST_CLICK") != "1":
+        return False
+    key = str(doi)
+    if _HOST_CLICKS.get(key, 0) >= 3:
+        log.warn("  宿主机点击已达每篇 3 轮上限，停止自动点击")
+        return False
+    solver = os.environ.get(
+        "UC_HOST_SOLVER", str(pathlib.Path(__file__).with_name("cf_host_solver.py")))
+    if not os.path.exists(solver):
+        log.warn(f"  host solver 不存在：{solver}")
+        return False
+    import ctypes as _ct
+    if not _ct.windll.user32.GetForegroundWindow():
+        log.warn("  GetForegroundWindow=0（当前无前台窗口）；仍尝试宿主机点击，"
+                 "失败会在 solver.log 中给出原因")
+    import subprocess as _sp
+    out = pathlib.Path(os.environ.get("UC_HOST_OUT", r"C:\s2\artifacts\cf\flow")) / (
+        re.sub(r"[^0-9A-Za-z]+", "_", doi)[:60] + ("" if tag == "host" else f"_{tag}"))
+    out.mkdir(parents=True, exist_ok=True)
+    pid = _browser_pid(getattr(c, "port", 0))
+    cmd = [sys.executable, solver, "--rounds", "1", "--wait", "40", "--out", str(out)]
+    if pid:
+        cmd += ["--pid", str(pid)]
+    log.info(f"  宿主机点击 solver → {out}（窗口 pid={pid or '未锁定'}）")
+    _HOST_CLICKS[key] = _HOST_CLICKS.get(key, 0) + 1
+    try:
+        p = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=200)
+        (out / "solver.log").write_text(
+            f"cmd={cmd}\nrc={p.returncode}\n--- stdout ---\n{p.stdout or ''}\n"
+            f"--- stderr ---\n{p.stderr or ''}", encoding="utf-8")
+        tail = " | ".join((p.stdout or "").strip().splitlines()[-2:])
+        log.info(f"  solver exit={p.returncode}" + (f"：{tail[:200]}" if tail else ""))
+    except Exception as e:
+        log.warn(f"  solver 调用失败: {str(e)[:120]}")
+    return True
+
+
+def wait_for_manual(c: CDP, doi: str, max_wait: float, log,
+                    notify: bool = False) -> bool:
+    """人工阶段：把标签页置前并等待用户完成验证。
+
+    自动阶段**不调用**本函数，因此不会出现“自动化已暂停”的弹窗。
+    只有主流程在自动阶段结束后、用户明确选择继续时，才以 notify=True 调用。
+    """
+    if max_wait <= 0:
+        return False
+    if notify:
+        notify_user("请完成人工验证",
+                    f"论文 DOI: {doi}\n\n请在浏览器窗口中完成验证（勾选 / 拼图）。\n"
+                    f"完成后无需操作，流程会自动继续。\n（最长等待 {max_wait/60:.0f} 分钟）",
+                    timeout_s=max_wait + 30)
+        log.warn(f"请人工完成验证（最长 {max_wait/60:.0f} 分钟）")
+    with VERIFY_LOCK:
+        c.bring_to_front()
+        activate_edge_window(c.port)
     t0 = time.time()
     last = -1
-    # UC: try the validated host-level click first (real SendInput).
-    if os.environ.get("UC_HOST_CLICK") == "1":
-        import subprocess as _sp
-        try:
-            solver = os.environ.get(
-                "UC_HOST_SOLVER", r"C:\s2\tools\uc_host_solve.py")
-            if os.path.exists(solver):
-                log.info("  尝试宿主机级点击（SendInput）...")
-                _sp.run(
-                    [sys.executable, solver, "--rounds", "2", "--wait", "40",
-                     "--out", os.path.join(
-                         os.environ.get("UC_HOST_OUT", r"C:\s2\artifacts\cf\flow"),
-                         re.sub(r"[^0-9A-Za-z]+", "_", doi)[:60])],
-                    timeout=200, stdout=_sp.DEVNULL,
-                    stderr=_sp.DEVNULL)
-                r0 = detect.judge(c, timeout=15)
-                if r0["state"] == CHALLENGE:
-                    log.info("  第二次宿主机点击 ...")
-                    _sp.run(
-                        [sys.executable, solver, "--rounds", "2", "--wait", "40",
-                         "--out", os.path.join(
-                             os.environ.get("UC_HOST_OUT", r"C:\s2\artifacts\cf\flow"),
-                             re.sub(r"[^0-9A-Za-z]+", "_", doi)[:60] + "_b")],
-                        timeout=200, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-                    r0 = detect.judge(c, timeout=15)
-                if r0["state"] in (OK, PAYWALL):
-                    log.ok(f"宿主机点击已通过（{r0['reason']}，文本 {r0.get('textlen')}）")
-                    return True
-        except Exception as e:
-            log.warn(f"  宿主机点击失败: {str(e)[:80]}")
     while time.time() - t0 < max_wait:
         time.sleep(6)
         try:
@@ -328,9 +456,9 @@ def wait_for_manual(c: CDP, doi: str, max_wait: float, log) -> bool:
             return True
         if r.get("textlen", 0) != last:
             last = r.get("textlen", 0)
-            log.info(f"  等待中 [{time.time()-t0:.0f}s] 文本 {last}；"
-                     f"若弹窗已关闭，请点击 Edge 窗口完成验证")
-            c.bring_to_front()
+            log.info(f"  等待中 [{time.time()-t0:.0f}s] 文本 {last}")
+            with VERIFY_LOCK:
+                c.bring_to_front()
     log.warn("等待人工验证超时，跳过该篇")
     return False
 
@@ -338,7 +466,8 @@ def wait_for_manual(c: CDP, doi: str, max_wait: float, log) -> bool:
 # ══════════════════════════════════════════════════════════════
 # 单篇处理
 # ══════════════════════════════════════════════════════════════
-def settle_challenge(c: CDP, log, grace: float = 25.0, poll: float = 3.0) -> dict:
+def settle_challenge(c: CDP, log, grace: float = 25.0, poll: float = 3.0,
+                     doi: str = "") -> dict:
     """挑战页**宽限期**：Cloudflare 的 JS 挑战多数会在几秒内自动放行。
 
     实测（2026-09-11）：academic.oup.com 首次导航返回标题「请稍候…」
@@ -350,17 +479,27 @@ def settle_challenge(c: CDP, log, grace: float = 25.0, poll: float = 3.0) -> dic
     """
     t0 = time.time()
     r = detect.judge(c, timeout=20)
+    host_tried = False
     while r["state"] == CHALLENGE and time.time() - t0 < grace:
         time.sleep(poll)
         r = detect.judge(c, timeout=20)
         log.info(f"    挑战宽限 {time.time()-t0:.0f}/{grace:.0f}s → {r['state']} "
                  f"(文本 {r.get('textlen')})")
+        # UC_HOST_CLICK=1 时在宽限期内提前试一次宿主机点击：
+        #   人工在宽限期里先点掉时，旧流程永远不会调用 solver，日志还会误写成
+        #   「自动通过」。提前试可让脚本自己的点击有可核对的 solver.log。
+        if (not host_tried and doi and r["state"] == CHALLENGE
+                and os.environ.get("UC_HOST_CLICK") == "1"
+                and os.environ.get("UC_HOST_CLICK_EARLY") == "1"
+                and time.time() - t0 >= min(12.0, max(4.0, grace * 0.4))):
+            _run_host_solver(c, doi, log, "grace")
+            host_tried = True
     return r
 
 
 def load_landing(c: CDP, landing: str, doi: str, log, max_wait: float,
                  retries: int = 2, grace: float = 25.0, site: str = "",
-                 fulltext_cap: int = 0) -> dict:
+                 fulltext_cap: int = 0, phase: str = "auto") -> dict:
     """导航落地页 → 精确判定状态 → 必要时重试/等人。返回判定结果 dict。
 
     fulltext_cap > 0 时，判定结果里会附带 `fulltext` —— 页面正文前 N 字符。
@@ -388,15 +527,24 @@ def load_landing(c: CDP, landing: str, doi: str, log, max_wait: float,
 
         r = detect.judge(c, timeout=25, fulltext_cap=fulltext_cap)
         st = r["state"]
+        # 多标签并发时，后台标签会被 Chrome 节流：页面长时间 tiny/not-ready，
+        #   既不像 challenge 也不像正文。此时把该标签置前，给它一次渲染机会。
+        if st == NOT_READY and (r.get("textlen") or 0) < 200:
+            with VERIFY_LOCK:
+                if _ensure_active_tab(c, landing, log):
+                    time.sleep(1.0)
+                    r = detect.judge(c, timeout=25, fulltext_cap=fulltext_cap)
+                    st = r["state"]
+                    log.info(f"  后台标签置前重判 → {st}（文本 {r.get('textlen')}）")
         log.info(f"  状态={st} ({r['reason']}) 文本={r.get('textlen')} "
                  f"订阅={r.get('subscribed')} 付费墙={r.get('paywalled')}")
 
         # 挑战页先给宽限期，多数 Cloudflare JS 挑战会自动放行
         if st == CHALLENGE:
-            r = settle_challenge(c, log, grace=grace)
+            r = settle_challenge(c, log, grace=grace, doi=doi)
             st = r["state"]
             if st != CHALLENGE:
-                log.info(f"  挑战已自动通过 → {st}（文本 {r.get('textlen')}）")
+                log.info(f"  挑战已解除（自动或人工，CDP 无法区分来源） → {st}（文本 {r.get('textlen')}）")
 
         if st == BLOCKED:
             raise SiteBlocked(
@@ -406,13 +554,15 @@ def load_landing(c: CDP, landing: str, doi: str, log, max_wait: float,
         if st in (OK, PAYWALL):
             return r
         if st == CHALLENGE:
-            # 仅统计宽限后仍需人工介入的真实 CAPTCHA，避免把瞬态 JS challenge 算入。
+            # 自动阶段：最多 3 轮宿主机点击，**不弹窗、不等待人工**；
+            # 人工阶段：仅在用户确认后才进入阻塞等待。
+            if phase == "auto" and wait_for_solver(c, doi, landing, log, attempts=3):
+                return detect.judge(c, timeout=25, fulltext_cap=fulltext_cap)
+            if phase == "manual" and wait_for_manual(c, doi, max_wait, log, notify=True):
+                return detect.judge(c, timeout=25, fulltext_cap=fulltext_cap)
+            # 仅统计**最终未解除**的挑战，避免自动点掉的页面触发站点熔断。
             if site:
                 GUARD.captcha_hit(site, r.get("reason", "challenge"), doi=doi)
-            if max_wait > 0 and wait_for_manual(c, doi, max_wait, log):
-                # 人工通过后要重新判定，并把 fulltext_cap 一并带上 ——
-                #   漏传会让这一篇丢失正文（正文只有这一次顺带取的机会）
-                return detect.judge(c, timeout=25, fulltext_cap=fulltext_cap)
             return r
         if st == NOT_READY and attempt < retries:
             log.info(f"  页面未就绪，{4*(attempt+1)}s 后重试 …")
@@ -565,11 +715,16 @@ def process_one(port: int, doi: str, meta: dict, opts: dict, log) -> dict:
     # v8：多标签页模式下每篇独占一个标签页（见 run_pool），
     #   标签页用完即关，避免导航到 PDF 后目标被顶替导致后续连接失效
     tabbed = bool(opts.get("multi_tab"))
+    phase = opts.get("verification", "auto")
     try:
         if tabbed:
-            c = open_tab("about:blank", port, timeout=opts["call_timeout"], logger=log)
+            # 新开标签会抢占前台，必须与“验证点击”互斥，否则会把正在
+            #   识别中的挑战页切走，solver 截图后点到别的标签。
+            with VERIFY_LOCK:
+                c = open_tab("about:blank", port, timeout=opts["call_timeout"], logger=log)
         else:
-            c = connect(port, timeout=opts["call_timeout"], logger=log)
+            with VERIFY_LOCK:
+                c = connect(port, timeout=opts["call_timeout"], logger=log)
     except Exception as e:
         rec.update({"pdf_ok": False, "pdf_error": f"cdp-connect:{type(e).__name__}:{e}"})
         return rec
@@ -577,7 +732,7 @@ def process_one(port: int, doi: str, meta: dict, opts: dict, log) -> dict:
     try:
         r = load_landing(c, landing, doi, log, opts["manual_wait"],
                          grace=opts["grace"], site=detect.site_of_doi(doi),
-                         fulltext_cap=opts.get("fulltext_cap", 0))
+                         fulltext_cap=opts.get("fulltext_cap", 0), phase=phase)
         rec.update({
             "url": r.get("url") or "", "title": r.get("citeTitle") or r.get("title") or rec["title"],
             "journal": r.get("journal") or rec["journal"],
@@ -646,11 +801,51 @@ def process_one(port: int, doi: str, meta: dict, opts: dict, log) -> dict:
         #   导航到 PDF 后原目标已被 PDF 查看器顶替，此时关标签可能失败 —— 正常。
         try:
             if tabbed:
-                c.close_tab_self()
+                with VERIFY_LOCK:
+                    c.close_tab_self()
             else:
                 c.close()
         except Exception:
             pass
+
+
+def run_manual_phase(failed: list[tuple[str, dict]], ports: list[int],
+                     opts: dict, log) -> list[dict]:
+    """自动阶段结束后，按用户确认对失败篇目逐篇做人工验证。
+
+    单线程顺序执行：每篇打开一个标签页并置前，弹窗提示 DOI，等待用户完成
+    验证后再取 PDF。与自动阶段的 solver 不再并发，避免抢焦点。
+    """
+    if not failed:
+        return []
+    manual = dict(opts)
+    manual["verification"] = "manual"
+    manual["manual_wait"] = opts["manual_wait"] if opts["manual_wait"] > 0 else 300.0
+    port = next((p for p in ports if _dom_ready(p, log)), 0)
+    if not port:
+        log.warn("人工阶段没有可用 CDP 实例，跳过")
+        return []
+    out: list[dict] = []
+    for idx, (doi, meta) in enumerate(failed, 1):
+        log.info(f"[MANUAL {idx}/{len(failed)}] {doi} —— 请在浏览器完成验证")
+        rec = process_one(port, doi, meta, manual, log)
+        rec["attempts"] = int((STATE_DATA.get(doi) or {}).get("attempts") or 0) + 1
+        rec["manual_phase"] = True
+        STATE_DATA[doi] = rec
+        save_state()
+        if rec.get("pdf_ok"):
+            try:
+                store.register_pdf(doi, EXPORTS / rec["pdf_file"], WD)
+            except Exception:
+                pass
+            log.ok(f"  [MANUAL OK] {rec.get('pdf_size',0)//1024} KB | {rec.get('pdf_file')}")
+            journal("E", "download.pdf.manual", doi=doi, file=rec.get("pdf_file"),
+                    size_kb=rec.get("pdf_size", 0) // 1024)
+        else:
+            log.warn(f"  [MANUAL FAIL] {doi}: {rec.get('pdf_error')}")
+            journal("E", "download.fail.manual", doi=doi, reason=rec.get("pdf_error"))
+        out.append(rec)
+    return out
 
 
 # ══════════════════════════════════════════════════════════════
@@ -966,8 +1161,35 @@ def main():
             LOG.warn("用户中断")
         except Exception as e:
             LOG.error(f"下载池异常: {type(e).__name__}: {str(e)[:120]}")
+
+        # 自动阶段结束：记录总数/成功/未拿到，再询问是否进入人工阶段。
+        todo_map = {d: m for d, m in todo}
+        failed, seen = [], set()
+        for r in res:
+            d = r.get("doi")
+            if d and not r.get("pdf_ok") and d not in seen:
+                seen.add(d)
+                failed.append((d, todo_map.get(d, {})))
+        ok = sum(1 for r in res if r.get("pdf_ok"))
+        LOG.info(f"自动阶段：共 {len(todo)} 篇 | 成功 {ok} | 未拿到 {len(failed)}")
+        if failed:
+            preview = "\n".join(d for d, _ in failed[:12])
+            if len(failed) > 12:
+                preview += f"\n…（共 {len(failed)} 篇）"
+            msg = (f"本轮共 {len(todo)} 篇：自动成功 {ok} 篇，未拿到 {len(failed)} 篇。\n\n"
+                   "是否继续对这些文章进行 CDP 人工验证？\n"
+                   "选“是”后逐篇打开页面并等待你完成验证（最长 5 分钟/篇）。\n\n"
+                   + preview)
+            if os.environ.get("FLOW_NO_MANUAL_ASK") == "1":
+                LOG.info("FLOW_NO_MANUAL_ASK=1，跳过人工阶段询问")
+            elif ask_yes_no("CDP 下载结果", msg, timeout_s=600):
+                LOG.info(f"进入人工验证阶段：{len(failed)} 篇")
+                manual_res = run_manual_phase(failed, ports, opts, LOG)
+                res.extend(manual_res)
+            else:
+                LOG.info("用户选择跳过人工验证阶段")
     finally:
-        # 批量下载结束后回收全部本轮 CDP 实例，避免 detached Edge 长期占用资源。
+        # 批量下载（含人工阶段）结束后回收全部本轮 CDP 实例，避免长期占用资源。
         span = max(8, max(ports) - opts["base_port"] + 1) if ports else 8
         _cleanup_owned(opts["base_port"], span, LOG)
     ok = sum(1 for r in res if r.get("pdf_ok"))

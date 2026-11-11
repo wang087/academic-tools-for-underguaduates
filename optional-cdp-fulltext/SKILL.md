@@ -60,7 +60,7 @@ uv run python 流程1/scripts/reviews_fulltext.py --layer1 --layer2 --cdp --fall
 | `check_access.py` | 检测本机是否具备 IP 级机构订阅授权 |
 | `save_pdf_via_browser.py` | 单篇：把当前页面另存为 PDF（4 种方法依次尝试） |
 | `asset_pdf.py` | **资产 CDN 验证页**（Elsevier `cfts/init`、`Request Verification`）：导航 + 宿主机点击 + Network 抓 PDF + 渲染兜底 |
-| `turnstile_click.py` | 截图定位复选框 + 宿主机 `SendInput` 点击（每篇 ≤2 次；需交互式桌面） |
+| `turnstile_click.py` | 截图定位复选框 + 宿主机 `SendInput` 点击（每篇 ≤3 轮；需 DPI-aware 交互桌面） |
 | `host_click.py` | 窗口/客户区截图、`SendInput`、OCR 基础函数 |
 | `cdp_up_nosandbox.py` | 无沙箱启动器（本机 Edge renderer 沙箱起不来时的办法） |
 

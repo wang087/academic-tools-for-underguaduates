@@ -931,6 +931,10 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
     method_doi = method_terms_by_topics(cards)
     n_docs = max(1, len(cards))
     top_methods = sorted(method_doi, key=lambda w: (-len(method_doi[w]), w))[:40]
+    # 同一方法的仅大小写变体只保留一个显示节点，避免外环重复。
+    _seen_method = set()
+    top_methods = [w for w in top_methods
+                   if not (w.casefold() in _seen_method or _seen_method.add(w.casefold()))]
 
     for w in top_methods:
         add_node(f"m::{w}", "method", w, n_papers=len(method_doi[w]))
@@ -945,7 +949,7 @@ def build_overview(recs, cards, final, rcards, rmeta, vocab, max_reviews=3,
     co = {}
     for i, a in enumerate(top_methods):
         for b in top_methods[i + 1:]:
-            if a in b or b in a:
+            if a in b or b in a or a.casefold() == b.casefold():
                 continue
             shared = method_doi[a] & method_doi[b]
             if len(shared) < MEM_MIN_SHARED:
@@ -2666,6 +2670,25 @@ def compute_wordcloud_weights(cards, recs, vocab, doi_dir,
                     n_unparsed += 1
             kw_stats = {"checked":len(tokens),"dropped_fragment":n_frag,"unparsed_kept":n_unparsed,
                         "note":"只删不加：三层/来源规则门是确定性下限"}
+    # 合并仅大小写不同的词型（RosettaDesign / rosettadesign）：
+    #   保留权重最高者为显示形，权重、来源、方向、篇目一并并入，
+    #   避免词云与"记忆连接"把同一个词算成两个。
+    _groups = {}
+    for _t in list(w):
+        _groups.setdefault(_t.casefold(), []).append(_t)
+    for _variants in _groups.values():
+        if len(_variants) < 2:
+            continue
+        _keep = max(_variants, key=lambda t: (w[t], t))
+        for _t in _variants:
+            if _t == _keep:
+                continue
+            w[_keep] += w.pop(_t)
+            term_src[_keep].update(term_src.pop(_t, {}))
+            term_dir[_keep].update(term_dir.pop(_t, {}))
+            term_doi[_keep] |= term_doi.pop(_t, set())
+            dropped.pop(_t, None)
+            drop_reason.pop(_t, None)
     palette = ["#1B3A6B", "#E4572E", "#2E86AB", "#7D3C98", "#117A65",
                "#B9770E", "#943126", "#1A5276"]
     dirs = sorted({d for counts in term_dir.values() for d in counts})
@@ -2826,20 +2849,28 @@ def compute_direction_clusters(final, rcards, rmeta, recs, recent_years, vocab,
         blob = " ".join([str(x.get("title") or ""),
                          str(x.get("abstract") or ""),
                          str(x.get("venue") or "")])
-        d, why = assign_direction(blob, c, prof, allowed_d, al_d)
-        # 判据 ②：review 卡没标注时，看**引用了它的作者论文**落在哪些方向
-        if why != "review 卡标注":
-            votes = Counter()
-            for s in as_list(x.get("cited_by_sources")):
-                k = str(s).lower().replace("https://doi.org/", "").strip()
-                for t in src_dir.get(k, []):
-                    votes[t] += 1
-            if votes:
-                top, n = votes.most_common(1)[0]
-                d, why = top, f"施引论文方向（{n} 票）"
+        _xid = str(x.get("id") or x.get("doi") or "").lower().replace("https://doi.org/", "").strip()
+        own = src_dir.get(_xid) or []
+        if own:
+            # 作者本人的论文：自己的解读卡标签就是最直接证据，
+            #   不应退化为「关键词画像兜底」——那会把有明确标签的论文判成未分组。
+            d, why = own[0], "作者解读卡标注"
+        else:
+            d, why = assign_direction(blob, c, prof, allowed_d, al_d)
+            # 判据 ②：review 卡没标注时，看**引用了它的作者论文**落在哪些方向
+            if why != "review 卡标注":
+                votes = Counter()
+                for s in as_list(x.get("cited_by_sources")):
+                    k = str(s).lower().replace("https://doi.org/", "").strip()
+                    for t in src_dir.get(k, []):
+                        votes[t] += 1
+                if votes:
+                    top, n = votes.most_common(1)[0]
+                    d, why = top, f"施引论文方向（{n} 票）"
         how["review 卡标注" if why == "review 卡标注" else
-            ("施引论文方向" if why.startswith("施引论文方向") else
-             ("关键词兜底" if why.startswith("关键词兜底") else "无法归类"))] += 1
+            ("作者解读卡标注" if why == "作者解读卡标注" else
+             ("施引论文方向" if why.startswith("施引论文方向") else
+              ("关键词兜底" if why.startswith("关键词兜底") else "无法归类")))] += 1
         toks = ref_terms.get(str(x.get("id") or x.get("doi") or "").lower(), [])
         rows.append({"direction": d, "year": int(y),
                      "title": x.get("title") or "",

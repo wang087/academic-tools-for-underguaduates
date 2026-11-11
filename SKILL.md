@@ -36,7 +36,7 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 > 5. **红线** —— §5.1 **分层获取策略**与 §5.2 **鼠标自动化政策**优先级最高；
 >    一旦违反，按各自「违规处置」章节执行（**立即停止 + 如实报告**）。
 >    §5.2 已**取消“一律禁止”**：允许用**宿主机级 `SendInput`** 点击人机验证复选框
->    （每篇最多 2 次、失败即停、禁止循环试探）；CDP `Input.*` 仍不用于验证。
+>    （每篇最多 3 轮、失败即停、禁止无限试探）；CDP `Input.*` 仍不用于验证。
 >    细则见 §5.2。
 >    §5.1 是**分层**规则而非一刀切：摘要 / 综述题录 / 白名单开源库**允许直连**，
 >    **原文全文必须走 CDP**；第一层取不到转 CDP。细则见 §5.1。
@@ -105,7 +105,7 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 > （ScienceDirect/Cell/OUP/SAGE/Wiley/ACS/RSC/Springer/T&F）
 > 绝不用 `curl`/`urllib` 直连（含探活请求）；
 > **③ 鼠标自动化政策（§5.2）** —— **允许**用**宿主机级 `SendInput`**
-> 点击 Turnstile / 验证复选框（每篇最多 2 次、失败即停、禁止循环试探）；
+> 点击 Turnstile / 验证复选框（每篇最多 3 轮、失败即停、禁止无限试探）；
 > CDP `Input.*` 事件（`isTrusted=True`）**仍不用于**验证，因为判定不依赖该次点击。
 > 宿主级点击失败 → 转人工 / 换 profile / 换网络。
 
@@ -1153,7 +1153,7 @@ uv run python 流程1/scripts/reviews_fulltext.py --backfill
 > 所以「页面打开了」**不等于**「拿到正文」：字数不足 `MIN_FULLTEXT_CHARS` 时，
 > 脚本按页内**功能入口**（`Full text` / `PDF` / `View on publisher site`）逐个导航后重读，
 > 仍不足则如实记 `too-short`（交副链路或人工），**不写入伪全文**。
-> [X] 兜底只走正文入口 —— 人机验证按 §5.2：允许宿主机级点击（≤2 次），失败即停。
+> [X] 兜底只走正文入口 —— 人机验证按 §5.2：允许宿主机级点击（≤3 轮），失败即停。
 
 > ### 副链路
 >
@@ -2616,7 +2616,7 @@ uv run python 流程1/scripts/ppt_brief.py --check-svg <project>/svg_output
 | **抓到的是补充材料而非正文**             | AHA/Circ 等站点`links` 首位常是 `suppl_file/*.pdf`（补充材料）或图注页，2 页却通过校验                                    | 下载后校验页数；正文一般 ≥6 页。残缺件改名`【补充材料】…` 保留，用 `history/*.pdf` 或 `/doi/pdf/...?download=true` 重抓                                                                                                  |
 | **翻译 PDF 空白/无中文**                 | HTML 未写入中文或字体未嵌入                                                                                                   | `render_html_pdf.py` 退出码 2 = CJK < 50，需回查 HTML；正常输出 `OK pages=… cjk_first_page=…`                                                                                                                              |
 | **自编脚本直连抓取原文（含 curl 探活）** | 用`curl -I` 测出版社连通性、或用 `urllib`/`requests` 直下**全文** → 同样触发风控且拿不到内容，还无法纳入流程判定 | **严禁**（§ 5.1 **第二层**）；连通性判断交给浏览器（`detect.navStatus` 即真实 HTTP 状态）。**OA 全文同样走 CDP**。摘要/综述题录/白名单开源库属**第一层**，**允许**直连 —— 边界见 §5.1 分层表 |
-| **用 CDP `Input.*` 过验证** | 「CDP 点击`isTrusted=True`，应该能骗过 Turnstile」——**错误**：判定不靠该次点击 | **禁止**用 CDP `Input.*` 过验证（§5.2）；**允许**用**宿主机级 `SendInput`** 点复选框（每篇 ≤2 次，失败即停）。只点复选框，不点“重试/换题” |
+| **用 CDP `Input.*` 过验证** | 「CDP 点击`isTrusted=True`，应该能骗过 Turnstile」——**错误**：判定不靠该次点击 | **禁止**用 CDP `Input.*` 过验证（§5.2）；**允许**用**宿主机级 `SendInput`** 点复选框（每篇 ≤3 轮，失败即停）。只点复选框，不点“重试/换题” |
 | **浏览器「找不到」时报 WinError 87** | `Popen` 抛 `OSError: [WinError 87] The parameter is incorrect`，浏览器起不来 | 已修复：`cdp_pool.EDGE_CANDIDATES` **剔除空值** —— 未设 `PAPER_BROWSER` / `EDGE_PATH` 时它们是空串，而 `Path("").exists()` 恒为真（指当前目录），会让候选表**假命中**并返回 `""`，`Popen([""])` 即报此错 |
 | **检索子进程输出非 GBK 字符** | 阶段 R `search_run.py` 整源 `exit 1`，子进程 stderr 是 `UnicodeEncodeError: 'gbk' codec` | 已修复：给 `paginate.py` 子进程显式设 `PYTHONIOENCODING=utf-8` —— 父进程按 UTF-8 解码，就不该让子进程按**控制台代码页**写 stdout |
 | **CDP 可用性探测偶发失败** | `reviews_fulltext` 报「无可用 CDP 实例」，而端口其实正常 | 已修复：`renderer_count` **串行化 + 失败重试**（探测失败 `-1` ≠ renderer 为 0）；仍不稳时用 `--ports 9222,9223` 跳过探测 |
@@ -2739,7 +2739,7 @@ uv run python 流程1/scripts/fetch_direct.py
 
 | 场景 | 做法 |
 |---|---|
-| Turnstile / 人机验证**复选框** | **宿主机级** `user32!SendInput` 绝对坐标点击；每次挑战**最多 2 次**，失败即停 |
+| Turnstile / 人机验证**复选框** | **宿主机级** `user32!SendInput` 绝对坐标点击；每次挑战**最多 3 轮**，失败即停 |
 | 等待验证组件渲染 | 逐秒截图轮询；**连续两帧**框位置一致再点（复选框常 3–8 s 才出现） |
 | Cookie / 同意书 / 页面功能按钮 | 既有 `CONSENT_JS` / `dismiss_consent()`；必要时同样可用宿主机点击 |
 
@@ -2759,7 +2759,7 @@ uv run python 流程1/scripts/fetch_direct.py
   锁屏 / 已断开的 RDP 会话里按键事件被拒绝（`SendInput` 返回 `ERROR_ACCESS_DENIED`），
   此时**不要重试**，直接转人工或等桌面恢复；批量任务应在有人值守/桌面已连接时跑。
 - **看输入通道**：`SendInput`（系统输入队列）允许用于验证；`Input.dispatch*`（DevTools）不允许。
-- **看次数**：一次挑战 ≤2 次点击；第 2 次仍失败 → 停止，转人工或换 profile。
+- **看次数**：一次挑战 ≤3 轮点击；第 3 轮仍失败 → 停止，转人工或换 profile。
 - **看对象**：只点复选框本身；不得点“重试 / 换题 / 提交”等验证流程按钮。
 
 ### 四、失败处置（不可跳过）
@@ -2773,9 +2773,15 @@ uv run python 流程1/scripts/fetch_direct.py
 ### 五、实现位置
 
 - `optional-cdp-fulltext/turnstile_click.py`：截图 → 阈值 180 → 22–50 px 空心方框 →
-  连续两帧确认 → `SendInput` 点击 → 等标题脱离挑战；每次挑战 ≤2 次。
+  连续两帧确认 → `SendInput` 点击 → 等标题脱离挑战；每次挑战 ≤3 轮。
   可直接跑：`python turnstile_click.py [--keyword 请稍候] [--dry]`。
 - `optional-cdp-fulltext/host_click.py`：窗口/客户区截图/OCR/`SendInput` 基础函数。
+- `optional-cdp-fulltext/download_all_fulltexts.py`：**自动阶段**最多 3 轮宿主机
+  点击、不弹窗；全部篇目结束后记录总数并弹 Yes/No，用户确认后才对未获取篇目
+  进入**人工阶段**（逐篇置前 + 弹窗提示 DOI）。
+  并发验证由全局 `VERIFY_LOCK` 串行；每次点击前用 CDP 校验目标标签页
+  `visibilityState=visible`、`hasFocus=true` 且 URL 仍含该 DOI；
+  后台标签 `not-ready/tiny` 时先置前重判；新开/关闭标签与验证互斥。
 - 取件四策略：`optional-cdp-fulltext/save_pdf_via_browser.py`
   （Network 捕获 → 落地页 fetch → 重定向 fetch → 渲染兜底）。
 - 资产 CDN 验证：`optional-cdp-fulltext/asset_pdf.py`（`save_with_asset`）——
@@ -3111,7 +3117,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 - [ ] [NEW] **第一层直连未越界**：所有 HTTP 直连请求的目标域名都在 `templates/直连白名单.json` 内；未把白名单外的域名当作"开源库"直接取
 - [ ] [NEW] **第一层失败已转 CDP**：`fetch_direct.py` 的缺口清单（`.work_cdp/direct_failed.json`）已交给 `grab_abstracts.py --retry-failed`，未卡在第一层反复重试
 - [ ] [NEW] **摘要来源已标注**：直连取得的摘要写进 `abstracts_openalex.json` 时带 `source` 字段，未冒充 CDP 路径产物
-- [ ] [NEW] **人机验证按 §5.2**：如用自动点击，必须是**宿主机级 `SendInput`**、每篇 ≤2 次、失败即停；未用 CDP `Input.*` 过验证；失败已转人工或如实注明（`--manual-wait=N` > 0）
+- [ ] [NEW] **人机验证按 §5.2**：如用自动点击，必须是**宿主机级 `SendInput`**、每篇 ≤3 轮、失败即停；未用 CDP `Input.*` 过验证；失败已转人工或如实注明（`--manual-wait=N` > 0）
 - [ ] [NEW] 未对验证类站点（ScienceDirect/OUP/SAGE/Wiley/Cell/ACS/RSC/Springer/T&F）做任何**直连**尝试（直连禁令）
 - [ ] [NEW] 自动化点击仅限**非验证类**元素（Cookie 弹窗 / 功能按钮 / 页内导航）
 - [ ] 确认作者身份唯一（同名作者用 ORCID/单位/代表作交叉验证）

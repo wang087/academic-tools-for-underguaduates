@@ -118,13 +118,36 @@ def _declare_prototypes():
 
 # ── DPI：必须在任何窗口坐标计算之前 ────────────────────────────
 def set_dpi_aware():
+    """把进程设为 DPI-aware；返回是否成功。
+
+    [STOP] 不能只调用 shcore.SetProcessDpiAwareness 而不检查 HRESULT：
+    它以返回码失败（不抛异常）时，旧代码不会走 SetProcessDPIAware 兜底，
+    进程保持 DPI-unaware（实测 GetProcessDpiAwareness=0，125% DPI 下
+    SetCursorPos(268,477) 实际落到物理 (335,596)，点击偏下 1.25 倍）。
+    """
+    shcore = ctypes.windll.shcore
+    val = ctypes.c_int()
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PER_MONITOR_AWARE
+        shcore.GetProcessDpiAwareness(None, ctypes.byref(val))
+        if val.value == 2:
+            return True
+        shcore.SetProcessDpiAwareness(2)
+        shcore.GetProcessDpiAwareness(None, ctypes.byref(val))
     except Exception:
+        pass
+    if val.value != 2:
         try:
             user32.SetProcessDPIAware()
         except Exception:
             pass
+    try:
+        shcore.GetProcessDpiAwareness(None, ctypes.byref(val))
+    except Exception:
+        pass
+    return val.value in (1, 2)
+
+
+set_dpi_aware()
 
 
 class POINT(ctypes.Structure):
