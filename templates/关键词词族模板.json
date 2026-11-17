@@ -4,7 +4,7 @@
     "为什么需要：单条目频次会把同一概念的多种写法拆散（framework 18 / frameworks 7、",
     "CO2 capture / carbon dioxide capture / CO2 adsorption），词族合并后才看得出真实主题强度。",
     "用法：把本文件复制到 <WORKDIR>/.work_cdp/keyword_families.json 后按实际语料增删，",
-    "     再跑 uv run python 流程1/scripts/interpret_build.py",
+    "     再跑 uv run python scripts/interpret_build.py",
     "格式：{ \"语义词族显示名\": [\"成员1\", \"成员2\", ...], ... }",
     "成员一律小写；只做**合并同义/近义写法**，不要把不同概念硬凑成一族。",
     "[**] 成员必须是**单个词**，不能是短语！分词器只产出「英文单词」与「中文 2-gram」，",

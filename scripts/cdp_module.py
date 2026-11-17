@@ -5,7 +5,7 @@
 
 「用浏览器访问出版商站点取回正文」这条路径，为符合出版商的网站条款
 （Elsevier 等明确禁止 robot/crawler/自动化下载）**被单独抽成一个可整目录删除的模块**：
-`<流程1>/optional-cdp-fulltext/`。核心脚本**不直接 import 那个目录里的任何东西** ——
+`optional-cdp-fulltext/`。核心脚本**不直接 import 那个目录里的任何东西** ——
 它们只问本文件三个问题：模块在不在、脚本在哪、能不能 import。
 
 ## 运行时行为（用户指定）
@@ -29,8 +29,8 @@ fpb = cdpmod.module_import("fulltext_publishers")   # → module | None
 
 命令行（SKILL.md 里的「探测引用入口」就是这条）：
 
-    python 流程1/scripts/cdp_module.py            # 打印状态
-    python 流程1/scripts/cdp_module.py --self-test
+    python scripts/cdp_module.py            # 打印状态
+    python scripts/cdp_module.py --self-test
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ PROVIDED = ("download_all_fulltexts.py", "fulltext_publishers.py",
 # 备用链路：模块缺失时改走这里（nature-skill 的获取模块）
 FALLBACK = {
     "route": "nature-downloader（外部 skill，未并入本流程）",
-    "how": "python 流程1/scripts/preflight_fallback.py 查各备选路线；"
+    "how": "python scripts/preflight_fallback.py 查各备选路线；"
            "白名单直连与元数据 API 路线不受影响",
 }
 
@@ -84,7 +84,7 @@ FLOW_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def module_dir() -> pathlib.Path:
-    """→ `<流程1>/optional-cdp-fulltext/`（**不管存不存在**都返回路径）。"""
+    """→ `optional-cdp-fulltext/`（**不管存不存在**都返回路径）。"""
     return FLOW_ROOT / MODULE_DIRNAME
 
 

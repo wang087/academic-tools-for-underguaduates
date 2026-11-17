@@ -2,7 +2,7 @@
 
 > 本目录是流程里**唯一**「自动访问出版商站点取正文」的实现。
 > 整目录删掉即可从一份发行版中移除该能力；流程其余部分照常工作（见下）。
-> 删除方式：`rm -rf 流程1/optional-cdp-fulltext/`（或打包时用
+> 删除方式：`rm -rf optional-cdp-fulltext/`（或打包时用
 > `pack_release.py --exclude-optional-cdp-fulltext`）。
 
 ## 为什么单独放
@@ -16,7 +16,7 @@
 本流程原先把「原文全文一律经 CDP 浏览器抓取」写成硬性阶段（§5.1 第二层）。
 为了能交付一份**不含该能力**的发行版，这部分被抽成独立可选模块：
 **核心不再 import 本目录里的任何东西**，只通过唯一探测入口
-`流程1/scripts/cdp_module.py` 询问"在不在、脚本在哪"。
+`scripts/cdp_module.py` 询问"在不在、脚本在哪"。
 
 ## 运行时行为（探测入口定义，用户指定）
 
@@ -32,10 +32,10 @@
 探测：
 
 ```bash
-uv run python 流程1/scripts/cdp_module.py            # 状态 + 本模块提供的脚本清单
-uv run python 流程1/scripts/cdp_module.py --path     # 模块目录（未安装则空；给 shell 用）
-uv run python 流程1/scripts/cdp_module.py --status   # 0=可用，3=未安装
-uv run python 流程1/scripts/cdp_module.py --self-test
+uv run python scripts/cdp_module.py            # 状态 + 本模块提供的脚本清单
+uv run python scripts/cdp_module.py --path     # 模块目录（未安装则空；给 shell 用）
+uv run python scripts/cdp_module.py --status   # 0=可用，3=未安装
+uv run python scripts/cdp_module.py --self-test
 ```
 
 ## 本模块提供
@@ -58,7 +58,7 @@ uv run python 流程1/scripts/cdp_module.py --self-test
 
 ## 依赖
 
-- 本模块的脚本把 `<流程1>/scripts/` 加进 `sys.path`（见各文件顶部 bootstrap 段），
+- 本模块的脚本把 `scripts/` 加进 `sys.path`（见各文件顶部 bootstrap 段），
   因此 `logutil` / `store` / `scope` / `cdp` / `detect` / `white_list_policy` 等核心模块照常可 import。
 - 运行期依赖：`uv run --with websocket-client --with pypdf python …`（与核心脚本一致）。
 - 需要本机有一个 **Chromium 内核浏览器**（Edge / Chrome / Chromium），
@@ -71,7 +71,7 @@ uv run python 流程1/scripts/cdp_module.py --self-test
 移除后请重跑这两条确认降级路径：
 
 ```bash
-uv run python 流程1/scripts/selftest_fulltext_modules.py
-uv run python 流程1/scripts/fulltext_router.py --self-test
-uv run python 流程1/scripts/cdp_module.py --status    # 期望 3
+uv run python scripts/selftest_fulltext_modules.py
+uv run python scripts/fulltext_router.py --self-test
+uv run python scripts/cdp_module.py --status    # 期望 3
 ```

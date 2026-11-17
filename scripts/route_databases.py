@@ -49,9 +49,9 @@ def _fix_streams() -> None:
 _fix_streams()
 
 HERE = pathlib.Path(__file__).resolve().parent
-SKILL_ROOT = HERE.parent                      # 流程1/
+SKILL_ROOT = HERE.parent                      # 
 TABLE = SKILL_ROOT / "templates" / "方向数据库路由表.json"
-# 「研究方法与关键词总表.md」在**工作文件夹**（流程1/ 的上一级）
+# 「研究方法与关键词总表.md」在**工作文件夹**（ 的上一级）
 TOTALS = SKILL_ROOT.parent / "研究方法与关键词总表.md"
 
 EXIT_OK, EXIT_USAGE, EXIT_SELFTEST = 0, 2, 3

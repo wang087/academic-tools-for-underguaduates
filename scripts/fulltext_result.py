@@ -56,7 +56,7 @@ _fix_streams()
 
 
 def _scripts_dir() -> pathlib.Path:
-    """本模块所在目录（= 流程1/scripts）。其余模块同目录，导入前需保证它在 sys.path 上。"""
+    """本模块所在目录（= scripts）。其余模块同目录，导入前需保证它在 sys.path 上。"""
     here = pathlib.Path(__file__).resolve().parent
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))

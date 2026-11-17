@@ -14,7 +14,7 @@
 #   把条件固化成带哈希的 JSON，才能事后核对「这份报告是用什么检索式查出来的」。
 #
 # 用法：
-#   uv run python 流程1/scripts/search_plan.py \
+#   uv run python scripts/search_plan.py \
 #       --topic "肿瘤免疫微环境" --topic-en "tumor immune microenvironment" \
 #       --terms-en "NK cell,macrophage,checkpoint" \
 #       --from-year 2020 --doc-types review \
@@ -217,7 +217,7 @@ def build_plan(args) -> dict:
     plan = {
         "schema_version": SCHEMA_VERSION,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "created_by": "流程1/scripts/search_plan.py",
+        "created_by": "scripts/search_plan.py",
         # ── ① 用户给的检索条件（原始，不改写）──
         "user_input": {
             "topic_cn": args.topic or "",
@@ -294,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-records", type=int, default=50,
                     help="每个源最多取回多少条（默认 50）")
     ap.add_argument("--out", default=str(WD / "outputs" / "07_检索"),
-                    help="输出目录（默认 <流程1>/<年月日>/outputs/07_检索）")
+                    help="输出目录（默认 <年月日>/outputs/07_检索）")
     args = ap.parse_args(argv)
 
     log = get("plan")

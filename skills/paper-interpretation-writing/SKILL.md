@@ -175,7 +175,7 @@ python scripts/check_interpretation.py 解读.md --tier L3 --json --strict
 
 # 可选：加开 deai 模型二审（本地 Qwen3-0.6B 适配器，规则黑名单外的同义变体）。
 # 只出 MODEL_* warning、不影响退出码；首次运行会自动安装依赖并下载基座，
-# 也可先跑 python 流程1/scripts/selftest_small_model.py 完成准备。
+# 也可先跑 python scripts/selftest_small_model.py 完成准备。
 python scripts/check_interpretation.py 解读.md --tier L2 --model
 ```
 
@@ -186,9 +186,9 @@ python scripts/check_interpretation.py 解读.md --tier L2 --model
 **校验器查不到的两件事**：动词强度是否与原文对齐、机制描述是否忠实于原文。
 报告的 `notice` 字段如实写着这一点，一次 clean run 不等于解读正确。
 
-## 接入 流程1 阶段 H
+## 接入 本流程 阶段 H
 
-`流程1`（本仓库的本科生科研辅助流程）阶段 H 用并行 subagent 逐篇产出解读卡，
+`本流程`（本仓库的本科生科研辅助流程）阶段 H 用并行 subagent 逐篇产出解读卡，
 再由 `interpret_build.py` 汇总。字段与档位的对应：
 
 | 卡片字段 | 档位 | 说明 |
@@ -200,7 +200,7 @@ python scripts/check_interpretation.py 解读.md --tier L2 --model
 | `methods` / `quantified_gains` | 清单式 | 不走档位文体，数值原样引用 |
 | `open_questions` | L3 | 展望、局限、未做的设想 |
 
-字段 schema 与分派方式以 `流程1/subagent-driven-review/SKILL.md` § 6 / § 7 为准；
+字段 schema 与分派方式以 `subagent-driven-review/SKILL.md` § 6 / § 7 为准；
 冲突时以该流程文件为准，本模块只补充文字写法与档位取舍。
 
 > **与相邻技能的边界**：`scientific-writing` 管英文稿件的起草、修订与投稿审计；

@@ -15,7 +15,7 @@
 #   ⑤ `--limit` 试跑把人标成"无方向"后，全量不再补（续跑失效）
 #   ⑥ http/https 混写导致路径拼成 `/http://host/...`
 #
-# 用法：uv run python 流程1/scripts/selftest_engines.py
+# 用法：uv run python scripts/selftest_engines.py
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 

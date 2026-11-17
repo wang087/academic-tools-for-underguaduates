@@ -17,8 +17,8 @@
 
 | 项 | 说明 |
 |---|---|
-| 技能副本 | `流程1/skills/scopus-wos-lit/`（自包含；含 `SKILL.md`、脚本、词表、测试） |
-| 适配脚本 | `流程1/scripts/reviews_discover_scopus.py` |
+| 技能副本 | `skills/scopus-wos-lit/`（自包含；含 `SKILL.md`、脚本、词表、测试） |
+| 适配脚本 | `scripts/reviews_discover_scopus.py` |
 | 输出 | `.work_cdp/reviews/reviews_scopus.json`（`{"records":[...]}`） |
 | 依赖 | Python 3.9+；Scopus/WoS 网页路线需要 Edge/Chrome 与 CDP；OpenAlex 路线零凭据 |
 | 可选 | `SCOPUS_API_KEY`、`WOS_API_KEY`（走官方 API） |
@@ -27,13 +27,13 @@
 
 ```bash
 # ① 发现综述（Scopus；默认 8 篇，rank-policy=off 与阶段 R 的“综述优先”一致）
-uv run python 流程1/scripts/reviews_discover_scopus.py \
+uv run python scripts/reviews_discover_scopus.py \
     --direction "生物学 > 神经生物学 > 神经退行性疾病" \
     --source scopus \
     --limit 8
 
 # ② 组装任务包（原有脚本，无需改动）
-uv run python 流程1/scripts/reviews_prepare.py \
+uv run python scripts/reviews_prepare.py \
     --input .work_cdp/reviews/reviews_scopus.json \
     --fetch-abstracts
 ```
@@ -41,14 +41,14 @@ uv run python 流程1/scripts/reviews_prepare.py \
 如果只想先验证链路、不启动浏览器：
 
 ```bash
-uv run python 流程1/scripts/reviews_discover_scopus.py \
+uv run python scripts/reviews_discover_scopus.py \
     --direction neuroscience --source openalex --limit 4
 ```
 
 ## 4. 与已有 reviews.json 合并
 
 ```bash
-uv run python 流程1/scripts/reviews_discover_scopus.py \
+uv run python scripts/reviews_discover_scopus.py \
     --direction "免疫与感染" --source scopus --limit 6 \
     --out .work_cdp/reviews/reviews_scopus.json \
     --merge-into .work_cdp/reviews/reviews.json

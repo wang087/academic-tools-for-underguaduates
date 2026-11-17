@@ -3,7 +3,7 @@
 # 阶段 S · **渲染桥**：把 robot/crawl_site.py 接进主流程
 #
 # 解决什么问题
-#   流程1 的既有引擎库（faculty_engines.py）全部基于**直连 HTML**。
+#   本流程 的既有引擎库（faculty_engines.py）全部基于**直连 HTML**。
 #   遇到师资页是 JS/AJAX 空壳的院系（实测：南京大学化学化工学院
 #   `ul.teacher-list` 为空、11 个学科靠点击异步加载；北京大学部分院系同理），
 #   直连永远只能得 0 人 —— 此前只能在报告里写"需要 CDP"然后放弃。

@@ -91,7 +91,7 @@ ENGINE_LABEL = {"legacy": "原有解读卡", "paper-card": "16 节 Paper Card"}
 USAGE = """阶段 H ④：回收解读卡 → 生成《<作者名>_论文解读.md》（只读本地文件，不联网）
 
 用法：
-  python 流程1/scripts/interpret_build.py [选项]
+  python scripts/interpret_build.py [选项]
 
 选项：
   --families=<json>  语义词族合并表（缺省只出单条目频次）
@@ -440,7 +440,7 @@ def main() -> int:
     man = load_json(INDIR / "manifest.json")
     if not man:
         print("[X] 找不到 .work_cdp/interpret/manifest.json")
-        print("  请先运行：uv run --with pypdf python 流程1/scripts/interpret_prepare.py")
+        print("  请先运行：uv run --with pypdf python scripts/interpret_prepare.py")
         return 2
     gate = load_json(INDIR / "gate_report.json")
     if isinstance(gate, dict) and gate.get("verdict") != "complete":
@@ -551,7 +551,7 @@ def main() -> int:
     L.append(f"> ORCID：{f'https://orcid.org/{ORCID}' if ORCID else '（未提供）'}"
              f" ｜ 共 **{n_all}** 篇 ｜ 已解读 **{n_card}** 篇")
     L.append("> 解读方式：并行 subagent 逐篇精读（流程见 "
-             "`流程1/subagent-driven-review/SKILL.md`）；"
+             "`subagent-driven-review/SKILL.md`）；"
              f"证据来源分布：PDF 全文 **{n_pdf}** 篇、结构化落地页正文 **{n_structured}** 篇、"
              f"摘要/残页 **{n_abstract}** 篇、仅题录 **{n_metadata}** 篇；**全程无网络抓取**。\n")
     L.append(f"> 解读引擎：**{engine}**（{ENGINE_LABEL[engine]}，来源：{engine_src}）"
@@ -818,7 +818,7 @@ def main() -> int:
         n_pass = len([r for r in pc_rows if r["audit"] == "pass"])
         L.append(f"合计：深读卡 **{n_pc}/{len(pc_rows)}** 篇；审计 pass **{n_pass}** 篇。"
                  "未 pass 的篇目须修复后重跑 "
-                 "`uv run python 流程1/scripts/nature_bridge.py check …`。\n")
+                 "`uv run python scripts/nature_bridge.py check …`。\n")
 
     L.append("---\n")
     L.append("*本报告由并行 subagent 逐篇解读后汇总；正文来源按报告头分为 PDF 全文与结构化落地页正文，"

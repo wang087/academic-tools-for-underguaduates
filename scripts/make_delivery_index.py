@@ -19,9 +19,9 @@
 # **每一句结论都从文件里读**：文件不在就写「未产出」，不写死任何历史案例的话。
 #
 # 用法：
-#   uv run python 流程1/scripts/make_delivery_index.py            # 自动判别链路
-#   uv run python 流程1/scripts/make_delivery_index.py --direction 神经与脑科学
-#   uv run python 流程1/scripts/make_delivery_index.py --paper-only    # 只出作者链路
+#   uv run python scripts/make_delivery_index.py            # 自动判别链路
+#   uv run python scripts/make_delivery_index.py --direction 神经与脑科学
+#   uv run python scripts/make_delivery_index.py --paper-only    # 只出作者链路
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
@@ -339,7 +339,7 @@ def _paper_index(wd: pathlib.Path, author_dir: pathlib.Path, topic: str = "") ->
     A("")
     A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} | 作者工作文件夹：`{author_dir}` | 交付索引根：`{wd}`")
     A("> ")
-    A("> 流程：`流程1/` 作者论文分析链路（阶段 0 → A → … → I）")
+    A("> 流程：`` 作者论文分析链路（阶段 0 → A → … → I）")
     A("> ")
     A(f"> 本次**未执行**本科科研辅助前置链路（阶段 N/S/R/R2）"
       f"—— 如需入门链路交付物，请从阶段 N 重新接入。")
@@ -480,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
     A("")
     A(f"> 生成时间：{datetime.now():%Y-%m-%d %H:%M} | 工作文件夹：`{WD}`")
     A("> ")
-    A("> 流程：`流程1/` 本科生科研辅助链路（阶段 N → S → R → R① → R2 → R②）")
+    A("> 流程：`` 本科生科研辅助链路（阶段 N → S → R → R① → R2 → R②）")
     if site:
         A("> ")
         A(f"> **导师数据源（唯一）**：学部/学院官网 [{site}]({site})")

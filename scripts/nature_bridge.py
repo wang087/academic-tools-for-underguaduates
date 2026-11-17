@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ─────────────────────────────────────────────────────────────
-# nature_bridge.py —— 「流程1 ↔ 已并入的 nature-paper-card」唯一适配层
+# nature_bridge.py —— 「本流程 ↔ 已并入的 nature-paper-card」唯一适配层
 #
 # 为什么需要它：
-#   nature-paper-card 已并入 流程1/vendor/nature-paper-card/（**只并入这一个技能**），
+#   nature-paper-card 已并入 vendor/nature-paper-card/（**只并入这一个技能**），
 #   但它的脚本与本流程的「内容级校验器」各自为政
 #   （prepare_paper.py / audit_paper_card.py / check_interpretation.py）。
 #   若让 subagent 自己去拼路径，一旦目录挪动就会静默跑偏；
@@ -75,7 +75,7 @@ def _fix_streams() -> None:
         except Exception:
             pass
 
-FLOW_ROOT = pathlib.Path(__file__).resolve().parent.parent          # 流程1/
+FLOW_ROOT = pathlib.Path(__file__).resolve().parent.parent          # 
 REPO_ROOT = FLOW_ROOT.parent                                        # 仓库根
 
 AUDIT_LOCATOR_MODES = ("page-grounded", "structure-grounded", "source-limited")
@@ -137,7 +137,7 @@ def scratch_dir(prefix: str = "nature_bridge_") -> pathlib.Path:
     自动删除，而 `mkdir()` **不会** —— 建目录的活我们接了过来，回收的活
     也就一并接手。早期版本正是漏了这一点：调用方只 `unlink()` 临时**文件**、
     从不删**目录**，于是每跑一次 `check` 就在仓库里留下 2–3 个空文件夹
-    （实测 `流程1/` 下积了 14 个 `nature_bridge_{audit,src,norm}_*`，
+    （实测 `` 下积了 14 个 `nature_bridge_{audit,src,norm}_*`，
     跨 4 个 PID）。当 `gettempdir()` 因沙箱被解析到工作区内时，这些空壳
     就直接倒进了仓库。
 
@@ -201,7 +201,7 @@ def _first_existing(cands, marker: str):
 def paper_card_root():
     """`nature-paper-card` 技能根。
 
-    并入形态：**只并入这一个技能**，落在 `<流程1>/vendor/nature-paper-card/`。
+    并入形态：**只并入这一个技能**，落在 `vendor/nature-paper-card/`。
       候选顺序 ① 显式环境变量 → ② 流程内 vendor（分发版唯一存在的那份）
       → ③ 上游**单技能**目录（仅开发期回退，分发包里没有）。
     环境变量收两个名字：
@@ -716,7 +716,7 @@ def self_test() -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nature_bridge.py",
-        description="流程1 ↔ 已并入 nature 技能的唯一适配层（路径解析 + 审计 + 内容级校验）。",
+        description="本流程 ↔ 已并入 nature 技能的唯一适配层（路径解析 + 审计 + 内容级校验）。",
         epilog="退出码：0 = 通过；1 = 有 error；2 = 用法/读取/路径错误。",
     )
     sub = parser.add_subparsers(dest="cmd")

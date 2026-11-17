@@ -21,9 +21,9 @@
 #   并留下可追溯的计数。
 #
 # 用法：
-#   uv run python 流程1/scripts/search_screen.py --raw outputs/07_检索/search_raw.json
-#   uv run python 流程1/scripts/search_screen.py --raw … --threshold 0.25
-#   uv run python 流程1/scripts/search_screen.py --raw … --no-backfill
+#   uv run python scripts/search_screen.py --raw outputs/07_检索/search_raw.json
+#   uv run python scripts/search_screen.py --raw … --threshold 0.25
+#   uv run python scripts/search_screen.py --raw … --no-backfill
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 

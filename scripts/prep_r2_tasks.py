@@ -91,8 +91,8 @@ except Exception:                      # 单文件运行时也要能用
 
 FLOW1 = pathlib.Path(__file__).resolve().parent.parent
 
-# 本次运行的工作目录：与 `logutil.workdir()` **同一判据**（`流程1/<年月日>/`）。
-#   原来这里硬写 `FLOW1`，于是默认目录落到日期隔离前的旧布局 `流程1/outputs/03_领域概貌` ——
+# 本次运行的工作目录：与 `logutil.workdir()` **同一判据**（`<年月日>/`）。
+#   原来这里硬写 `FLOW1`，于是默认目录落到日期隔离前的旧布局 `outputs/03_领域概貌` ——
 #   不带 `--stage-dir` 时会去**改写历史案例的任务包**（静默、不报错）。
 try:
     from logutil import workdir as _workdir          # noqa: E402
@@ -107,7 +107,7 @@ def find_stage_dir(explicit: str | None) -> pathlib.Path | None:
 
     优先级：① `<本次工作目录>/.work_cdp/reviews/`（`reviews_prepare.py` 的规范产物位置）
     ② `<本次工作目录>/outputs/` 下含 tasks/ 的目录（历史布局）。
-    [X] 不回看 `流程1/outputs/` —— 那里躺着历史案例，静默选中会把它们的
+    [X] 不回看 `outputs/` —— 那里躺着历史案例，静默选中会把它们的
         任务包改写成本次的形态（宁可报错，也不要错答）。
     """
     if explicit:

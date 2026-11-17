@@ -36,7 +36,7 @@
 #     11 字段卡之外**额外**产出 16 节 Paper Card，并用 nature_bridge.py 的
 #     check 子命令（结构审计 + 数字回查原文）作为交付质量门。
 #   **只增不减**：11 字段卡照旧产出，interpret_build.py 等下游零改动。
-#   接线权威见 流程1/nature-integration/SKILL.md。
+#   接线权威见 nature-integration/SKILL.md。
 #
 # 用法：
 #   uv run --with pypdf python interpret_prepare.py
@@ -126,7 +126,7 @@ ENGINE_LABEL = {"legacy": "原有解读卡", "paper-card": "16 节 Paper Card"}
 USAGE = """阶段 H ①：为并行 subagent 组装单篇解读任务包（只读本地文件，不联网）
 
 用法：
-  python 流程1/scripts/interpret_prepare.py [选项]
+  python scripts/interpret_prepare.py [选项]
 
 选项：
   --tier=L1|L2|L3  解读档位（覆盖 prepare_plan.json 里的 interpret_tier）
@@ -555,8 +555,8 @@ def main() -> int:
                     if not _pc.get(k)]
         if _missing:
             print(f"[X] --engine=paper-card 不可用：解析不到 {', '.join(_missing)}。"
-                  f"请确认 流程1/vendor/nature-paper-card 与 "
-                  f"流程1/skills/paper-interpretation-writing 均已就位，"
+                  f"请确认 vendor/nature-paper-card 与 "
+                  f"skills/paper-interpretation-writing 均已就位，"
                   f"或改用 --engine=legacy。", file=sys.stderr)
             return 2
 
@@ -846,7 +846,7 @@ def main() -> int:
     if engine == "paper-card":
         print(f"   [INFO] paper-card 引擎：subagent 需**额外**产出 16 节卡片 → {PCARDDIR}")
         print("          并在交付前跑 nature_bridge.py check（审计 + 数字回查原文）；"
-              "提示词模板见 流程1/subagent-driven-review/SKILL.md § 7.3")
+              "提示词模板见 subagent-driven-review/SKILL.md § 7.3")
         print("          该引擎**只增不减**：11 字段 JSON 卡照旧产出，下游不受影响。")
     print(f"   全文级 {n_full} 篇 ｜ 仅摘要 {n_abs} 篇")
     if n_trunc:
@@ -875,7 +875,7 @@ def main() -> int:
     print(f"   清单：{OUTDIR / 'manifest.json'}")
     print("\n下一步：同一条消息内并行分派 4–6 个 subagent，"
           "每个只读自己的 task.json、只写自己的 result.json")
-    print("（提示词模板见 流程1/subagent-driven-review/SKILL.md § 7）")
+    print("（提示词模板见 subagent-driven-review/SKILL.md § 7）")
     return 0
 
 

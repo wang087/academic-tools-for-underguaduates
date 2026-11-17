@@ -28,7 +28,7 @@
 #   <WORKDIR>/<作者名>_研究方向文献终表.md
 #
 # 用法：
-#   uv run python 流程1/scripts/refs_curate.py
+#   uv run python scripts/refs_curate.py
 #     --cut=25           相关性阈值（0–100，越低保留越多）
 #     --keep-top=0       无论如何至少保留前 N 条（0=不设下限）
 #     --self-test        纯逻辑自检（不联网）
@@ -536,7 +536,7 @@ def main() -> int:
     hq = load_json(REFDIR / "high_quality.json")
     if not hq or not hq.get("items"):
         print("[X] 找不到 .work_cdp/refs/high_quality.json（或为空）")
-        print("  请先跑阶段 D2：uv run python 流程1/scripts/refs_backfill.py")
+        print("  请先跑阶段 D2：uv run python scripts/refs_backfill.py")
         return 2
     items = hq["items"]
 

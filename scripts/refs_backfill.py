@@ -35,7 +35,7 @@
 # 另产出交付物：<WORKDIR>/<作者名>_高质量文献列表.md（可 --no-report 关闭）
 #
 # 用法：
-#   uv run python 流程1/scripts/refs_backfill.py
+#   uv run python scripts/refs_backfill.py
 #     --min-citations=0       被引门槛（**v7.2 默认 0 = 不设门槛**；只作排序信号）
 #     --recent-years=5        "近年"的窗口（默认 5 年）
 #     --no-review-fulltext    跳过为综述取 OA 全文/详细摘要

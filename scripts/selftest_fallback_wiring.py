@@ -20,7 +20,7 @@
 #   那是要立刻发现的事故，不是「测试变强了」。
 #
 # 用法：
-#   uv run python 流程1/scripts/selftest_fallback_wiring.py
+#   uv run python scripts/selftest_fallback_wiring.py
 #     --keep      保留临时工作目录（默认跑完删除）
 #
 # 退出码：0 = 全部通过；1 = 有失败项

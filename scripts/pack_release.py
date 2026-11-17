@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # ─────────────────────────────────────────────────────────────
-# 打包发行版：把「流程1/」全流程 + 全部依赖输出为一个可独立运行的目录
+# 打包发行版：把本流程全流程 + 全部依赖输出为一个可独立运行的目录
 #
-# 产出（默认 `<仓库根>/流程1/`）：
-#   流程1/
-#   ├── SKILL.md / README.md / run_all.sh      # 主流程（路径已按新目录名重写）
+# 产出（默认 `<仓库根>/<源目录名>-release/`）：
+#   <发行目录>/
+#   ├── SKILL.md / README.md / run_all.sh      # 主流程（相对路径，无需按目录名重写）
 #   ├── scripts/                               # 全部脚本
 #   ├── templates/                             # 全部模板（含直连白名单/词表/分区表）
 #   ├── subagent-driven-review/SKILL.md        # 阶段 H/H2 子流程
@@ -17,12 +17,12 @@
 #   ├── vendor/nature-paper-card/               # 依赖：已并入的 nature-paper-card（Apache-2.0）
 #   ├── vendor/small-model-assets/              # 可选：训练后的 adapter_model.safetensors
 #   ├── README-PACKAGE.md                      # 打包说明（与原目录的差异）
-#   └── PACKAGE_MANIFEST.json                  # 逐文件 sha256 + 重写记录
+#   └── PACKAGE_MANIFEST.json                  # 逐文件 sha256（相对路径，无重写）
 #
 # 设计要点
-#   ① **路径重写**：原文档里写的是 `流程1/scripts/xxx.py`，打包后目录叫 `流程1/`，
-#      不改就会让人照着敲错命令。只重写 `流程1/` → `流程1/`，并用负向断言
-#      （`流程1/(?!1)`）保证**重复打包不会被改成 流程11/**。
+#   ① **相对路径，无需重写**：文档与脚本一律以流程根目录为锚点写相对路径
+#      （`scripts/xxx.py`、`SKILL.md`），不含固定文件夹名 —— 发行目录无论叫什么，
+#      照着文档敲命令都对。`rewrite_paths()` 因此恒等返回、重写计数恒 0。
 #   ② **依赖去重**：ppt-master 只带运行时必需的部分（skills/ + requirements.txt +
 #      许可证/赞助文件 —— 后者是它的 `attribution_guard.py` 完整性门要求的）；
 #      nature-paper-card **整体带走**（只并入了这一个技能，144 KB，
@@ -38,9 +38,9 @@
 #      收到包的人能自己确认"这份包是从哪个版本、改了哪些字符"。
 #
 # 用法：
-#   uv run python 流程1/scripts/pack_release.py
-#     --dest=<路径>       目标目录（默认 <仓库根>/流程1）
-#     --name=流程1        目标目录名（用于路径重写；默认取 --dest 的名字）
+#   uv run python scripts/pack_release.py
+#     --dest=<路径>       目标目录（默认 <仓库根>/<源目录名>-release）
+#     --name=<名>         目标目录名（默认取 --dest 的名字；相对路径下仅作标签）
 #     --no-vendor         不打包 vendor/（ppt-master 与 nature-paper-card 都不带，
 #                         只出流程本体；阶段 P 与阶段 H 的 paper-card 引擎将不可用）
 #     --force             目标已存在时先清空再打包
@@ -87,7 +87,7 @@ def _fix_streams() -> None:
 _fix_streams()
 
 _HERE = pathlib.Path(__file__).resolve().parent
-SRC = _HERE.parent                     # 流程1/
+SRC = _HERE.parent                     # 本流程根目录（文件夹名不限）
 REPO = SRC.parent                      # 仓库根
 
 # ── 日志（**文件型**：console=False）────────────────────────────
@@ -195,7 +195,7 @@ def parse_assets(argval) -> set:
 #   ★ install.ps1 安装可执行环境；模型基座由首次启动的 small_model.py 下载；
 #   ★ vendor 只带训练后的 adapter_model.safetensors，不带基座或 llama.cpp。
 _INSTALL_PS1 = r"""# ─────────────────────────────────────────────────────────────
-# 流程1 发行版 · 依赖安装（在**目标机器**上跑一次；pwsh 7）
+# 本流程发行版 · 依赖安装（在**目标机器**上跑一次；pwsh 7）
 #   .\install.ps1 -Device cuda130 -Source default
 #   .\install.ps1 -Device cpu                 # 无 NVIDIA 显卡
 # Device：torch 轮子索引（Blackwell sm_120 必须 cuda130 —— 旧轮子不含该架构）
@@ -229,11 +229,11 @@ Write-Host "[2/3] 流程与小模型层依赖" -ForegroundColor Cyan
 & $py -m pip install @pypi pypdf websocket-client pymupdf pillow networkx matplotlib `
     wordcloud python-igraph adjustText psutil PyYAML python-pptx transformers peft huggingface_hub `
     websockets httpx requests jsonschema
-$coreReq = Join-Path $here "流程1\requirements-visual.txt"
+$coreReq = Join-Path $here "requirements-visual.txt"
 if (Test-Path $coreReq) { & $py -m pip install @pypi -r $coreReq }
 
 Write-Host "[3/3] ppt-master 依赖" -ForegroundColor Cyan
-$req = Join-Path $here "流程1\vendor\ppt-master\requirements.txt"
+$req = Join-Path $here "vendor\ppt-master\requirements.txt"
 if (Test-Path $req) { & $py -m pip install @pypi -r $req }
 else { Write-Host "[!] 未找到 ppt-master requirements，跳过" -ForegroundColor Yellow }
 
@@ -242,7 +242,7 @@ Write-Host "[OK] 依赖安装完成。自检： .\start.ps1 doctor" -ForegroundC
 """
 
 _START_PS1 = r"""# ─────────────────────────────────────────────────────────────
-# 流程1 发行版 · 启动器（pwsh 7）
+# 本流程发行版 · 启动器（pwsh 7）
 #   .\start.ps1 doctor                      环境自检（模型层 + 流程离线）
 #   .\start.ps1 run <script.py> [args...]    用内嵌解释器跑流程脚本（替代 uv run）
 #   .\start.ps1 <python 参数...>             直接透传给内嵌解释器
@@ -254,7 +254,7 @@ param(
 $ErrorActionPreference = "Stop"
 $here = $PSScriptRoot
 $py = Join-Path $here "runtime\python.exe"
-$flow = Join-Path $here "流程1"
+$flow = $here
 if (-not (Test-Path $py)) { Write-Host "[X] 缺 runtime\python.exe —— 先跑 .\install.ps1" -ForegroundColor Red; exit 2 }
 $env:PATH = "$(Split-Path $py);$env:PATH"
 if (-not $env:HF_ENDPOINT) { $env:HF_ENDPOINT = "https://hf-mirror.com" }
@@ -289,29 +289,15 @@ def sha256(p: pathlib.Path) -> str:
 
 
 def rewrite_paths(text: str, name: str) -> tuple[str, int]:
-    """把 `流程1/` 重写成 `<name>/`。
+    """相对路径时代：**无需按目录名重写**，原样返回。
 
-    负向断言 `(?!1)` 之类不能写死 —— 目录名是参数化的。
-      这里改为：**只匹配后面不紧跟数字或该名字剩余部分**的形式，
-      即 `流程1/` 且 `流程` 之后不是 `1`/`2`… 也不是别的中文字。
-      简化且可靠的做法：匹配 `流程1/`，但排除 `流程<name尾部>/`。
+    历史上文档/脚本里写死了 `流程1/` 前缀，打包改名时要把它重写成 `<name>/`。
+    现已全面改为**相对路径**（锚点＝流程根目录，见 SKILL.md §1）：命令写
+    `scripts/x.py`、引用写 `SKILL.md`，不含任何固定文件夹名 —— 因此无论发行目录
+    叫什么，文档照着敲都对，不需要再做路径重写。保留本函数签名只为兼容调用点
+    与清单统计；重写计数恒为 0。
     """
-    if name == "流程":
-        return text, 0
-    suffix = name[len("流程"):] if name.startswith("流程") else name
-    # `流程1/` → `<name>/`；若已经是 `流程1/` 则不再动
-    pat = re.compile(r"流程1/(?!" + re.escape(suffix) + r")")
-    new, n = pat.subn(f"{name}/", text)
-    # ★ 恒等替换不能计数：当 `name == "流程1"` 时，`suffix == "1"`，
-    #   正则 `流程1/(?!1)` 会把 `流程1/` **替换成它自己** —— 文本没变，
-    #   但 subn 仍报 n=1，导致：
-    #     ① `--self-test` 的幂等断言 `(once == twice) and n2 == 0` 失败
-    #        （打包发行版改名 `流程` → `流程1` 后必然踩到，与本函数逻辑无关）；
-    #     ② 打包统计「N 个文件做了路径重写」虚高 —— 实际一个都没改。
-    #   故文本未变时一律返回 0，让「计数」忠实反映「是否真的改了」。
-    if new == text:
-        return text, 0
-    return new, n
+    return text, 0
 
 
 def iter_files(root: pathlib.Path, extra_exclude: set | None = None):
@@ -330,24 +316,24 @@ def iter_files(root: pathlib.Path, extra_exclude: set | None = None):
 
 def self_test() -> int:
     bad = 0
+    # 相对路径时代：rewrite_paths 恒等返回、重写计数 0（与发行目录名无关）
     cases = [
-        ("跑 uv run python 流程1/scripts/a.py", "流程1", "跑 uv run python 流程1/scripts/a.py"),
-        # 幂等：已经是 流程1/ 的不能再被改成 流程11/
-        ("跑 流程1/scripts/a.py", "流程1", "跑 流程1/scripts/a.py"),
-        ("见 流程1/SKILL.md §5.1", "流程1", "见 流程1/SKILL.md §5.1"),
-        ("本流程1/子流程 的边界", "流程1", "本流程1/子流程 的边界"),   # 保守：宁可多改
+        ("跑 uv run python scripts/a.py", "任意发行名"),
+        ("见 SKILL.md §5.1", "release"),
+        ("uv run python scripts/prepare_stage.py --check-all", "流程1"),
+        ("本流程/子流程 的边界", "dist"),
     ]
-    for src, name, want in cases:
-        got, _ = rewrite_paths(src, name)
-        if got != want:
+    for src, name in cases:
+        got, n = rewrite_paths(src, name)
+        if got != src or n != 0:
             bad += 1
-            print(f"  [X] rewrite({src!r}) = {got!r}，期望 {want!r}")
-    print(f"路径重写：{len(cases) - bad}/{len(cases)} 通过")
+            print(f"  [X] rewrite({src!r}, {name!r}) = {got!r}, n={n}，期望恒等且 n=0")
+    print(f"相对路径无需重写：{len(cases) - bad}/{len(cases)} 通过")
 
-    # 幂等性单独断言（这是最容易出的错：重复打包把 流程1 变成 流程11）
-    once, _ = rewrite_paths("流程1/scripts/x.py", "流程1")
-    twice, n2 = rewrite_paths(once, "流程1")
-    ok = (once == twice) and n2 == 0
+    # 幂等性：重复调用文本不变、计数恒 0
+    once, n1 = rewrite_paths("scripts/x.py", "release")
+    twice, n2 = rewrite_paths(once, "release")
+    ok = (once == twice == "scripts/x.py") and n1 == 0 and n2 == 0
     print(f"重复打包幂等：{'通过' if ok else '失败 → ' + twice}")
     bad += 0 if ok else 1
 
@@ -373,7 +359,7 @@ def _run(log) -> int:
                 return a.split("=", 1)[1]
         return d
 
-    dest = pathlib.Path(argval("dest") or (REPO / "流程1")).resolve()
+    dest = pathlib.Path(argval("dest") or (REPO / (SRC.name + "-release"))).resolve()
     name = argval("name") or dest.name
     no_vendor = "--no-vendor" in sys.argv
     dry = "--dry-run" in sys.argv
@@ -526,12 +512,12 @@ def _run(log) -> int:
     # ── ③b v17：依赖：已并入的 nature-paper-card（非外部依赖）──────
     #   只并入了**这一个**技能，整目录都是运行时/溯源材料，故整体带走
     #   （含 UPSTREAM.md 的补丁登记 —— 收包的人据此知道本地改动过什么）。
-    #   并入后 流程1 不再需要仓库根的 nature-skills-main 检出。
+    #   并入后本流程不再需要仓库根的 nature-skills-main 检出。
     if not no_vendor:
         ns_src = None
         for cand in (SRC / "vendor" / "nature-paper-card",
                      REPO / "nature-skills-main" / "skills" / "nature-paper-card",
-                     REPO / "流程1" / "vendor" / "nature-paper-card"):
+                     REPO / SRC.name / "vendor" / "nature-paper-card"):
             if (cand / "SKILL.md").exists():
                 ns_src = cand
                 break
@@ -711,7 +697,7 @@ def _run(log) -> int:
         print("    pwsh -File install.ps1 -Device cuda130 -Source tuna   # 装依赖")
         print("    pwsh -File start.ps1 doctor                           # 自检")
     else:
-        print(f"    uv run python {name}/scripts/selftest_pipeline.py --offline")
+        print(f"    uv run python scripts/selftest_pipeline.py --offline")
     return 0
 
 
@@ -741,17 +727,17 @@ def portable_manifest(manifest: dict) -> dict:
 def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L = []
     L.append(f"# {name} · 打包发行版说明\n")
-    L.append(f"> 本目录是 `流程1/` 的**自包含发行版**：全流程脚本 + 模板 + 子流程文档 "
-             f"+ 依赖（`vendor/ppt-master`、`vendor/nature-paper-card`、`skills/`）。")
+    L.append(f"> 本目录是**本流程的自包含发行版**：全流程脚本 + 模板 + 子流程文档 "
+             f"+ 依赖（`vendor/ppt-master`、`vendor/nature-paper-card`、`vendor/opendataloader`、`skills/`）。")
     L.append(f"> 源目录：`{pathlib.Path(manifest['source']).name}`")
     L.append(f"> 文件数：**{len(manifest['files'])}** ｜ "
              f"路径重写：**{len(manifest['rewritten'])}** 个文件\n")
 
-    L.append("## 与原 `流程1/` 目录的差异\n")
+    L.append("## 与源目录的差异\n")
     L.append("| 项 | 说明 |")
     L.append("|---|---|")
-    L.append(f"| 目录名 | `流程1/` → `{name}/`；**文档与脚本里的路径引用已同步重写**"
-             f"（{len(manifest['rewritten'])} 个文件），照着文档敲命令不会敲错 |")
+    L.append(f"| 目录名 | 源目录 → `{name}/`；**文档与脚本均为相对路径**（锚点＝流程根目录），"
+             f"不含固定文件夹名，无需路径重写（{len(manifest['rewritten'])} 个），照着文档敲命令不会敲错 |")
     L.append("| 依赖 ① | `vendor/ppt-master/`（pptx 生成依赖，阶段 P 用）。"
              "`ppt_brief.py` / `selftest_pipeline.py` **优先**用这份随包副本 |")
     L.append("| 依赖 ② | `vendor/nature-paper-card/`（**只并入了这一个** nature 技能，Apache-2.0，"
@@ -763,7 +749,7 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L.append("| 未包含 | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）、"
              "`docs/assets/`（上游其余技能与官网素材）—— "
              "属开发/用户数据或纯示例素材，不应随包分发 |")
-    L.append("| 内容 | 其余文件与源目录**逐字节一致**（除路径重写）；"
+    L.append("| 内容 | 其余文件与源目录**逐字节一致**（相对路径，无需重写）；"
              "可用 `PACKAGE_MANIFEST.json` 的 sha256 核验 |")
     L.append("")
 
@@ -780,19 +766,19 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
         L.append(f"pwsh -File start.ps1 run scripts/{{阶段脚本}}.py")
     else:
         L.append("# ① 端到端自检（离线 20 项，不联网、秒级）")
-        L.append(f"uv run python {name}/scripts/selftest_pipeline.py --offline")
+        L.append(f"uv run python scripts/selftest_pipeline.py --offline")
         L.append("#    联网全量（38 项）")
-        L.append(f"uv run python {name}/scripts/selftest_pipeline.py")
+        L.append(f"uv run python scripts/selftest_pipeline.py")
         L.append("")
         L.append("# ② 阶段 0：准备阶段（在对话里收齐选择后落盘）")
-        L.append(f"uv run python {name}/scripts/prepare_stage.py \\")
+        L.append(f"uv run python scripts/prepare_stage.py \\")
         L.append("    --set output_format=markdown --set translate=no \\")
         L.append("    --set reverse_refs=yes --set make_ppt=no")
-        L.append(f"uv run python {name}/scripts/prepare_stage.py --check-all")
+        L.append(f"uv run python scripts/prepare_stage.py --check-all")
     L.append("```")
     L.append("")
-    L.append(f"完整流程见 [`{name}/SKILL.md`]({name}/SKILL.md)；"
-             f"上手看 [`{name}/README.md`]({name}/README.md)。")
+    L.append(f"完整流程见 [`SKILL.md`](SKILL.md)；"
+             f"上手看 [`README.md`](README.md)。")
     L.append("")
 
     L.append("## 环境要求\n")
@@ -842,7 +828,7 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L.append("| 层 | 内容 | 方式 |")
     L.append("|---|---|---|")
     L.append("| 第一层 | 元数据 / **摘要** / **综述题录** / 白名单开源库 | 允许直连"
-             f"（白名单：`{name}/templates/直连白名单.json`） |")
+             f"（白名单：`templates/直连白名单.json`） |")
     L.append("| 第二层 | **原文全文**（PDF / HTML，含 OA） | 禁止直连，一律走 CDP |")
     L.append("| 回退 | 第一层失败 | -> 转 CDP（`grab_abstracts.py --retry-failed`） |")
     L.append("")
@@ -862,7 +848,7 @@ def render_notes(name: str, dest: pathlib.Path, manifest: dict) -> str:
     L.append("PY")
     L.append("")
     L.append("# 2) 跑自检（能跑通 = 依赖齐全）")
-    L.append(f"uv run python {name}/scripts/selftest_pipeline.py --offline")
+    L.append(f"uv run python scripts/selftest_pipeline.py --offline")
     L.append("```")
     L.append("")
     return "\n".join(L)

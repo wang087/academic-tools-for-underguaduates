@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_DOCS = (ROOT / "README.md", ROOT / "SKILL.md")
 EXCLUDED_PARTS = {".git", ".work_cdp", "vendor"}
 PATH_RE = re.compile(
-    r"(?<![\w.$-])(?:流程1/|<[^>]+>/)?(?:skills/[A-Za-z0-9_.-]+/)?"
+    r"(?<![\w.$-])(?:<[^>]+>/)?(?:skills/[A-Za-z0-9_.-]+/)?"
     r"(?:scripts|optional-cdp-fulltext|subagent-driven-review|"
     r"ppt-integration|nature-integration|templates|run_all\.sh|README\.md|SKILL\.md)"
     r"(?:/[A-Za-z0-9_.-]+)*"
@@ -33,7 +33,7 @@ def documents(all_docs: bool) -> list[pathlib.Path]:
 def normalize(raw: str) -> str:
     value = raw.rstrip(TRAILING)
     value = re.sub(r":\d+(?:-\d+)?$", "", value)
-    value = value.removeprefix("流程1/").removeprefix("<流程1>/")
+    # 相对路径无需剥离文件夹前缀；含占位符（<…>）或通配符的引用（多为外部 skill）跳过
     if any(mark in value for mark in ("*", "$", "<", ">", "...")):
         return ""
     return value.rstrip("/")

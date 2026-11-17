@@ -15,7 +15,7 @@
 #   报告的职责是让读者能判断：这份检索可不可信、漏没漏、能不能复现。
 #
 # 用法：
-#   uv run python 流程1/scripts/search_report.py --screened outputs/07_检索/search_screened.json
+#   uv run python scripts/search_report.py --screened outputs/07_检索/search_screened.json
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 

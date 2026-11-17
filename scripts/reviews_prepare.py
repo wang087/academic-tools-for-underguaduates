@@ -18,21 +18,21 @@
 #
 # 用法：
 #   # ① 从阶段 R 的检索结果组装任务包
-#   uv run python 流程1/scripts/reviews_prepare.py --input .work_cdp/reviews/reviews.json
+#   uv run python scripts/reviews_prepare.py --input .work_cdp/reviews/reviews.json
 #
 #   # ② 直接接 paginate.py 的输出（Europe PMC 原始 JSON）
-#   uv run python 流程1/scripts/reviews_prepare.py \
+#   uv run python scripts/reviews_prepare.py \
 #       --from-europepmc .work_cdp/reviews/europepmc.json
 #
 #   # ③ 把摘要补齐（可选，联网；缺摘要时任务包仍可用，证据层级标 abstract-only）
-#   uv run python 流程1/scripts/reviews_prepare.py --fetch-abstracts
+#   uv run python scripts/reviews_prepare.py --fetch-abstracts
 #
 #   # ④ 自定义输出目录 / 只处理前 N 篇
-#   uv run python 流程1/scripts/reviews_prepare.py --input … --limit 8
+#   uv run python scripts/reviews_prepare.py --input … --limit 8
 #
 #   # ⑤ 覆盖综述解读档位（可选；缺省读 .work_cdp/prepare_plan.json 的
 #   #    review_interpret_tier，再退回默认 L3）
-#   uv run python 流程1/scripts/reviews_prepare.py --input … --tier L2
+#   uv run python scripts/reviews_prepare.py --input … --tier L2
 #   #    档位写进每个任务包与 manifest.json，供 subagent 与 reviews_build 使用
 #
 # 可移植配置：PAPER_WORKDIR
@@ -449,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("下一步（阶段 R2）：**在同一条消息内**并行分派 4–6 个 subagent，")
     print("  每篇一个，各读自己的 task.json、各写自己的 result.json。")
-    print("  提示词模板见 流程1/subagent-driven-review/SKILL.md §7.2（领域概貌版）。")
+    print("  提示词模板见 subagent-driven-review/SKILL.md §7.2（领域概貌版）。")
     print("═" * 66)
     journal("R", "reviews.prepare", count=payload["count"],
             reviews=payload["review_count"], oa=payload["oa_count"],

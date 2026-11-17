@@ -1,15 +1,15 @@
 ---
 name: author-paper-ppt-integration
-description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的演示文稿工作流嵌入作者论文分析流程。材料固定取自《<作者名>_论文解读.md》的文献亮点与《<作者名>_研究方向综述.md》的 review 结果；选择制作 PPT 后，必须进入 ppt-master 的两阶段确认，在其中选择自由设计/模板及具体设计风格，再生成 design_spec.md 与 spec_lock.md。当需要把作者文献分析结果做成 PPT 时使用。
+description: SKILL.md 的子流程（阶段 P）——把 ppt-master 的演示文稿工作流嵌入作者论文分析流程。材料固定取自《<作者名>_论文解读.md》的文献亮点与《<作者名>_研究方向综述.md》的 review 结果；选择制作 PPT 后，必须进入 ppt-master 的两阶段确认，在其中选择自由设计/模板及具体设计风格，再生成 design_spec.md 与 spec_lock.md。当需要把作者文献分析结果做成 PPT 时使用。
 ---
 
 # 阶段 P · PPT 生成（ppt-master 整合）
 
 > ## 从属关系（先读）
 >
-> **本文件是 `流程1/SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 P」。**
+> **本文件是 `SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 P」。**
 >
-> - 冲突时**一律以 `流程1/SKILL.md` 为准**；
+> - 冲突时**一律以 `SKILL.md` 为准**；
 > - 本文件**不重新定义** ppt-master 的任何内部步骤，只定义**如何进入**它、
 >   **哪些环节与主流程衔接**、以及**各环节必须遵守哪些质量门**；
 > - ppt-master 自己的执行纪律（`skills/ppt-master/SKILL.md` 的
@@ -81,7 +81,7 @@ description: 流程1/SKILL.md 的子流程（阶段 P）——把 ppt-master 的
 
 ```bash
 # ① 生成材料 + design_spec + spec_lock（一条命令）
-uv run python 流程1/scripts/ppt_brief.py --pages=standard
+uv run python scripts/ppt_brief.py --pages=standard
 #    可选：--dry-run 先看会写什么；--title=… --project-name=… --canvas=ppt169
 #    可选：--ppt-dir=<ppt-master 路径>，或用 PPT_MASTER_DIR 环境变量
 
@@ -92,7 +92,7 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
 #     正文里单独的 `<`（如 `p < 0.05`、`<5%`）与裸 `&`（如 `R&D`）都会让 XML 无法解析。
 #     上游质检器只报 `not well-formed (invalid token): line N, column M` ——
 #     看不出是哪种字符、也不知道该怎么改；本流程的预检**定位到行并给出修法**。
-uv run python 流程1/scripts/ppt_brief.py --check-svg <project>/svg_output
+uv run python scripts/ppt_brief.py --check-svg <project>/svg_output
 
 # ③b SVG 质检（必须 0 error）
 uv run python ppt-master/skills/ppt-master/scripts/svg_quality_checker.py <project>

@@ -18,7 +18,7 @@
 #   · enrich 改为透传环境变量回退，不再因缺 --surname/--given 而失效
 #   · CDP 档位可由 PAPER_CDP_LEVEL 统一指定（启动与崩溃重启同档）
 #
-# [WARN] 本脚本**必须**配合 流程1/SKILL.md 使用；不要绕过流程自编抓取步骤。
+# [WARN] 本脚本**必须**配合 SKILL.md 使用；不要绕过流程自编抓取步骤。
 # ══════════════════════════════════════════════════════════════════
 set -u
 # 管道中的前置脚本失败必须传递出来，不能被 tail 的成功码掩盖。
@@ -26,15 +26,15 @@ set -o pipefail
 
 AUTHOR_NAME="${1:-}"
 ORCID_ID="${2:-}"
-# 输出根（用户指示）：默认 <流程1>/<年月日>/<作者名>，即按天隔离的作者目录。
+# 输出根（用户指示）：默认 <年月日>/<作者名>，即按天隔离的作者目录。
 #   仍可用第 3 个参数覆盖（换盘/换机时用）。
 BASE_DIR="${3:-$(cd "$(dirname "$0")" && pwd)/$(date +%Y%m%d)}"
 N_INST="${4:-3}"
 
 if [ -z "$AUTHOR_NAME" ] || [ -z "$ORCID_ID" ]; then
-  echo "用法: bash run_all.sh \"<作者姓名>\" \"<ORCID>\" [\"<输出根>\" 默认 流程1/<年月日>] [实例数 默认3]"
+  echo "用法: bash run_all.sh \"<作者姓名>\" \"<ORCID>\" [\"<输出根>\" 默认 <年月日>] [实例数 默认3]"
   echo "      例: bash run_all.sh 刘北明 0000-0000-0000-0000"
-  echo "          → 输出落 流程1/$(date +%Y%m%d)/刘北明/"
+  echo "          → 输出落 $(date +%Y%m%d)/刘北明/"
   exit 1
 fi
 
@@ -103,7 +103,7 @@ if [ ! -f "${WORKDIR}/.work_cdp/prepare_plan.json" ]; then
   echo "[0.5] [WARN] 未找到 .work_cdp/prepare_plan.json（阶段 0 未执行）"
   echo "      将**保守跳过**反向参考文献网络（D2/G2/H2）等可选环节。"
   echo "      建议先在对话里确认选择，再跑："
-  echo "        uv run python 流程1/scripts/prepare_stage.py --set output_format=markdown \\"
+  echo "        uv run python scripts/prepare_stage.py --set output_format=markdown \\"
   echo "            --set reverse_refs=yes --set translate=no --set make_ppt=no"
 fi
 if gate D2; then RUN_D2=1; else RUN_D2=0; echo "[0.5] 阶段 D2 已按准备计划跳过"; fi
@@ -117,8 +117,8 @@ TIER_H="$(uv run python "${SDIR}/prepare_stage.py" --tier H  2>/dev/null | tr -d
 TIER_REVIEW="$(uv run python "${SDIR}/prepare_stage.py" --tier H2 2>/dev/null | tr -d '[:space:]')"
 if [ -n "${TIER_H}" ]; then
   echo "[0.6] 解读档位：作者论文 ${TIER_H}；综述类（H2/R2）${TIER_REVIEW:-L3}"
-  echo "      改档： uv run python 流程1/scripts/prepare_stage.py --set interpret_tier=L1|L2|L3"
-  echo "             uv run python 流程1/scripts/prepare_stage.py --set review_interpret_tier=L1|L2|L3"
+  echo "      改档： uv run python scripts/prepare_stage.py --set interpret_tier=L1|L2|L3"
+  echo "             uv run python scripts/prepare_stage.py --set review_interpret_tier=L1|L2|L3"
 else
   echo "[0.6] [INFO] 未读到解读档位（将按默认：作者论文 L2、综述类 L3）"
 fi
@@ -132,9 +132,9 @@ if [ -n "${ENGINE_H}" ]; then
   echo "[0.7] 解读引擎：${ENGINE_H}"
   if [ "${ENGINE_H}" = "paper-card" ]; then
     echo "      深读卡由已并入的 nature-paper-card 产出（流程内，无外部依赖）"
-    echo "      交付前质量门： uv run python 流程1/scripts/nature_bridge.py check --help"
+    echo "      交付前质量门： uv run python scripts/nature_bridge.py check --help"
   fi
-  echo "      改引擎： uv run python 流程1/scripts/prepare_stage.py --set interpret_engine=legacy|paper-card"
+  echo "      改引擎： uv run python scripts/prepare_stage.py --set interpret_engine=legacy|paper-card"
 else
   echo "[0.7] [INFO] 未读到解读引擎（将按默认 legacy：既有 11 字段解读卡）"
 fi
@@ -232,8 +232,8 @@ uv run --with websocket-client --with pypdf python "${CDP_MOD}/download_all_full
   --manual-wait=5 --grace=35 2>&1 | tail -25
 else
   echo "[6/7] 跳过 CDP 全文抓取（模块未安装）→ 备用链路："
-  echo "      uv run python 流程1/scripts/fulltext_router.py --fallback ..."
-  echo "      uv run python 流程1/scripts/preflight_fallback.py"
+  echo "      uv run python scripts/fulltext_router.py --fallback ..."
+  echo "      uv run python scripts/preflight_fallback.py"
 fi
 
 # ── 7. 生成 GB/T 7714 列表 + 全文校验 + 清单 ───────────────────

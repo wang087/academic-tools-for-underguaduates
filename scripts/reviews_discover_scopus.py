@@ -5,7 +5,7 @@
 只把外部 skill `skills/scopus-wos-lit` 的综述发现能力产出为阶段 R 认识的
 `reviews.json`（`{"records": [...]}`），随后可直接交给：
 
-    python 流程1/scripts/reviews_prepare.py --input .work_cdp/reviews/reviews_scopus.json
+    python scripts/reviews_prepare.py --input .work_cdp/reviews/reviews_scopus.json
 
 设计约束：
   * 默认不启用；只有显式调用本脚本才会访问 Scopus/WoS/OpenAlex。
@@ -253,7 +253,7 @@ def main(argv=None) -> int:
         print("[X] 没有综述入选：检查方向词、--rank-policy、--min-citations 或改用 --source openalex。",
               file=sys.stderr)
         return 3
-    print("下一步：python 流程1/scripts/reviews_prepare.py --input "
+    print("下一步：python scripts/reviews_prepare.py --input "
           f"{out_path.relative_to(workdir)} --fetch-abstracts")
     return 0
 

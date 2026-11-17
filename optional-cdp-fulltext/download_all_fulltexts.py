@@ -76,8 +76,8 @@ _fix_streams()
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
-# ── 本文件属于**可选模块** `流程1/optional-cdp-fulltext/`：
-#   核心脚本仍在 `流程1/scripts/`，这里把它加进 sys.path 才能 import。
+# ── 本文件属于**可选模块** `optional-cdp-fulltext/`：
+#   核心脚本仍在 `scripts/`，这里把它加进 sys.path 才能 import。
 #   整目录删掉 = 本模块不可用，流程改走备用链路（见本目录 README.md）。
 _CORE_SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 if str(_CORE_SCRIPTS) not in sys.path:

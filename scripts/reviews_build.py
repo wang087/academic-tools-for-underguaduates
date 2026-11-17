@@ -15,14 +15,14 @@
 #
 # 用法：
 #   # ① 汇总（subagent 写完全部 result.json 之后）
-#   uv run python 流程1/scripts/reviews_build.py
+#   uv run python scripts/reviews_build.py
 #
 #   # ② 自定义目录 / 输出文件名
-#   uv run python 流程1/scripts/reviews_build.py \
+#   uv run python scripts/reviews_build.py \
 #       --dir .work_cdp/reviews --out .work_cdp/reviews/领域概貌.md
 #
 #   # ③ 只看状态（有几张卡、缺哪几篇）
-#   uv run python 流程1/scripts/reviews_build.py --status
+#   uv run python scripts/reviews_build.py --status
 #
 # 综述解读档位（`review_interpret_tier`）：只做「读档位 → 报告开头与末尾摘要显示」，
 #   **不改任何既有渲染行为**（默认 L3，等于现状）。读取优先级：

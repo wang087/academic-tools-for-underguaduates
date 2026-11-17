@@ -12,7 +12,7 @@
 #   1) `fulltext-allow-publisher-api` 开关（环境变量
 #      `LIT_FLOW1_ALLOW_PUBLISHER_API=1` 或 config 里的 `allow_publisher_api: true`）
 #      —— 默认**关闭**。理由：这是本流程第一次对出版社域名发**程序化直连**请求。
-#      流程1 的 §5.1 分层把「原文全文」划为第二层（一律走 CDP），
+#      本流程 的 §5.1 分层把「原文全文」划为第二层（一律走 CDP），
 #      而出版商 API 是**授权接口**、不是抓网页，性质不同 —— 但性质不同
 #      不等于可以默认打开。必须由使用者显式表态。
 #   2) 该出版商配了**可用**凭据（见 fulltext_credentials.is_usable）
@@ -60,8 +60,8 @@ import urllib.request
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
-# ── 本文件属于**可选模块** `流程1/optional-cdp-fulltext/`：
-#   核心脚本仍在 `流程1/scripts/`，这里把它加进 sys.path 才能 import。
+# ── 本文件属于**可选模块** `optional-cdp-fulltext/`：
+#   核心脚本仍在 `scripts/`，这里把它加进 sys.path 才能 import。
 #   整目录删掉 = 本模块不可用，流程改走备用链路（见本目录 README.md）。
 _CORE_SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "scripts"
 if str(_CORE_SCRIPTS) not in sys.path:

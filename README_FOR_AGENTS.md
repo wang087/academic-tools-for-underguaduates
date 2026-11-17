@@ -1,20 +1,23 @@
-# 流程1 · 本科生文献检索与科研辅助
+# 本流程 · 本科生文献检索与科研辅助
 
 > ## 目录与术语约定（**默认，无需每次说明**）
 >
+> **路径锚点**：所有相对路径与命令一律以**本流程根目录**（含 `SKILL.md`、`scripts/`
+> 的目录，即本目录）为当前目录（CWD）。**本流程不依赖任何固定文件夹名** ——
+> 目录可任意命名/移动/打包，内部引用均为相对路径。
+>
 > | 说法                        | 指什么                                                                         |
 > | --------------------------- | ------------------------------------------------------------------------------ |
-> | **"流程" / "本流程"** | 默认指**`流程1/`**（本目录）。未特别说明时，所有改动与执行都以这里为准 |
-> | **"工作文件夹"**      | 仓库根目录**`scientific-agent-skills/`**（本目录的上一级）             |
-> | **"工作根目录文件"**  | 如`研究方法与关键词总表.md`、`skills/` 等，都在**工作文件夹**下      |
-> | **（自包含发行时）**  | 若只拷走 `流程1/`：把上面的"工作文件夹"理解为 `流程1/` —— 流程内已自带 `skills/`、`templates/`、`vendor/`、`研究方法与关键词总表.md` 的同名副本 |
+> | **"流程" / "本流程"** | 默认指**本流程根目录**（本目录）。未特别说明时，所有改动与执行都以这里为准 |
+> | **"工作文件夹"**      | 开发仓库根目录（本目录的上一级，如 `scientific-agent-skills/`）；自包含发行时即本目录 |
+> | **"工作根目录文件"**  | 如`研究方法与关键词总表.md`、`skills/` 等，都在**本目录**下      |
+> | **（自包含发行时）**  | 本目录已自带 `skills/`、`templates/`、`vendor/`、`研究方法与关键词总表.md` 的运行副本，无需仓库其余部分；"工作文件夹"一律理解为**本目录** |
 >
-> [WARN] `流程/`（**无数字后缀**）是更早的一个分支，与 `流程1/` 已分叉。
-> 除非用户明确点名 `流程/`，否则一切以 `流程1/` 为准。
+> [WARN] 同级若存在更早的 `流程/` 分支（与本目录已分叉），除非用户明确点名，否则一切以**本目录**为准。
 
 > ## [STOP] 使用本流程的硬性要求（最高优先级，先读）
 >
-> **本文件夹（`流程1/`）中的流程即为权威流程。执行本任务时必须：**
+> **本文件夹（`本目录`）中的流程即为权威流程。执行本任务时必须：**
 >
 > 1. **使用本流程** —— 依 [SKILL.md](SKILL.md)（主流程）与各子流程
 >    （[subagent-driven-review](subagent-driven-review/SKILL.md) 阶段 H/H2/R2、
@@ -180,7 +183,7 @@ attempted/clicked/verified/blocked/unchanged；旧bool接口仅实际verified返
 文档引用可用以下离线命令检查：
 
 ```bash
-uv run python 流程1/scripts/check_doc_refs.py
+uv run python scripts/check_doc_refs.py
 ```
 
 ### 核心 JSON schema（第一批）
@@ -189,16 +192,16 @@ uv run python 流程1/scripts/check_doc_refs.py
 
 | 对象 | schema | 校验命令 |
 |---|---|---|
-| 阶段计划 | `schemas/stage-plan.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind stage-plan <prepare_plan.json>` |
-| 题录记录 | `schemas/bibliography-record.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind bibliography-record <题录.json>` |
-| 消歧结果 | `schemas/disambiguation-result.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind disambiguation-result <disambiguated.json>` |
-| 全文状态 | `schemas/fulltext-state.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind fulltext-state <fulltext_state.json>` |
-| 作者解读任务包 | `schemas/interpret-task.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind interpret-task <task.json>` |
-| 综述解读任务包 | `schemas/review-task.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind review-task <task.json>` |
-| 作者解读卡 | `schemas/interpret-card.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind interpret-card <result.json>` |
-| 综述解读卡 | `schemas/review-card.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind review-card <result.json>` |
-| 图谱数据 | `schemas/graph-data.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind graph-data <graph_data.json>` |
-| 统一运行状态 | `schemas/run-status.schema.json` | `uv run python 流程1/scripts/validate_json_schema.py --kind run-status <run_status.json>` |
+| 阶段计划 | `schemas/stage-plan.schema.json` | `uv run python scripts/validate_json_schema.py --kind stage-plan <prepare_plan.json>` |
+| 题录记录 | `schemas/bibliography-record.schema.json` | `uv run python scripts/validate_json_schema.py --kind bibliography-record <题录.json>` |
+| 消歧结果 | `schemas/disambiguation-result.schema.json` | `uv run python scripts/validate_json_schema.py --kind disambiguation-result <disambiguated.json>` |
+| 全文状态 | `schemas/fulltext-state.schema.json` | `uv run python scripts/validate_json_schema.py --kind fulltext-state <fulltext_state.json>` |
+| 作者解读任务包 | `schemas/interpret-task.schema.json` | `uv run python scripts/validate_json_schema.py --kind interpret-task <task.json>` |
+| 综述解读任务包 | `schemas/review-task.schema.json` | `uv run python scripts/validate_json_schema.py --kind review-task <task.json>` |
+| 作者解读卡 | `schemas/interpret-card.schema.json` | `uv run python scripts/validate_json_schema.py --kind interpret-card <result.json>` |
+| 综述解读卡 | `schemas/review-card.schema.json` | `uv run python scripts/validate_json_schema.py --kind review-card <result.json>` |
+| 图谱数据 | `schemas/graph-data.schema.json` | `uv run python scripts/validate_json_schema.py --kind graph-data <graph_data.json>` |
+| 统一运行状态 | `schemas/run-status.schema.json` | `uv run python scripts/validate_json_schema.py --kind run-status <run_status.json>` |
 
 校验器会兼容题录常见的 DOI 索引对象、裸列表，以及作者字符串/结构化作者列表；阶段计划保留 `_gates`、`_confirmations` 等控制字段。消歧结果明确区分 `confirmed`、`review` 和 `dropped.code`；全文状态允许逐篇 DOI 记录与站点状态共存；作者任务包与综述任务包分别约束，不合并为一个模糊 schema。作者解读卡兼容综述型 `key_findings` 和机制型 `verified_conclusions` 等历史字段，综述解读卡兼容全文与摘要证据层级；图谱数据约束节点、边、词云和方向聚类的稳定外形，同时保留算法诊断字段；统一运行状态约束交付索引使用的机读状态事实源。交付索引本身当前是 Markdown 展示层，尚无对应 JSON 产物，因此不伪造独立的交付索引 schema，也不改写历史索引。
 
@@ -211,23 +214,23 @@ uv run python 流程1/scripts/check_doc_refs.py
 
 ```bash
 # 院系首页或教研室人员目录：同站有界发现
-uv run python 流程1/scripts/harvest_faculty.py --site https://chem.ustc.edu.cn/ --stage list --out outputs/ustc_chem
+uv run python scripts/harvest_faculty.py --site https://chem.ustc.edu.cn/ --stage list --out outputs/ustc_chem
 
 # 明确的名单页：直接抓取列表、详情并归类
-uv run python 流程1/scripts/harvest_faculty.py --url https://www.hfuu.edu.cn/aibd/7262/list.htm --stage all
+uv run python scripts/harvest_faculty.py --url https://www.hfuu.edu.cn/aibd/7262/list.htm --stage all
 
 # 只探查、不写文件；可用 --explain 查看解析证据
-uv run python 流程1/scripts/faculty_discover.py --site https://chem.ustc.edu.cn/ --dry-run
-uv run python 流程1/scripts/faculty_discover.py --url https://chem.ustc.edu.cn/js/list.htm --explain --dry-run
+uv run python scripts/faculty_discover.py --site https://chem.ustc.edu.cn/ --dry-run
+uv run python scripts/faculty_discover.py --url https://chem.ustc.edu.cn/js/list.htm --explain --dry-run
 
 # 已有预设、学校 key 与中文别名继续可用
-uv run python 流程1/scripts/harvest_faculty.py --unit ustc:chem --out outputs/ustc_chem
-uv run python 流程1/scripts/harvest_faculty.py --unit 中国科学技术大学化学系 --out outputs/ustc_chem
+uv run python scripts/harvest_faculty.py --unit ustc:chem --out outputs/ustc_chem
+uv run python scripts/harvest_faculty.py --unit 中国科学技术大学化学系 --out outputs/ustc_chem
 
 # 改过官网引擎/发现契约后必跑，三套均为离线自检
-uv run python 流程1/scripts/selftest_engines.py
-uv run python 流程1/scripts/selftest_faculty_dom.py
-uv run python 流程1/scripts/selftest_faculty_discovery.py
+uv run python scripts/selftest_engines.py
+uv run python scripts/selftest_faculty_dom.py
+uv run python scripts/selftest_faculty_discovery.py
 ```
 
 运行时输出按主机名与 URL 哈希隔离，保留 `faculty_discovery.json`、`faculty_evidence.json`
@@ -262,8 +265,8 @@ uv run python 流程1/scripts/selftest_faculty_discovery.py
 > （限制沿进程树继承）。普通终端里执行一次即可：
 >
 > ```bash
-> uv run python 流程1/scripts/faculty_interact.py --start-browser --port 9222
-> uv run python 流程1/scripts/harvest_faculty.py --unit nju:chem --out outputs/nju_chem
+> uv run python scripts/faculty_interact.py --start-browser --port 9222
+> uv run python scripts/harvest_faculty.py --unit nju:chem --out outputs/nju_chem
 > ```
 >
 > 浏览器不可用时**优雅降级**：如实打印原因、该栏位记为「未取到」，
@@ -280,7 +283,7 @@ uv run python 流程1/scripts/selftest_faculty_discovery.py
 
 ```bash
 # 先查备选链路是否真的可用（只读；退出码 0=有可用路线 / 3=不可用）
-uv run python 流程1/scripts/preflight_fallback.py
+uv run python scripts/preflight_fallback.py
 ```
 
 > [WARN] 备选链路的机构路线需要**用户自己的**订阅与登录会话 ——
@@ -294,11 +297,11 @@ uv run python 流程1/scripts/preflight_fallback.py
 
 ```bash
 # ① 前台取全文的同时，后台抽文本/图片/任务包（幂等增量）
-uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_parallel.py
+uv run --with pypdf --with pillow --with pymupdf python scripts/extract_parallel.py
 
 # ② 收子代理：30–60 秒轮询一次，按剩余篇数决定下一批派几个
 #    退出码 0=齐了可汇总 / 3=仍在跑 / 4=有坏卡需重派 / 2=无任务包
-uv run python 流程1/scripts/agent_poll.py --stage H
+uv run python scripts/agent_poll.py --stage H
 ```
 
 **不要盲等固定时长**（`sleep 150` / `sleep 200` 之类）——
@@ -308,12 +311,12 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 
 ## 目录结构
 
-> ★★ **运行产物落在哪（用户指示）**：全部输出在 **`流程1/<年月日>/`** 下，按天隔离；
+> ★★ **运行产物落在哪（用户指示）**：全部输出在 **`<年月日>/`** 下，按天隔离；
 > 设了 `PAPER_AUTHOR` 时再加一级作者目录（`.work_cdp/` 是按作者的，同一天跑两位
 > 作者共用一级目录会互相覆盖）。**脚本默认值已内置，不必设环境变量**。
 >
 > ```
-> 流程1/20261006/
+> 20261006/
 > ├── outputs/{01_导师名单,07_检索}/       ← 阶段 S / R（尚无作者）
 > └── <作者名>/                            ← 阶段 0/A…I（设了 PAPER_AUTHOR）
 >     ├── .work_cdp/
@@ -323,7 +326,7 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 > 想改到别处（换盘/换机）再设 `PAPER_WORKDIR`；详见 [SKILL.md](SKILL.md) § 0 与 § 7。
 
 ```
-流程1/
+
 ├── SKILL.md                              # 技能主文件（工作流 + 工具清单 + 避坑指南）
 ├── README.md                             # 本文件（快速上手）
 ├── run_all.sh                            # 一键执行（建目录→起CDP→抓ORCID→Crossref→消歧→OA→下载→列表）
@@ -417,21 +420,21 @@ uv run python 流程1/scripts/agent_poll.py --stage H
 
 ```bash
 # ⓪ 准备阶段 —— 先在对话里收齐选择，再一条命令落盘（决定后续阶段是否执行）
-uv run python 流程1/scripts/prepare_stage.py \
+uv run python scripts/prepare_stage.py \
     --set output_format=markdown --set translate=no --set reverse_refs=yes \
     --set make_ppt=no --set refs_bibliography=yes --set curate_review=yes \
     --set interpret_tier=L2 --set review_interpret_tier=L3     # 解读档位
-uv run python 流程1/scripts/prepare_stage.py --check-all      # 看每阶段 run/skip + 两处档位
-uv run python 流程1/scripts/prepare_stage.py --audit          # 门控完备性自检
+uv run python scripts/prepare_stage.py --check-all      # 看每阶段 run/skip + 两处档位
+uv run python scripts/prepare_stage.py --audit          # 门控完备性自检
 #   档位查询（stdout 只有 L1|L2|L3，便于 T=$(…) 捕获）：
-#     uv run python 流程1/scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
-#     uv run python 流程1/scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
-#     uv run python 流程1/scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
+#     uv run python scripts/prepare_stage.py --tier H     # 作者论文（默认 L2）
+#     uv run python scripts/prepare_stage.py --tier H2    # 研究方向综述（默认 L3）
+#     uv run python scripts/prepare_stage.py --tier R2    # 领域概貌（默认 L3）
 
-# ★ 输出根（用户指示）：全部产物落在 流程1/<年月日>/ 下，按天隔离；
+# ★ 输出根（用户指示）：全部产物落在 <年月日>/ 下，按天隔离；
 #   设了 PAPER_AUTHOR 时再下一级作者目录（.work_cdp/ 是按作者的）。
 #   脚本默认值已内置该规则，**不设这行也会落对地方**：
-export PAPER_WORKDIR="$PWD/流程1/$(date +%Y%m%d)"   # 可省略
+export PAPER_WORKDIR="$PWD/$(date +%Y%m%d)"   # 可省略
 export CDP_PORT=9222
 
 # 作者信息一律运行时传入（脚本内零硬编码）——缺失时脚本会显式报错退出
@@ -450,52 +453,52 @@ export PAPER_ANCHOR_DOI="10.xxxx/代表作1,10.xxxx/代表作2"   # 确定无疑
 export PAPER_CDP_LEVEL=0
 
 # ① 启动 3 个 CDP Edge 实例（含弹窗抑制；档位 0/1/2/3）
-bash 流程1/scripts/start_edge_cdp.sh "$PAPER_WORKDIR" 9222 3 0
-uv run --with websocket-client python 流程1/scripts/cdp_pool.py status   # 探活
+bash scripts/start_edge_cdp.sh "$PAPER_WORKDIR" 9222 3 0
+uv run --with websocket-client python scripts/cdp_pool.py status   # 探活
 # 改过 CONSENT_JS 才需要跑（离线自检，零网络）：
-# uv run --with websocket-client python 流程1/scripts/selftest_consent.py
+# uv run --with websocket-client python scripts/selftest_consent.py
 
 # ② 身份核验 → 抓 ORCID 全量成果 → Crossref 核实 → 同名消歧
-uv run python 流程1/scripts/orcid_probe.py "$PAPER_ORCID"
-uv run --with websocket-client python 流程1/scripts/orcid_extract.py "$PAPER_ORCID"
-uv run python 流程1/scripts/fetch_crossref_all.py && uv run python 流程1/scripts/retry_crossref.py
-uv run python 流程1/scripts/enrich_crossref_authors.py     # 姓/名自动取 PAPER_SURNAME/GIVEN
-uv run python 流程1/scripts/disambiguate.py \
+uv run python scripts/orcid_probe.py "$PAPER_ORCID"
+uv run --with websocket-client python scripts/orcid_extract.py "$PAPER_ORCID"
+uv run python scripts/fetch_crossref_all.py && uv run python scripts/retry_crossref.py
+uv run python scripts/enrich_crossref_authors.py     # 姓/名自动取 PAPER_SURNAME/GIVEN
+uv run python scripts/disambiguate.py \
     --surname="$PAPER_SURNAME" --given="$PAPER_GIVEN" \
     --affil="<单位指纹>" --anchor-doi="$PAPER_ANCHOR_DOI"
 # 消歧结果由 scope.py 自动接入下载与著录两侧，无需手工过滤
-uv run python 流程1/scripts/unpaywall_check.py
+uv run python scripts/unpaywall_check.py
 
 # ②.5 反向查找参考文献（闸门：prepare_stage.py --check D2）
 #     元数据 API（OpenAlex），零浏览器、零风控、不下载任何 PDF
-uv run python 流程1/scripts/refs_backfill.py --min-citations=200
+uv run python scripts/refs_backfill.py --min-citations=200
 #     → 《<作者名>_高质量文献列表.md》＋ .work_cdp/refs/{source_refs,refs_pool,high_quality}.json
 
 # ③ 全文一律走 CDP（OA 与付费墙同等对待）；--manual-wait 必须 > 0
-uv run --with websocket-client --with pypdf python 流程1/optional-cdp-fulltext/download_all_fulltexts.py \
+uv run --with websocket-client --with pypdf python optional-cdp-fulltext/download_all_fulltexts.py \
     --n=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35
 
 # ④ 题名命名（新下载已自动题名；此步为历史文件补齐 + 索引登记）
-uv run python 流程1/scripts/rename_to_title.py --dry-run   # 先预览
-uv run python 流程1/scripts/rename_to_title.py
+uv run python scripts/rename_to_title.py --dry-run   # 先预览
+uv run python scripts/rename_to_title.py
 
 # ⑤ 生成列表 / 校验 / 清单
-uv run python 流程1/scripts/build_list.py
-uv run --with pypdf python 流程1/scripts/verify_pdfs.py
-uv run --with pypdf python 流程1/scripts/inventory_build.py   # 生成《全文清单.md》
+uv run python scripts/build_list.py
+uv run --with pypdf python scripts/verify_pdfs.py
+uv run --with pypdf python scripts/inventory_build.py   # 生成《全文清单.md》
 
 # ⑥ 中文翻译：素材 → HTML（内联图）→ PDF（含 CJK 校验）
-uv run --with pymupdf python 流程1/scripts/prep_paper.py "<原文PDF>"
-uv run --with pymupdf python 流程1/scripts/crop_by_images.py "<原文PDF>" "<figs.json>" "<图页>"
-uv run python 流程1/scripts/translation_build.py "<content.json>" "<figs.json>" "<翻译.html>"
-uv run --with pypdf python 流程1/scripts/render_html_pdf.py "<翻译.html>" "<输出PDF>"
+uv run --with pymupdf python scripts/prep_paper.py "<原文PDF>"
+uv run --with pymupdf python scripts/crop_by_images.py "<原文PDF>" "<figs.json>" "<图页>"
+uv run python scripts/translation_build.py "<content.json>" "<figs.json>" "<翻译.html>"
+uv run --with pypdf python scripts/render_html_pdf.py "<翻译.html>" "<输出PDF>"
 
 # ⑥.5 摘要链（**第一层直连优先，缺口转 CDP**）
-uv run python 流程1/scripts/fetch_direct.py
+uv run python scripts/fetch_direct.py
 #    ↑ S2 批量 → OpenAlex → Europe PMC → Crossref → PubMed，命中即停
 #    仅对 templates/直连白名单.json 内的域名发请求；表外一律拒绝
 #    若结尾提示仍有缺口 → 转第二层（需 CDP 实例在跑），再重跑本脚本折进产物：
-#    uv run --with websocket-client python 流程1/scripts/grab_abstracts.py --retry-failed
+#    uv run --with websocket-client python scripts/grab_abstracts.py --retry-failed
 
 # ⑦ 论文解读（阶段 H）：组装任务包 → 并行 subagent → 汇总
 #    档位随任务包下发（默认 interpret_tier=L2 详细）。
@@ -503,40 +506,40 @@ uv run python 流程1/scripts/fetch_direct.py
 #      L2 详细 = 逐篇卡片（本阶段既有形态）；L3 完整 = 深度解读。
 #      临时覆盖：… interpret_prepare.py --tier L3
 #    三档只差细节量，不差断言强度；规范见 skill paper-interpretation-writing
-uv run --with pypdf python 流程1/scripts/interpret_prepare.py
+uv run --with pypdf python scripts/interpret_prepare.py
 #    ↑ 产出 .work_cdp/interpret/tasks/*.json（题录+摘要+正文，自包含）
 #    然后在**同一条消息内**并行分派 4–6 个 subagent，每篇一个，
 #    各读自己的 task.json、各写自己的 result.json
-#    （提示词模板见 流程1/subagent-driven-review/SKILL.md § 7）
-uv run python 流程1/scripts/interpret_build.py            # → 《<作者名>_论文解读.md》
+#    （提示词模板见 subagent-driven-review/SKILL.md § 7）
+uv run python scripts/interpret_build.py            # → 《<作者名>_论文解读.md》
 # 可选：语义词族合并（把 framework/frameworks、CO2 capture/carbon dioxide capture 并成一族）
-# cp 流程1/templates/关键词词族模板.json "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
+# cp templates/关键词词族模板.json "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
 
 # 解读前先装**受控标签词表** + **学科通用词族**（消除并行 subagent 的标签漂移）
-cp 流程1/templates/方法范式标签词表.json     "$PAPER_WORKDIR/.work_cdp/tag_vocabulary.json"
-cp 流程1/templates/关键词词族_学科通用.json   "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
+cp templates/方法范式标签词表.json     "$PAPER_WORKDIR/.work_cdp/tag_vocabulary.json"
+cp templates/关键词词族_学科通用.json   "$PAPER_WORKDIR/.work_cdp/keyword_families.json"
 #   通用词族表是**底座不是终稿**：与本领域无关的族请删掉，避免报告里出现恒为 0 的噪声行
 
 # ⑧ 代表性文献的参考文献列表（闸门：--check G2）
-uv run python 流程1/scripts/refs_bibliography.py
+uv run python scripts/refs_bibliography.py
 #     → 《<作者名>_代表性文献参考文献.md》（**文章 → 参考文献**两部分，GB/T 7714）
 
 # ⑨ 去重与方向相关性整理 → 最终列表 → 研究方向综述（闸门：--check H2）
-uv run python 流程1/scripts/refs_curate.py                 # 去重 + 打分 + 剔除（剔除项逐条留档）
-uv run python 流程1/scripts/refs_prepare.py --top=40       # 组装自包含综述任务包
+uv run python scripts/refs_curate.py                 # 去重 + 打分 + 剔除（剔除项逐条留档）
+uv run python scripts/refs_prepare.py --top=40       # 组装自包含综述任务包
 #    ↑ 同样在**同一条消息内**并行分派 4–6 个 subagent（提示词见
 #      subagent-driven-review/SKILL.md § 7.1 **综述网络版**）
-uv run python 流程1/scripts/refs_build.py                  # → 《<作者名>_研究方向综述.md》
+uv run python scripts/refs_build.py                  # → 《<作者名>_研究方向综述.md》
 
 # ⑩ 可选 PPT（闸门：--check P）—— 材料自动取自 ⑦ 与 ⑨ 的产物
-uv run python 流程1/scripts/ppt_brief.py --pages=standard
+uv run python scripts/ppt_brief.py --pages=standard
 #     → 整理材料并初始化 ppt-master 项目；随后必须完成两阶段设计确认
 #     → 确认后才生成 design_spec.md / spec_lock.md
-#     余下按 流程1/ppt-integration/SKILL.md：手写 SVG → 质检 0 error → 串行导出
+#     余下按 ppt-integration/SKILL.md：手写 SVG → 质检 0 error → 串行导出
 ```
 
 > 环境变量：`PAPER_WORKDIR`（本次运行的输出根）、`CDP_PORT`（默认 9222）。
-> **未设置时取 `流程1/<年月日>/[<作者名>/]`**（用户指示的统一输出根，见
+> **未设置时取 `<年月日>/[<作者名>/]`**（用户指示的统一输出根，见
 > [SKILL.md](SKILL.md) §0）；设了则以其为准（换盘/换机、或临时放到别处）。
 > `PAPER_AUTHOR` 未设置时“作者名”这一级不存在。
 
@@ -548,23 +551,23 @@ uv run python 流程1/scripts/ppt_brief.py --pages=standard
 
 ---
 
-## 打包发行版（`流程1/`）
+## 打包发行版（`本目录`）
 
 ```bash
 # 把本流程 + 全部依赖（含 vendor/ppt-master）打包成可独立运行的目录
-uv run python 流程1/scripts/pack_release.py --force
+uv run python scripts/pack_release.py --force
 #    --dest=<路径>   换个目标目录        --slim    裁掉配图样张/图标库/音效（省 ~90 MB）
 #    --no-vendor     只出流程本体        --dry-run 先看会写什么
 
 # 验证包能独立跑（关键：必须用包内的 vendor/ppt-master，而不是宿主仓库那份）
-uv run python 流程1/scripts/selftest_pipeline.py --offline
+uv run python scripts/selftest_pipeline.py --offline
 ```
 
 **打包做了什么、没做什么**
 
 | 项 | 说明 |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 路径重写 | 文档与脚本里的`流程1/…` 全部改写成 `流程1/…`（**幂等**，重复打包不会变成 `流程11/`），逐个记录在 `PACKAGE_MANIFEST.json` |
+| 相对路径 | 文档与脚本一律以流程根目录为锚点写**相对路径**（`scripts/x.py`、`SKILL.md`），不含固定文件夹名，发行目录无论叫什么都无需重写；逐文件 sha256 记录在 `PACKAGE_MANIFEST.json` |
 | 依赖 | `vendor/ppt-master/`（只带运行时；不含 `.git/`、`projects/`、`docs/assets/`） |
 | 定位 | `ppt_brief.py` **优先**用随包副本，所以包脱离原仓库也能跑；自检会断言这一点 |
 | 未包含 | `ppt-master/projects/`（用户项目数据）、`.git/`（版本库）—— 不应随包分发 |
@@ -579,13 +582,13 @@ uv run python 流程1/scripts/selftest_pipeline.py --offline
 
 ```bash
 # ① 端到端全流程（推荐）：临时目录里真跑一遍 阶段 0→D2→G2→H→H2→P
-uv run python 流程1/scripts/selftest_pipeline.py            # 联网 33 项
-uv run python 流程1/scripts/selftest_pipeline.py --offline   # 离线 18 项（跳过 D2/G2/H2）
+uv run python scripts/selftest_pipeline.py            # 联网 33 项
+uv run python scripts/selftest_pipeline.py --offline   # 离线 18 项（跳过 D2/G2/H2）
 #    --limit=3 控制 D2 处理篇数；--keep 保留临时目录便于排查；--verbose 打印全部输出
 
 # ② 各脚本的纯逻辑自检（零网络、秒级）
 for s in prepare_stage refs_backfill refs_bibliography refs_curate refs_prepare refs_build ppt_brief; do
-  uv run python "流程1/scripts/$s.py" --self-test || echo "[X] $s"
+  uv run python "scripts/$s.py" --self-test || echo "[X] $s"
 done
 ```
 
@@ -819,10 +822,10 @@ L3 只关后台服务，**不改 `navigator`/`screen` 等页面指纹**，实测
 
 ```bash
 # 先问策略（不联网；退出码 0=允许 / 3=禁止）
-uv run python 流程1/scripts/fetch_direct.py --check-domain="<URL>"
+uv run python scripts/fetch_direct.py --check-domain="<URL>"
 
 # 批量取摘要（S2 批量 → OpenAlex → Europe PMC → Crossref → PubMed，命中即停）
-uv run python 流程1/scripts/fetch_direct.py
+uv run python scripts/fetch_direct.py
 ```
 
 两条由 `--self-test` 守住的红线：
@@ -929,10 +932,10 @@ ls -t .work_cdp/logs/*.log | head                                   # 最近写�
 用于**回溯「这一轮到底做了什么」** —— 跨脚本、跨阶段，按时间串成一条链：
 
 ```bash
-uv run python 流程1/scripts/journal_view.py                  # 全部
-uv run python 流程1/scripts/journal_view.py --stage=E        # 只看全文下载阶段
-uv run python 流程1/scripts/journal_view.py --action=download.fail   # 只看失败项
-uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40 条
+uv run python scripts/journal_view.py                  # 全部
+uv run python scripts/journal_view.py --stage=E        # 只看全文下载阶段
+uv run python scripts/journal_view.py --action=download.fail   # 只看失败项
+uv run python scripts/journal_view.py --tail=40        # 只看最后 40 条
 ```
 
 > 注意区分两个字段：`excluded`（**肯定性**判定为同名他人，已排除）与
@@ -980,7 +983,7 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 │   ├── refs/                              #   阶段 D2/G2/H2：池 + 终表 + 任务包 + 综述卡 + cache/
 │   ├── translations/*.html                #   中译 HTML 中间件
 │   └── logs/                              #   全部日志（含 edge_<port>.log）
-└── 流程1/                                  # 本 skill
+└──                                   # 本 skill
 ```
 
 **PPT 产出（阶段 P，`make_ppt=yes` 时）**：项目落**流程输出根**（默认 `PAPER_WORKDIR`，
@@ -1016,7 +1019,7 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 
 ## 版本控制（2026-10-02 建立）
 
-**本目录 `流程1/` 是一个独立的本地 git 仓库**（`流程1/.git/`），与外层的
+**本目录 `本目录` 是一个独立的本地 git 仓库**（`.git/`），与外层的
 `K-Dense-AI/scientific-agent-skills` 克隆**互不相干**。
 
 > [WARN] **为什么不是提交进外层仓库**：外层是**上游公开仓库的克隆**（有真实 remote
@@ -1025,18 +1028,18 @@ uv run python 流程1/scripts/journal_view.py --tail=40        # 只看最后 40
 
 | 项 | 值 |
 | ---------------- | -------------------------------------------------------------------------------------------------- |
-| 仓库位置 | `流程1/.git/`（约 1.4 MB） |
+| 仓库位置 | `.git/`（约 1.4 MB） |
 | 分支 | `main` |
-| 首次提交 | `chore: 建立 流程1 版本控制基线` |
+| 首次提交 | `chore: 建立 本流程 版本控制基线` |
 | 入库范围 | 文档 +`scripts/`(89) + `templates/` + `示例数据/`（合成夹具）+ 子流程/skills，共 **194 个文件 / ~6.1 MB** |
 | **不入库** | `vendor/`（第三方拷贝快照 88.8 MB，含 9.1 MB 生成物）—— 见 `.gitignore` |
 | 换行策略 | `core.autocrlf=false`（本目录 CRLF/LF 混杂，**按磁盘原样存储**，避免全量「已修改」） |
-| 提交身份 | 仓库级`流程1 (local) <flow1@localhost>` —— **仅本地**，改法见下 |
+| 提交身份 | 仓库级`本流程 (local) <flow1@localhost>` —— **仅本地**，改法见下 |
 
 ### 日常用法
 
 ```bash
-cd 流程1
+cd 本流程
 
 git status                     # 看改了哪些文件
 git diff                       # 看具体改了哪几行
@@ -1049,23 +1052,23 @@ git revert <commit>            # 更安全的回退方式
 **改提交身份**（如需）：
 
 ```bash
-git -C 流程1 config user.name  "你的名字"
-git -C 流程1 config user.email "you@example.com"
-git -C 流程1 commit --amend --reset-author --no-edit   # 顺便改写首次提交的作者
+git -C 本流程 config user.name  "你的名字"
+git -C 本流程 config user.email "you@example.com"
+git -C 本流程 commit --amend --reset-author --no-edit   # 顺便改写首次提交的作者
 ```
 
 ### 与外层仓库的关系
 
-外层仓库已把 `流程1/` 等本机 scratch 写进**只在本机生效**的
+外层仓库已把 `本目录` 等本机 scratch 写进**只在本机生效**的
 `.git/info/exclude`（**不是** `.gitignore` —— 后者是被跟踪文件，改动会进入上游 diff）。
-因此外层 `git status` 不会把 `流程1/` 报成未跟踪，本目录的改动也**不会**混进上游提交。
+因此外层 `git status` 不会把 `本目录` 报成未跟踪，本目录的改动也**不会**混进上游提交。
 
 ### 若日后要改「vendor 不入库」的决定
 
-删掉 `流程1/.gitignore` 里的 `vendor/` 一行，然后：
+删掉 `.gitignore` 里的 `vendor/` 一行，然后：
 
 ```bash
-cd 流程1 && git add vendor/ && git commit -m "chore: 纳入 vendor 快照"
+cd 本流程 && git add vendor/ && git commit -m "chore: 纳入 vendor 快照"
 ```
 
 

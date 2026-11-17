@@ -14,7 +14,7 @@
 #   （scripts/batch_download.mjs:500-660 + lib/routing.mjs），
 #   但**只移植编排层**：Crossref 元数据 →（中文硬分流）CNKI → 出版商 API
 #   → OA 瀑布 → 浏览器 → API 兜底需显式授权。
-#   真正干活的部分一律委托给流程1 自己的模块，不引入 Node 运行时，
+#   真正干活的部分一律委托给本流程 自己的模块，不引入 Node 运行时，
 #   也不复制任何 .mjs：
 #     出版商 API   → fulltext_publishers.fetch_fulltext()
 #     OA 候选/取回 → oa_candidates.collect_candidates() / fetch_candidate()
@@ -301,7 +301,7 @@ def choose_route(article: dict, *, mode: str | None = None) -> dict:
       hasPublisherCredentials    → <publisher> / fetch
       article.isOa === true      → open_access / fetch
       publisher !== "other"      → <publisher> / confirm（API 兜底需显式授权）
-      其余                        → web_access；在流程1 里那就是 CDP 本身 → cdp
+      其余                        → web_access；在本流程 里那就是 CDP 本身 → cdp
     """
     a = normalize_article(article)
     m = (mode or plan_mode()[0]).lower()
@@ -348,7 +348,7 @@ def fallback_after_oa(article: dict, *, mode: str | None = None) -> dict:
     最后一步静默删掉。
 
     nature 的语义是：`chooseRoute` 的结果只有 `web_access` 才真的驱动浏览器，
-    其余一律 `api_fallback_confirmation_required`。在流程1 里 `web_access`
+    其余一律 `api_fallback_confirmation_required`。在本流程 里 `web_access`
     就是主链路的 CDP，而本模块的前提是**CDP 已经失败过**，所以那一支
     映射成「没有别的合法路线了」，而不是「再交给 CDP 一次」。
     """

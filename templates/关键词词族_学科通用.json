@@ -2,9 +2,9 @@
   "_说明": [
     "学科通用语义词族表 —— 供 interpret_build.py 的 --families= 使用。",
     "来源：工作根目录《研究方法与关键词总表.md》（24 个领域）的机读派生物。",
-    "用法：cp 流程1/templates/关键词词族_学科通用.json <WORKDIR>/.work_cdp/keyword_families.json",
+    "用法：cp templates/关键词词族_学科通用.json <WORKDIR>/.work_cdp/keyword_families.json",
     "     （可与作者专属词族合并：作者专属的放前面，通用族放后面；同名键后者覆盖前者）",
-    "     再跑 uv run python 流程1/scripts/interpret_build.py",
+    "     再跑 uv run python scripts/interpret_build.py",
     "格式：{ \"语义词族显示名\": [\"成员1\", \"成员2\", ...], ... }",
     "成员一律小写；只做**合并同义/近义写法**，不要把不同概念硬凑成一族。",
     "[**] 成员必须是**单个词**，不能是短语！分词器只产出「英文单词（≥3 字符，含数字）」与「中文 2-gram」，",

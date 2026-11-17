@@ -18,11 +18,11 @@
 #   · 只用标准库；两段式缓存，断点可续。
 #
 # 用法：
-#   uv run python 流程1/scripts/harvest_faculty.py --list-units
-#   uv run python 流程1/scripts/harvest_faculty.py --unit zju
-#   uv run python 流程1/scripts/harvest_faculty.py --unit zju --unit-name 生命科学学院
-#   uv run python 流程1/scripts/harvest_faculty.py --unit zju --stage=list
-#   uv run python 流程1/scripts/harvest_faculty.py --unit zju --out outputs/zju
+#   uv run python scripts/harvest_faculty.py --list-units
+#   uv run python scripts/harvest_faculty.py --unit zju
+#   uv run python scripts/harvest_faculty.py --unit zju --unit-name 生命科学学院
+#   uv run python scripts/harvest_faculty.py --unit zju --stage=list
+#   uv run python scripts/harvest_faculty.py --unit zju --out outputs/zju
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
@@ -1510,7 +1510,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--stage", choices=["list", "detail", "all"], default="all")
     ap.add_argument("--limit", type=int, default=0, help="详情最多抓几人（调试）")
     ap.add_argument("--out", default=str(WD / "outputs" / "01_导师名单"),
-                    help="输出目录（默认 <流程1>/<年月日>/outputs/01_导师名单）")
+                    help="输出目录（默认 <年月日>/outputs/01_导师名单）")
     ap.add_argument("--config", help="自定义配置文件路径")
     ap.add_argument("--list-units", action="store_true", help="列出全部数据源后退出")
     ap.add_argument("--reparse-only", action="store_true",

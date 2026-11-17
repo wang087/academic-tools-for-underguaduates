@@ -24,7 +24,7 @@
 #   任何返回 HTML 页面、PDF 的路径都在第二层，不在这里。
 #
 # 用法：
-#   uv run python 流程1/scripts/fetch_direct.py
+#   uv run python scripts/fetch_direct.py
 #     --limit=0            只处理前 N 篇（0=全部）
 #     --max-per-source=0   单源最多尝试多少篇（0=不限；用于压测节流）
 #     --sources=openalex,s2,europepmc,crossref,pubmed
@@ -494,7 +494,7 @@ def main() -> int:
     FAILED.write_text(json.dumps({
         "reason": "第一层（直连白名单）未取到摘要，需转第二层 CDP",
         "cdp_fallback_cmd": ("uv run --with websocket-client python "
-                             "流程1/scripts/grab_abstracts.py --retry-failed"),
+                             "scripts/grab_abstracts.py --retry-failed"),
         "dois": missing,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -510,7 +510,7 @@ def main() -> int:
 
     if missing:
         print(f"\n[WARN] 仍有 {len(missing)} 篇在第一层取不到摘要 → **转第二层 CDP**：")
-        print("   uv run --with websocket-client python 流程1/scripts/grab_abstracts.py "
+        print("   uv run --with websocket-client python scripts/grab_abstracts.py "
               "--retry-failed")
         print(f"   缺口清单：{FAILED}")
         if "--run-cdp-fallback" in sys.argv:

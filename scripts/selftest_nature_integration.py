@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # ─────────────────────────────────────────────────────────────
-# nature-paper-card 并入自检（v17）—— 端到端验「流程1 ↔ 已并入的单个技能」的接线
+# nature-paper-card 并入自检（v17）—— 端到端验「本流程 ↔ 已并入的单个技能」的接线
 #
 # 并入范围：**只有 `nature-paper-card` 一个技能**（落 vendor/nature-paper-card/）。
 #   本脚本第 [1] 组断言会检查范围没有漂移（vendor/ 下不得再出现整包镜像）。
@@ -15,10 +15,10 @@
 #   都由**夹具**生成，字段严格按 schema，并刻意混入不合规样本，
 #   验证流程是**如实申报**而不是静默略过。
 #
-# 全程零网络、零外部依赖（只读 流程1/ 内已并入的副本）。
+# 全程零网络、零外部依赖（只读  内已并入的副本）。
 #
 # 用法：
-#   uv run python 流程1/scripts/selftest_nature_integration.py
+#   uv run python scripts/selftest_nature_integration.py
 #     --keep      保留临时工作目录（默认跑完删除）
 #     --verbose   打印每个子脚本的完整输出
 #
@@ -35,7 +35,7 @@ import subprocess
 import sys
 import tempfile
 
-FLOW = pathlib.Path(__file__).resolve().parent.parent      # 流程1/
+FLOW = pathlib.Path(__file__).resolve().parent.parent      # 
 REPO = FLOW.parent
 SDIR = FLOW / "scripts"
 PAPER_CARD = FLOW / "vendor" / "nature-paper-card"

@@ -10,14 +10,14 @@
 #
 # 特点
 #   · 在**临时工作目录**里跑，不碰任何真实案例数据；
-#   · 用 `流程1/示例数据/crossref_all.json` 作题录输入（运行时合成题录，
+#   · 用 `示例数据/crossref_all.json` 作题录输入（运行时合成题录，
 #     schema 与真实 Crossref 记录一致；DOI 为 `10.5555/selftest.*`，作者为虚构）；
 #   · 三个阶段的解读卡由**夹具**生成（不调用 LLM），但字段严格按 schema，
 #     并刻意混入：缺卡、schema 不合规卡、未归一标签 —— 验证流程**如实申报**而不是静默略过；
 #   · `--offline` 时跳过需要联网的 D2/G2/P，只验其余环节。
 #
 # 用法：
-#   uv run python 流程1/scripts/selftest_pipeline.py
+#   uv run python scripts/selftest_pipeline.py
 #     --offline         跳过联网环节（D2 / G2 / P 的联网部分）
 #     --limit=4         D2 只处理前 N 篇作者论文（默认 4，控制耗时）
 #     --keep            保留临时工作目录（默认跑完删除）
@@ -56,7 +56,7 @@ def _fix_streams() -> None:
 _fix_streams()
 
 _HERE = pathlib.Path(__file__).resolve().parent
-REPO = _HERE.parents[1]              # 仓库根（流程1/scripts → 流程 → 仓库根）
+REPO = _HERE.parents[1]              # 仓库根（scripts → 流程 → 仓库根）
 SDIR = _HERE
 TPL = _HERE.parent / "templates"
 
@@ -283,7 +283,7 @@ def main() -> int:
         #   所以在加上这个分支之前 `--help` 会被**当成正常运行**——直接跑一遍
         #   全流程（联网模式下还会真的发网络请求）。一个查询开关不该有副作用。
         print(
-            "用法：python 流程1/scripts/selftest_pipeline.py [选项]\n"
+            "用法：python scripts/selftest_pipeline.py [选项]\n"
             "\n"
             "全流程自检（阶段 0 → D2 → G2 → H → H2 → K → P），在临时工作目录里跑，\n"
             "不碰任何真实案例数据。含解读档位（--tier / --set / --audit）集成检查。\n"

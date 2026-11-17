@@ -24,10 +24,10 @@
 # 只读本地文件，不发起任何网络请求。
 #
 # 依赖（按需加载，不污染项目环境）：
-#   uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py
+#   uv run --with matplotlib --with networkx python scripts/knowledge_graph.py
 #
 # 用法：
-#   uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py
+#   uv run --with matplotlib --with networkx python scripts/knowledge_graph.py
 #     --recent-years=3      方向聚类的"近 N 年"（默认 5）
 #     --max-reviews=3       每个方向下最多挂几篇综述（默认 3）
 #     --dpi=300             PNG 回退时的分辨率（默认 300）
@@ -136,7 +136,7 @@ PY_DEPS = ("matplotlib", "networkx") + GRAPH_DEPS
 def graph_deps_cmd(script: str = "知识图谱") -> str:
     """可直接复制的完整运行命令（缺依赖时打印用）。"""
     pkgs = " ".join(f"--with {m}" for m in PY_DEPS)
-    return f"uv run {pkgs} python 流程1/scripts/knowledge_graph.py"
+    return f"uv run {pkgs} python scripts/knowledge_graph.py"
 
 
 def missing_graph_deps() -> list:
@@ -1126,7 +1126,7 @@ def setup_mpl():
         import matplotlib
     except Exception:
         print("未安装 matplotlib。请用：")
-        print("  uv run --with matplotlib --with networkx python 流程1/scripts/knowledge_graph.py")
+        print("  uv run --with matplotlib --with networkx python scripts/knowledge_graph.py")
         return None
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

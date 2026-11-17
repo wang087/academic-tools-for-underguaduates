@@ -8,7 +8,7 @@
     "  汇总时被拆成 4 条弱信号，「方法范式分析」直接失真（子流程手册 §8 称之为「标准漂移」）。",
     "  本表把这些写法收敛到唯一 ID。",
     "",
-    "用法：cp 流程1/templates/方法范式标签词表.json <WORKDIR>/.work_cdp/tag_vocabulary.json",
+    "用法：cp templates/方法范式标签词表.json <WORKDIR>/.work_cdp/tag_vocabulary.json",
     "     解读 subagent 必须从 direction_tags_vocabulary / paradigm_tags_vocabulary 取词；",
     "     确实没有合适的词时才自造，且必须加前缀 \"自定义:\"（如 \"自定义:冷冻电镜断层扫描\"）。",
     "     refs_curate.py 与 interpret_build.py 会按本表归一，并如实列出未归一的自造标签。",

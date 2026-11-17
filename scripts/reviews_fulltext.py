@@ -32,25 +32,25 @@
 #
 # 用法：
 #   # 只探测分层，不取全文（快，零浏览器开销）
-#   uv run python 流程1/scripts/reviews_fulltext.py --probe
+#   uv run python scripts/reviews_fulltext.py --probe
 #
 #   # 第一层：取 OA 全文 XML → 纯文本（合规直连）
-#   uv run python 流程1/scripts/reviews_fulltext.py --layer1
+#   uv run python scripts/reviews_fulltext.py --layer1
 #
 #   # 第二层：把缺口交给 CDP（会自动启动实例池）
-#   uv run python 流程1/scripts/reviews_fulltext.py --layer2
+#   uv run python scripts/reviews_fulltext.py --layer2
 #
 #   # 一步到位：先分层、再第一层、再把缺口转 CDP
-#   uv run python 流程1/scripts/reviews_fulltext.py --all
+#   uv run python scripts/reviews_fulltext.py --all
 #
 #   # 回填任务包的 evidence_source / text 字段（R① 产物原地升级）
-#   uv run python 流程1/scripts/reviews_fulltext.py --backfill
+#   uv run python scripts/reviews_fulltext.py --backfill
 #
 #   # 副链路（CDP 备用）：主链路跑完仍有缺口时才值得跑，顺序不能颠倒
-#   uv run python 流程1/scripts/reviews_fulltext.py --fallback --backfill
+#   uv run python scripts/reviews_fulltext.py --fallback --backfill
 #
 #   # 干跑：只看路由判定，一个请求都不发
-#   uv run python 流程1/scripts/fulltext_router.py --plan <DOI> [<DOI> ...]
+#   uv run python scripts/fulltext_router.py --plan <DOI> [<DOI> ...]
 #
 # 可移植配置：PAPER_WORKDIR（透传给既有脚本）
 # ══════════════════════════════════════════════════════════════
@@ -93,14 +93,14 @@ def _fix_streams() -> None:
 
 _fix_streams()
 
-FLOW1 = _HERE.parent                       # 流程1/
+FLOW1 = _HERE.parent                       # 
 
 # [STOP] 工作目录必须与既有脚本**同一判据**。
 #   既有脚本（download_all_fulltexts / cdp_pool / fetch_direct …）一律
 #   `WD = logutil.workdir()`，而 logutil 默认把 workdir 解析成
-#   `<流程1>/<YYYYMMDD>/`（见 logutil.py 顶部注释），**不是** `<流程1>/`。
+#   `<YYYYMMDD>/`（见 logutil.py 顶部注释），**不是** ``。
 #   最初本模块硬写 `FLOW1 / ".work_cdp"`，结果第二层把缺口清单写到了
-#   `流程1/.work_cdp/`，而下载器去 `流程1/20261006/.work_cdp/` 找
+#   `.work_cdp/`，而下载器去 `20261006/.work_cdp/` 找
 #   `crossref_all.json` → FileNotFoundError。
 #   教训：跨脚本协作时**目录判据也要复用**，不能各算各的 —— 否则
 #   day rollover 或 PAPER_WORKDIR 一改，两边就错位。
@@ -116,7 +116,7 @@ except Exception:                                # noqa: BLE001
     WD = FLOW1
 WORK = WD / ".work_cdp"
 # 阶段 R 的产物根：**本次运行**的输出目录（与 WORK 同一判据）。
-#   这里曾经硬写 `FLOW1 / "outputs"` —— 日期隔离后本次产物在 `流程1/<年月日>/`，
+#   这里曾经硬写 `FLOW1 / "outputs"` —— 日期隔离后本次产物在 `<年月日>/`，
 #   旧判据会扫到历史案例的 tasks/ 并**静默选中**，把别人的全文回填进本次任务包
 #   （实测把 10-06「免疫与感染」12 篇当成当日「神经与脑科学」12 篇跑了一遍分层）。
 OUTPUTS = WD / "outputs"
@@ -201,7 +201,7 @@ def find_stage_dir(explicit: str | None = None) -> pathlib.Path | None:
     判据只认**本次运行**的目录，按优先级：
       ① `<本次工作目录>/.work_cdp/reviews/` —— `reviews_prepare.py` 的规范产物位置；
       ② `<本次工作目录>/outputs/` 下含 tasks/ 的目录 —— 历史布局，输出被改名/挪走时仍可用。
-    **不回看 `流程1/outputs/`**：那里躺着历史案例，静默选中会让本次阶段把
+    **不回看 `outputs/`**：那里躺着历史案例，静默选中会让本次阶段把
     别处抓来的全文回填进当前任务包（宁可报错，也不要错答）。
     """
     if explicit:
@@ -598,12 +598,12 @@ def build_cdp_input(layers: dict[str, dict], tasks: list[dict],
         # CDP 取全文模块未安装（合规发行常见）→ **静默改走备用链路**：
         #   不报错、不中断，但把「为什么没有 CDP 命令」写进同一个文件，可回查。
         cmdf0.write_text(
-            "# CDP 取全文模块未安装（<流程1>/optional-cdp-fulltext/ 缺失）\n"
+            "# CDP 取全文模块未安装（optional-cdp-fulltext/ 缺失）\n"
             "# 本批缺口不再走浏览器路线，改走备用链路：\n"
             "#   1) 白名单内直连 / 元数据 API：uv run python "
-            "流程1/scripts/fulltext_router.py --fallback ...\n"
+            "scripts/fulltext_router.py --fallback ...\n"
             "#   2) nature-skill 获取模块：uv run python "
-            "流程1/scripts/preflight_fallback.py\n", encoding="utf-8")
+            "scripts/preflight_fallback.py\n", encoding="utf-8")
         print(f"\n  题录已并入 {cr_path}（新增 {added} 条）")
         print(f"  [INFO] CDP 取全文模块未安装 → 本批缺口改走备用链路（见 {cmdf0.name}）")
         return cmdf0

@@ -18,15 +18,15 @@
 #
 # 用法
 #   # 1) 已收录学校：直接按 学校:院系 复用
-#   uv run python 流程1/scripts/faculty_discover.py --unit ustc:chem --dry-run
+#   uv run python scripts/faculty_discover.py --unit ustc:chem --dry-run
 #
 #   # 2) 新学校：给院系官网入口，自动发现（可持久化）
-#   uv run python 流程1/scripts/faculty_discover.py \
+#   uv run python scripts/faculty_discover.py \
 #       --site https://life.fudan.edu.cn/ --school 复旦大学 --unit-name 生命科学学院 \
 #       --unit-key life-sci --write
 #
 #   # 3) 只看某个具体师资页属于哪个家族
-#   uv run python 流程1/scripts/faculty_discover.py \
+#   uv run python scripts/faculty_discover.py \
 #       --url https://chem.ustc.edu.cn/js/list.htm --explain
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations

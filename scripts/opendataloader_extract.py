@@ -19,10 +19,10 @@
 # 本脚本**只本地处理**，不发起网络请求。
 #
 # 用法：
-#   uv run python 流程1/scripts/opendataloader_extract.py <pdf> [<pdf> ...] \
+#   uv run python scripts/opendataloader_extract.py <pdf> [<pdf> ...] \
 #       [--out 目录] [--format markdown,json] [--image-output off]
-#   uv run python 流程1/scripts/opendataloader_extract.py --detect      # 可用性探测
-#   uv run python 流程1/scripts/opendataloader_extract.py --self-test   # 零网络自检
+#   uv run python scripts/opendataloader_extract.py --detect      # 可用性探测
+#   uv run python scripts/opendataloader_extract.py --self-test   # 零网络自检
 #
 # 默认输出：<WORKDIR>/.work_cdp/odl/<pdf主干>.md / .json
 # 退出码：0=成功；2=用法/环境错误（缺 Java 或 jar）；1=解析失败；--detect 3=不可用。

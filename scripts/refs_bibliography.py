@@ -17,7 +17,7 @@
 # 关于 IF 与分区 —— 怎么取、取不到怎么办：
 #   · IF 用 OpenAlex source 的 `summary_stats.2yr_mean_citedness` 作**代理值**
 #     （2 年平均被引，与 JCR 影响因子口径接近但**数值不等**，报告里如实标注）。
-#   · 分区用内置**种子表**（`流程1/templates/期刊分区表_中科院一区.json`）——
+#   · 分区用内置**种子表**（`templates/期刊分区表_中科院一区.json`）——
 #     官方《中科院分区表》是商业授权数据，不能内置全量。
 #   · 取不到就**如实写「未判定」**，绝不把「查不到」当成「不是一区」。
 #
@@ -28,7 +28,7 @@
 #   journal_tiers.json         自定义分区表（可选，覆盖内置种子表）
 #
 # 用法：
-#   uv run python 流程1/scripts/refs_bibliography.py
+#   uv run python scripts/refs_bibliography.py
 #     --if-threshold=5.0       IF 阈值
 #     --max-refs-per-paper=0   每篇最多列多少条参考文献（0=全部）
 #     --offline                不联网，只用阶段 D2 的缓存
@@ -428,7 +428,7 @@ def build_report(recs, reps, source_refs, pool, if_thr, max_refs, unresolved):
              "Environment、Cellulose 等非核心刊。")
     L.append("- **IF** 用 OpenAlex `summary_stats.2yr_mean_citedness` 作为**代理值**："
              "口径与 JCR 影响因子接近但**数值不同**，不可直接与其他数据库的 IF 对齐引用。")
-    L.append("- **中科院分区**用内置**种子表**（`流程1/templates/期刊分区表_中科院一区.json`），"
+    L.append("- **中科院分区**用内置**种子表**（`templates/期刊分区表_中科院一区.json`），"
              "**不是官方分区表**（官方数据为商业授权，无法内置全量）。"
              "把官方表整理成同结构放到 `.work_cdp/journal_tiers.json` 即可覆盖。")
     L.append("- 判定结果里出现「未判定」时，含义是**数据没查到**，"
@@ -508,7 +508,7 @@ def main() -> int:
     pool = load_json(REFDIR / "refs_pool.json", {}) or {}
     if not source_refs:
         print("[X] 找不到 .work_cdp/refs/source_refs.json")
-        print("  请先跑阶段 D2：uv run python 流程1/scripts/refs_backfill.py")
+        print("  请先跑阶段 D2：uv run python scripts/refs_backfill.py")
         return 2
 
     # 题录总表（与 refs_backfill 同源的读取方式）

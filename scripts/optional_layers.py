@@ -22,12 +22,12 @@
 # 再用 record 落盘答复（与 prepare_stage.py 同款分工）。
 #
 # 用法：
-#   uv run python 流程1/scripts/optional_layers.py probe          # 首跑探测 + 建议
-#   uv run python 流程1/scripts/optional_layers.py probe --json   # 机读
-#   uv run python 流程1/scripts/optional_layers.py record --mineru-install=no
-#   uv run python 流程1/scripts/optional_layers.py record --mineru-install=yes --note="要跑扫描件"
-#   uv run python 流程1/scripts/optional_layers.py status         # 当前可用性 + 已记录决定
-#   uv run python 流程1/scripts/optional_layers.py --self-test    # 零网络自检
+#   uv run python scripts/optional_layers.py probe          # 首跑探测 + 建议
+#   uv run python scripts/optional_layers.py probe --json   # 机读
+#   uv run python scripts/optional_layers.py record --mineru-install=no
+#   uv run python scripts/optional_layers.py record --mineru-install=yes --note="要跑扫描件"
+#   uv run python scripts/optional_layers.py status         # 当前可用性 + 已记录决定
+#   uv run python scripts/optional_layers.py --self-test    # 零网络自检
 #
 # 退出码：probe/status/self-test 0=正常；record 0=已落盘、2=用法/取值错误。
 #   probe 的 JSON 里 `should_ask_mineru_install` 标明是否需要向用户发问。

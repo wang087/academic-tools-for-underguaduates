@@ -32,7 +32,7 @@
 #   <WORKDIR>/<作者名>_研究方向综述.md          review 结果（PPT 的素材之一）
 #
 # 用法：
-#   uv run python 流程1/scripts/refs_build.py
+#   uv run python scripts/refs_build.py
 #     --self-test       纯逻辑自检（不联网）
 #
 # 可移植配置：PAPER_WORKDIR / PAPER_AUTHOR / PAPER_ORCID
@@ -188,7 +188,7 @@ USAGE = """\
 阶段 H2 ③：回收综述解读卡 → 生成《<作者名>_研究方向综述.md》
 
 用法：
-  uv run python 流程1/scripts/refs_build.py [选项]
+  uv run python scripts/refs_build.py [选项]
 
 选项：
   --self-test   纯逻辑自检（不联网）
@@ -251,7 +251,7 @@ def main() -> int:
     man = load_json(REFDIR / "manifest.json")
     if not man:
         print("[X] 找不到 .work_cdp/refs/manifest.json")
-        print("  请先运行：uv run python 流程1/scripts/refs_prepare.py")
+        print("  请先运行：uv run python scripts/refs_prepare.py")
         return 2
     gate = load_json(REFDIR / "gate_report.json")
     if isinstance(gate, dict) and gate.get("verdict") != "complete":
@@ -324,7 +324,7 @@ def main() -> int:
         L.append(f"> ORCID：https://orcid.org/{ORCID}")
     L.append(f"> 共 **{n_all}** 条文献 ｜ 已解读 **{n_card}** 条 ｜ 综述 **{n_review}** 条")
     L.append("> 生成方式：反向查找作者论文的参考文献 → 去重与相关性整理 → "
-             "并行 subagent 逐条精读（流程见 `流程1/subagent-driven-review/SKILL.md`）；"
+             "并行 subagent 逐条精读（流程见 `subagent-driven-review/SKILL.md`）；"
              "**全程无网络抓取**。\n")
     # 档位是**参数不是闸门**：显式写在报告开头，读者才知道这份综述的细节量档位
     #   （L1/L2/L3 只差细节量，不差语气强度）。渲染逻辑本身不随档位变化。

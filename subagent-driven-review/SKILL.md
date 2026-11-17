@@ -1,14 +1,14 @@
 ---
 name: author-paper-interpretation
-description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并行 subagent 完成「逐篇论文解读 → 按发表顺序串联 → 关键词统计 → 研究方向与研究方法范式归纳」、阶段 H2 的「研究方向综述网络」精读，以及阶段 R2 的「面向本科生的领域概貌」精读。当已拿到题录与全文（阶段 H）、已拿到反向查得的参考文献与摘要（阶段 H2），或已由阶段 R 选出 6–12 篇优质综述（阶段 R2）时使用。含单篇解读卡的固定 schema（11 个必需字段）、**解读档位（L1 精简 / L2 详细 / L3 完整，由阶段 0 确认；阶段 H 默认 L2，阶段 H2 与 R2 默认 L3）**、综述网络扩展字段、领域概貌扩展字段、二八原则提炼规范、量化提升数据的提取要求，以及三个阶段的 subagent 提示词模板与质量控制流程。档位的规范定义见 skill `paper-interpretation-writing`。
+description: SKILL.md 的子流程（阶段 H、H2 与 R2）——用并行 subagent 完成「逐篇论文解读 → 按发表顺序串联 → 关键词统计 → 研究方向与研究方法范式归纳」、阶段 H2 的「研究方向综述网络」精读，以及阶段 R2 的「面向本科生的领域概貌」精读。当已拿到题录与全文（阶段 H）、已拿到反向查得的参考文献与摘要（阶段 H2），或已由阶段 R 选出 6–12 篇优质综述（阶段 R2）时使用。含单篇解读卡的固定 schema（11 个必需字段）、**解读档位（L1 精简 / L2 详细 / L3 完整，由阶段 0 确认；阶段 H 默认 L2，阶段 H2 与 R2 默认 L3）**、综述网络扩展字段、领域概貌扩展字段、二八原则提炼规范、量化提升数据的提取要求，以及三个阶段的 subagent 提示词模板与质量控制流程。档位的规范定义见 skill `paper-interpretation-writing`。
 ---
 # 论文解读（阶段 H / H2 / R2）· 并行 Subagent 执行手册
 
 > ## 本文件的从属关系（先读）
 >
-> **本文件是 `流程1/SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 H、H2 与 R2：论文解读」。**
+> **本文件是 `SKILL.md` 的子流程，只负责 SKILL.md §4「阶段 H、H2 与 R2：论文解读」。**
 >
-> - 冲突时**一律以 `流程1/SKILL.md` 为准**；
+> - 冲突时**一律以 `SKILL.md` 为准**；
 > - **不得**用本文件替代主流程，也**不得**绕过主流程的抓取/下载步骤；
 > - 主流程的三条最高优先级红线在本阶段**同样完全适用**（见 § 3）：
 >   **分层获取策略**（原文走 CDP；摘要/综述题录/白名单开源库允许直连）、
@@ -121,18 +121,18 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 ## 5. 执行流程
 
 ```
-① prepare   uv run --with pypdf --with pillow python 流程1/scripts/interpret_prepare.py
+① prepare   uv run --with pypdf --with pillow python scripts/interpret_prepare.py
                  ↓  产出 tasks/*.json（每篇一个自包含任务包）
 ② 分派      主 agent 分批并行（单条消息内多个 Agent 调用），每批 30–60 秒轮询一次完成度
                  ↓  每个 subagent 只读自己的 task.json（及任务包明确给出的全文 sidecar），只写自己的 result.json
                  ↓  不得扫描 tasks/results 目录、读取其他任务包或修改其他结果；任务包中的 execution 契约优先
                  ↓  （paper-card 引擎另写自己的 paper_cards/<doi-slug>.md 与审计报告）
 ③ 回收      统一质量门一次性校验 schema、完整性、容器类型与占位卡（坏卡打回重做）
-                 ↓  uv run python 流程1/scripts/subagent_gate.py --stage H
+                 ↓  uv run python scripts/subagent_gate.py --stage H
                  ↓  （H2 / R2 分别替换为 --stage H2 / --stage R2）
                  ↓  质量门写入对应阶段的 gate_report.json；主 agent 不再逐篇重复扫描目录
                  ↓  paper-card 引擎另核：两份产物是否都在、审计报告是否 pass
-④ build     质量门通过后运行 uv run python 流程1/scripts/interpret_build.py
+④ build     质量门通过后运行 uv run python scripts/interpret_build.py
                  ↓  时间线 / 逐篇卡片 / 关键词统计 / 研究方向 / 方法范式
 ⑤ 复核      完整性批评：哪些篇缺卡？哪些是摘要级？哪些方向明显缺席？
                  ↓  paper-card 引擎另报：哪些篇的深读卡或审计缺失（"未验证 ≠ 已验证"）
@@ -141,7 +141,7 @@ description: 流程1/SKILL.md 的子流程（阶段 H、H2 与 R2）——用并
 ### ① prepare
 
 ```bash
-uv run --with pypdf --with pillow python 流程1/scripts/interpret_prepare.py
+uv run --with pypdf --with pillow python scripts/interpret_prepare.py
 # 可选：--engine=legacy|paper-card  解读引擎（缺省走阶段 0；见 § 7.3）
 # 可选：--max-chars=60000   单篇正文截断上限
 # 可选：--only=10.1038/xxx,10.1016/yyy   只准备指定 DOI
@@ -158,9 +158,9 @@ uv run --with pypdf --with pillow python 流程1/scripts/interpret_prepare.py
 
 ```bash
 # 退出码即结论：0=齐了可 build / 3=仍在跑 / 4=有坏卡需重派 / 2=无任务包
-uv run python 流程1/scripts/agent_poll.py --stage H      # 阶段 H
-uv run python 流程1/scripts/agent_poll.py --stage H2     # 阶段 H2
-uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
+uv run python scripts/agent_poll.py --stage H      # 阶段 H
+uv run python scripts/agent_poll.py --stage H2     # 阶段 H2
+uv run python scripts/agent_poll.py --stage R2     # 阶段 R2
 ```
 
 **批量与间隔不由 agent 手拍**，由脚本按实测剩余量给出：
@@ -175,7 +175,7 @@ uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
 上限来自实测 —— 并发过高会触发生成长度上限，产出**结构合法但内容是
 `placeholder`** 的卡。
 
-> [WARN] **单批上限的权威定义在 `流程1/scripts/agent_poll.py` 的 `STAGES`**，
+> [WARN] **单批上限的权威定义在 `scripts/agent_poll.py` 的 `STAGES`**，
 > 该值经 `survey()` 的 `suggest_batch = min(remaining, batch_cap)` 真正生效。
 > 本节与 §9 的数值只是它的**说明副本** —— 改上限请改 `STAGES`，并同步这两处文字，
 > 否则「文档写 6、脚本派 4」这类不一致不会有任何报错。
@@ -201,7 +201,7 @@ uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
   `interpret_build.as_list()` 又明写「容忍数组写成字符串」，
   于是 414 字符的整段字符串会被包成 `[str]` 一路通过，
   报告照样生成，而阶段 K 词云 / `refs_curate.py` 拿到的是 1 条超长条目而非 3–8 条方法句
-  （实测 25 张卡里 3 处中招，见 `流程1/实测结果汇总.md#h-3`）。
+  （实测 25 张卡里 3 处中招，见 `实测结果汇总.md#h-3`）。
   现 `agent_poll.py` 按阶段分表断言（H/H2 = 解读卡 11/13 字段，R2 = 概貌卡），
   不合规计入**退出码 4**并打印卡名 + 具体问题；
   篇数已齐但有坏卡时**不再**印「已齐，可进入汇总」
@@ -220,7 +220,7 @@ uv run python 流程1/scripts/agent_poll.py --stage R2     # 阶段 R2
 ### ④ build
 
 ```bash
-uv run python 流程1/scripts/interpret_build.py
+uv run python scripts/interpret_build.py
 # 可选：--families=<keyword_families.json>   语义词族合并表
 ```
 
@@ -294,7 +294,7 @@ uv run python 流程1/scripts/interpret_build.py
 **嵌进每个任务包**（字段名统一为 `interpret_tier`）。
 **subagent 一律以任务包里的 `interpret_tier` 为准**，不要自己去问阶段 0。
 
-查询（供人工核对）：`uv run python 流程1/scripts/prepare_stage.py --tier H`
+查询（供人工核对）：`uv run python scripts/prepare_stage.py --tier H`
 （stdout 只有 `L1`/`L2`/`L3` 三选一）。
 
 **三档是什么**：
@@ -396,7 +396,7 @@ subagent** 分别产出 —— 同一概念会写成
 
 **规则**：
 
-1. `.work_cdp/tag_vocabulary.json`（模板：`流程1/templates/方法范式标签词表.json`）
+1. `.work_cdp/tag_vocabulary.json`（模板：`templates/方法范式标签词表.json`）
    会被 `interpret_prepare.py` / `refs_prepare.py` **嵌进每个任务包**；
 2. 两个标签字段**必须**从任务包的 `tag_vocabulary` 里取词；
 3. 确实没有合适的词时才自造，且**必须加前缀 `自定义:`** ——
@@ -847,13 +847,13 @@ subagent** 分别产出 —— 同一概念会写成
 - [ ] 已跑 `interpret_build.py` 产出 `<作者名>_论文解读.md`
 - [ ] 报告含：时间线要点串联 / 逐篇四步解读 / 关键词统计 / 研究方向 / 方法范式
 - [ ] 全程**未发起任何网络请求**（无 curl / urllib / requests）
-- [ ] 未修改 `流程1/` 下任何脚本；新增内容一律新建文件
+- [ ] 未修改 `本目录` 下任何脚本；新增内容一律新建文件
 
 **v7 新增（两个阶段都适用）**
 
 - [ ] [NEW] **标签取自受控词表**（§6.5）；自造标签带 `自定义:` 前缀；
   **未归一的标签已在报告中保留并列出**
-- [ ] [NEW] `.work_cdp/tag_vocabulary.json` 已存在（模板：`流程1/templates/方法范式标签词表.json`）
+- [ ] [NEW] `.work_cdp/tag_vocabulary.json` 已存在（模板：`templates/方法范式标签词表.json`）
 
 **v18 新增（关键词三层，H/H2/R2 都适用）**
 

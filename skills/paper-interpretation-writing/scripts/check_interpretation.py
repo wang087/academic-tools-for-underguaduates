@@ -804,7 +804,7 @@ def model_findings(text: str, tier: str = "all") -> tuple[list[dict], dict]:
     """
     here = Path(__file__).resolve().parent
     candidates = [
-        here.parent.parent.parent / "scripts",   # 流程1/skills/<skill>/scripts -> 流程1/scripts
+        here.parent.parent.parent / "scripts",   # skills/<skill>/scripts -> scripts
         here,
     ]
     small_model = None

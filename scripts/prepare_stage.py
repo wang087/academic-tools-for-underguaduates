@@ -14,36 +14,36 @@
 #
 # 用法：
 #   # ① 非交互（agent 在对话里收齐答案后调用；推荐）
-#   uv run python 流程1/scripts/prepare_stage.py \
+#   uv run python scripts/prepare_stage.py \
 #       --set output_format=both --set reverse_refs=yes --set translate=no --set make_ppt=yes
 #
 #   # ② 从答案文件读
-#   uv run python 流程1/scripts/prepare_stage.py --answers=answer.json
+#   uv run python scripts/prepare_stage.py --answers=answer.json
 #
 #   # ③ 全默认（保守：只出 Markdown 列表 + 解读，不翻译、不做 PPT）
-#   uv run python 流程1/scripts/prepare_stage.py --defaults
+#   uv run python scripts/prepare_stage.py --defaults
 #
 #   # ④ 查看当前计划
-#   uv run python 流程1/scripts/prepare_stage.py --show
+#   uv run python scripts/prepare_stage.py --show
 #
 #   # ⑤ 阶段闸门（供 run_all.sh / agent 判定某阶段是否执行）
-#   uv run python 流程1/scripts/prepare_stage.py --check translate   # 0=执行 3=跳过
-#   uv run python 流程1/scripts/prepare_stage.py --check-all         # 打印全部闸门状态
+#   uv run python scripts/prepare_stage.py --check translate   # 0=执行 3=跳过
+#   uv run python scripts/prepare_stage.py --check-all         # 打印全部闸门状态
 #
 #   # ⑥ v9：解读档位查询（参数，不是开关 —— 所以不能用 --check 问）
-#   uv run python 流程1/scripts/prepare_stage.py --tier H    # 作者论文档位
-#   uv run python 流程1/scripts/prepare_stage.py --tier H2   # 综述网络档位
-#   uv run python 流程1/scripts/prepare_stage.py --tier R2   # 领域概貌档位
+#   uv run python scripts/prepare_stage.py --tier H    # 作者论文档位
+#   uv run python scripts/prepare_stage.py --tier H2   # 综述网络档位
+#   uv run python scripts/prepare_stage.py --tier R2   # 领域概貌档位
 #   #     stdout 只有档位本身（L1|L2|L3），便于 `T=$(… --tier H)` 捕获
 #
 #   # ⑥b v17：解读引擎查询（同样是参数，不是开关）
-#   uv run python 流程1/scripts/prepare_stage.py --engine H  # legacy | paper-card
+#   uv run python scripts/prepare_stage.py --engine H  # legacy | paper-card
 #   #     stdout 只有引擎本身，便于 `E=$(… --engine H)` 捕获
 #   #     paper-card = 阶段 H 额外产出 16 节 Paper Card（已并入的 nature-paper-card）
-#   #     接线权威见 流程1/nature-integration/SKILL.md
+#   #     接线权威见 nature-integration/SKILL.md
 #
 #   # ⑦ v9：门控齐全性自检
-#   uv run python 流程1/scripts/prepare_stage.py --audit
+#   uv run python scripts/prepare_stage.py --audit
 #
 # 可移植配置：PAPER_WORKDIR
 # ─────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ OPTIONS = [
                  "代价：每篇 subagent 的工作量约增一倍（多写 16 节 + 跑审计），"
                  "适合代表作精读、组会材料、进组前深读；"
                  "批量速览仍建议 legacy。"
-                 "接线权威见 流程1/nature-integration/SKILL.md。"),
+                 "接线权威见 nature-integration/SKILL.md。"),
     },
     {
         "key": "review_interpret_tier",
@@ -711,7 +711,7 @@ def render(plan: dict) -> str:
         L.append(f"  · 阶段 {stage:<3} → {v} （{o['question']}）")
     L.append("      legacy    = 既有 11 字段解读卡，下游零改动；")
     L.append("      paper-card = 额外产出 16 节 Paper Card + 结构审计 + 数字回查原文。")
-    L.append("      接线权威见 流程1/nature-integration/SKILL.md。")
+    L.append("      接线权威见 nature-integration/SKILL.md。")
 
     ungated = ungated_stages()
     if ungated:
@@ -878,7 +878,7 @@ def main() -> int:
     print(render(plan))
     print()
     print(f"→ 计划文件：{PLAN}")
-    print("  后续每个阶段开头先跑：uv run python 流程1/scripts/prepare_stage.py --check <阶段>"
+    print("  后续每个阶段开头先跑：uv run python scripts/prepare_stage.py --check <阶段>"
           "（退出码 0=执行 / 3=跳过）")
     return 0
 

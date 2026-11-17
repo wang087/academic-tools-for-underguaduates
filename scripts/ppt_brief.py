@@ -19,7 +19,7 @@
 #   Step 5 之后仍由主 agent 手写 SVG、质检并串行导出。
 #
 # 用法：
-#   uv run python 流程1/scripts/ppt_brief.py
+#   uv run python scripts/ppt_brief.py
 #     --ppt-dir=<ppt-master 仓库根>   默认自动探测（$PPT_MASTER_DIR 或 <本仓>/vendor/ppt-master）
 #     --outdir=<输出根>               默认流程输出根 WD（PAPER_WORKDIR / run_root()）；
 #                                     项目落 <WD>/<作者名>_汇报PPT_<画布>_<日期>
@@ -168,7 +168,7 @@ def load_tiers() -> dict:
         why = "prepare_plan.json 里没有该键" if key not in plan else f"取值非法：{raw!r}"
         print(f"[WARN] 解读档位 {key} 不可用（{why}）→ 回退默认 {default}"
               f"［{TIER_STAGE_LABEL[key]}］。"
-              f"如需改档：python 流程1/scripts/prepare_stage.py --set {key}={default}",
+              f"如需改档：python scripts/prepare_stage.py --set {key}={default}",
               file=sys.stderr)
         out[key] = default
     return out
@@ -189,7 +189,7 @@ def find_ppt_dir(explicit: str = "") -> pathlib.Path | None:
       ① `--ppt-dir=` 显式指定
       ② `PPT_MASTER_DIR` 环境变量
       ③ **本流程目录内的随包副本 `<流程>/vendor/ppt-master`** —— 打包发行版
-         （如 `流程1/`）自带依赖时走这里，保证脱离原仓库也能跑
+         （如 ``）自带依赖时走这里，保证脱离原仓库也能跑
       ④ 同级仓库目录 `<仓库根>/ppt-master`
     """
     cands = []
@@ -198,9 +198,9 @@ def find_ppt_dir(explicit: str = "") -> pathlib.Path | None:
     env = os.environ.get("PPT_MASTER_DIR", "").strip()
     if env:
         cands.append(pathlib.Path(env))
-    # ③ 随包副本（_HERE.parent = 流程1/ 或 流程1/）
+    # ③ 随包副本（_HERE.parent =  或 ）
     cands.append(_HERE.parent / "vendor" / "ppt-master")
-    # ④ 同级仓库目录。上一级是 流程1/，再上一级才是仓库根
+    # ④ 同级仓库目录。上一级是 ，再上一级才是仓库根
     #    （写成 parents[1].parent 会跑到用户主目录去找同名的 ppt-master，
     #      实测确实误命中过 C:\Users\<用户名>\ppt-master，必须钉死）
     cands.append(_HERE.parents[1] / "ppt-master")
@@ -370,7 +370,7 @@ def collect_graphs() -> list[dict]:
     if not out and list(gdir.glob("*.svg")):
         print("[INFO] 阶段 K 只产出了 SVG（矢量），PPT 需要 PNG → "
               "请补跑：uv run --with matplotlib --with networkx "
-              "python 流程1/scripts/knowledge_graph.py --also-png")
+              "python scripts/knowledge_graph.py --also-png")
     return out
 
 
@@ -945,7 +945,7 @@ def gen_design_spec(title, canvas_key, parts, source_rel, highlights,
              "不引入外部新事实）。")
     L.append("> **生成方式**：由《流程》阶段 P 的 `ppt_brief.py` **确定性生成**，"
              "跳过了 ppt-master 默认的 Step 3 模板候选与 Step 4 两阶段确认"
-             "（详见 `流程1/ppt-integration/SKILL.md`）。")
+             "（详见 `ppt-integration/SKILL.md`）。")
     L.append("")
     return "\n".join(L)
 
@@ -1287,7 +1287,7 @@ def main() -> int:
         #   而在它之前 `--help` 会**落进主流程**去读工作目录、报"素材为空"并退出 2
         #   —— 一个查询型开关把调用方引到了"流程出错"的结论上。
         print(
-            "用法：python 流程1/scripts/ppt_brief.py [选项]\n"
+            "用法：python scripts/ppt_brief.py [选项]\n"
             "\n"
             "阶段 P：把阶段 H 的解读卡与阶段 H2 的综述结果汇编成 ppt-master 的\n"
             "source，并在 ppt-master 两阶段确认完成后生成 design_spec.md / spec_lock.md。\n"

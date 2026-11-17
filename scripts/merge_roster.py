@@ -16,12 +16,12 @@
 #   「判定为导航行（filtered_as_non_direction）」，丢失真实原因。
 #
 # 用法：
-#   uv run python 流程1/scripts/merge_roster.py \
+#   uv run python scripts/merge_roster.py \
 #       --roster outputs/01_导师名单/roster_detail.json \
 #       --college outputs/05_学院官网/college_detail.json
 #
 #   从备份重跑（推荐，保证可复现）：
-#   uv run python 流程1/scripts/merge_roster.py --roster <...> \
+#   uv run python scripts/merge_roster.py --roster <...> \
 #       --college <...> --from-backup
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations

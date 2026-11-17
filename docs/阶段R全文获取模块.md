@@ -1,6 +1,6 @@
 # 阶段 R 综述全文获取 · 可复用模块
 
-> **模块**：`流程1/scripts/reviews_fulltext.py`
+> **模块**：`scripts/reviews_fulltext.py`
 > **依据**：`SKILL.md` §5.1 分层获取策略（最高优先级）、§5.2 鼠标自动化禁令
 > **定位**：把阶段 R 的检索产物直接接到全文获取链路上，**skill 先试、CDP 兜底**
 
@@ -103,7 +103,7 @@ if pmcid and inEPMC == "Y" and isOpenAccess == "Y":   # 两者缺一不可
 ## 三、用法
 
 ```bash
-cd 流程1
+cd 本流程
 
 # ① 只探测分层（零浏览器开销，先看有多少篇能走第一层）
 uv run python scripts/reviews_fulltext.py --probe
@@ -163,7 +163,7 @@ python scripts/cdp_pool.py down
 | `<workdir>/.work_cdp/fulltext_state.json` | 既有下载器的状态文件（本模块**只读不写**，避免两套状态漂移） |
 | `<workdir>/.work_cdp/reviews_layer2_repo.json` | 仓库副本通道结果（PMC 经 CDP，`--repo`） |
 
-> `<workdir>` 由 `logutil.workdir()` 决定，默认 `流程1/<YYYYMMDD>/`。
+> `<workdir>` 由 `logutil.workdir()` 决定，默认 `<YYYYMMDD>/`。
 
 ---
 
@@ -171,13 +171,13 @@ python scripts/cdp_pool.py down
 
 ### ① 工作目录判据必须复用，不能各算各的
 
-既有脚本一律 `WD = logutil.workdir()`，默认解析成 **`流程1/<YYYYMMDD>/`**
-（**不是** `流程1/`）。本模块第一版硬写 `FLOW1 / ".work_cdp"`，
-结果缺口清单写到了 `流程1/.work_cdp/`，而下载器去
-`流程1/20261006/.work_cdp/` 找 `crossref_all.json`：
+既有脚本一律 `WD = logutil.workdir()`，默认解析成 **`<YYYYMMDD>/`**
+（**不是** `本目录`）。本模块第一版硬写 `FLOW1 / ".work_cdp"`，
+结果缺口清单写到了 `.work_cdp/`，而下载器去
+`20261006/.work_cdp/` 找 `crossref_all.json`：
 
 ```text
-FileNotFoundError: '...\流程1\20261006\.work_cdp\crossref_all.json'
+FileNotFoundError: '...\本流程\20261006\.work_cdp\crossref_all.json'
 ```
 
 **已修**：模块改为 `from logutil import workdir`，与既有脚本同一判据。
@@ -331,7 +331,7 @@ subagent 分段读完后产出的卡片 `evidence.source` 均为 `fulltext`，
 ## 八、复现命令
 
 ```bash
-cd 流程1
+cd 本流程
 
 # 1) 审计：确认阶段 R 只有摘要级
 python scripts/probe_review_fulltext.py     # 元数据复核

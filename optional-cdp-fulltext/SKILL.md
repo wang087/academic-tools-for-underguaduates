@@ -5,14 +5,14 @@
 > （合规依据与移除方式见本目录 `README.md`）。
 >
 > **模块缺失时不要照本手册操作** —— 先跑探测：
-> `uv run python 流程1/scripts/cdp_module.py`（返回 3 = 未安装）。
+> `uv run python scripts/cdp_module.py`（返回 3 = 未安装）。
 
 ## 一、入口与探测
 
 ```bash
-uv run python 流程1/scripts/cdp_module.py            # 状态 + 本模块提供的脚本
-uv run python 流程1/scripts/cdp_module.py --path     # 模块目录（未安装则空）
-uv run python 流程1/scripts/cdp_module.py --status   # 0=可用 3=未安装
+uv run python scripts/cdp_module.py            # 状态 + 本模块提供的脚本
+uv run python scripts/cdp_module.py --path     # 模块目录（未安装则空）
+uv run python scripts/cdp_module.py --status   # 0=可用 3=未安装
 ```
 
 主 `SKILL.md` 只保留这一条探测入口；阶段 E / R①.5 在探测为"未安装"时
@@ -31,7 +31,7 @@ uv run python 流程1/scripts/cdp_module.py --status   # 0=可用 3=未安装
 
 ```bash
 uv run --with websocket-client --with pypdf python \
-    流程1/optional-cdp-fulltext/download_all_fulltexts.py \
+    optional-cdp-fulltext/download_all_fulltexts.py \
     --n=3 --tabs=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35
 ```
 
@@ -48,7 +48,7 @@ uv run --with websocket-client --with pypdf python \
 "改走备用链路"的三行说明，流程继续。
 
 ```bash
-uv run python 流程1/scripts/reviews_fulltext.py --layer1 --layer2 --cdp --fallback
+uv run python scripts/reviews_fulltext.py --layer1 --layer2 --cdp --fallback
 #   --cdp 在模块缺失时打印 [INFO] 并返回 3（跳过，非失败）
 ```
 
@@ -100,7 +100,7 @@ res = save_with_asset(cdp_session, browser_hwnd, landing_url, pdf_url, out_path)
 ## 六、自检
 
 ```bash
-uv run python 流程1/optional-cdp-fulltext/fulltext_publishers.py --self-test
-uv run python 流程1/optional-cdp-fulltext/download_all_fulltexts.py --self-test   # 如提供
-uv run python 流程1/scripts/selftest_fulltext_modules.py     # 聚合（本模块缺席时标 [SKIP]）
+uv run python optional-cdp-fulltext/fulltext_publishers.py --self-test
+uv run python optional-cdp-fulltext/download_all_fulltexts.py --self-test   # 如提供
+uv run python scripts/selftest_fulltext_modules.py     # 聚合（本模块缺席时标 [SKIP]）
 ```

@@ -100,7 +100,7 @@ def bibliography_values(data: Any) -> list[tuple[str, Any]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="校验流程1核心 JSON 产物")
+    parser = argparse.ArgumentParser(description="校验本流程核心 JSON 产物")
     parser.add_argument("--kind", choices=sorted(SCHEMAS), required=True)
     parser.add_argument("input", type=pathlib.Path)
     args = parser.parse_args()

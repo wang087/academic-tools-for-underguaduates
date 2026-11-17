@@ -6,7 +6,7 @@
 # 干什么：把 `.work_cdp/refs/final_list.json` 的每条文献，连同**摘要**与
 #         受控标签词表一起，固化成一个个自包含的 `tasks/<doi_slug>.json`，
 #         交给并行 subagent 精读（提示词模板见
-#         `流程1/subagent-driven-review/SKILL.md` §7 的综述网络版）。
+#         `subagent-driven-review/SKILL.md` §7 的综述网络版）。
 #
 # 本脚本**不联网**。摘要来自阶段 D2 已取好的 OpenAlex 数据。
 #   这是刻意的：subagent 必须无网可上，从机制上杜绝「顺手 curl 一篇」，
@@ -21,7 +21,7 @@
 #       <WORKDIR>/.work_cdp/refs/manifest.json
 #
 # 用法：
-#   uv run python 流程1/scripts/refs_prepare.py
+#   uv run python scripts/refs_prepare.py
 #     --top=40            只准备相关性最高的前 N 条（0=全部；默认 0）
 #     --only=DOI1,DOI2    只准备指定 DOI
 #     --max-chars=12000   摘要超长时的截断上限（摘要一般远小于此）
@@ -175,7 +175,7 @@ USAGE = """\
 阶段 H2 ②：为 review（研究方向综述）组装自包含任务包
 
 用法：
-  uv run python 流程1/scripts/refs_prepare.py [选项]
+  uv run python scripts/refs_prepare.py [选项]
 
 选项：
   --top=N            只准备相关性最高的前 N 条（0=全部；默认 0）
@@ -259,7 +259,7 @@ def main() -> int:
     data = load_json(REFDIR / "final_list.json")
     if not data or not data.get("items"):
         print("[X] 找不到 .work_cdp/refs/final_list.json（或为空）")
-        print("  请先跑阶段 H2 ①：uv run python 流程1/scripts/refs_curate.py")
+        print("  请先跑阶段 H2 ①：uv run python scripts/refs_curate.py")
         return 2
 
     items = data["items"]
@@ -417,7 +417,7 @@ def main() -> int:
 
     print(f"\n清单：{REFDIR / 'manifest.json'}")
     print("下一步：**在同一条消息内**并行分派 4–6 个 subagent（每篇一个），")
-    print("        提示词模板见 流程1/subagent-driven-review/SKILL.md §7（综述网络版）；")
+    print("        提示词模板见 subagent-driven-review/SKILL.md §7（综述网络版）；")
     print("        跑完再执行 refs_build.py 汇总。")
     journal("H2", "refs.prepare", n_tasks=len(manifest), n_with_abstract=n_abs,
             interpret_tier=tier)

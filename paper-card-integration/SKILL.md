@@ -1,15 +1,15 @@
 ---
 name: author-paper-card-integration
-description: 流程1/SKILL.md 的子流程（阶段 H 的 paper-card 引擎）——把已并入的 nature-paper-card 接进阶段 H 的单篇解读：在原有 11 字段解读卡之外额外产出 16 节 Paper Card，并以「结构审计 + 数字回查原文」作为交付质量门。当需要论文精读卡、方法拆解、证据链分析、结论边界时使用。
+description: SKILL.md 的子流程（阶段 H 的 paper-card 引擎）——把已并入的 nature-paper-card 接进阶段 H 的单篇解读：在原有 11 字段解读卡之外额外产出 16 节 Paper Card，并以「结构审计 + 数字回查原文」作为交付质量门。当需要论文精读卡、方法拆解、证据链分析、结论边界时使用。
 ---
 
 # 阶段 H · paper-card 引擎（nature-paper-card 并入）
 
 > ## 从属关系（先读）
 >
-> **本文件是 `流程1/SKILL.md` 的子流程，只负责阶段 H 的 `interpret_engine=paper-card` 路径。**
+> **本文件是 `SKILL.md` 的子流程，只负责阶段 H 的 `interpret_engine=paper-card` 路径。**
 >
-> - 冲突时**一律以 `流程1/SKILL.md` 为准**；
+> - 冲突时**一律以 `SKILL.md` 为准**；
 > - 本文件**不重新定义** nature-paper-card 的任何内部步骤，只定义**如何进入**它、
 >   **哪些环节被裁剪**、以及**并入后仍必须遵守哪些质量门**；
 > - nature-paper-card 自己的分析纪律（`SKILL.md` 的 Routing protocol 与
@@ -21,9 +21,9 @@ description: 流程1/SKILL.md 的子流程（阶段 H 的 paper-card 引擎）�
 
 | 项 | 事实 |
 | --- | --- |
-| 并入了什么 | `nature-skills` v0.1.0 中的 **`nature-paper-card` 一个技能**，落在 `流程1/vendor/nature-paper-card/`（27 个文件，144 KB，Apache-2.0） |
+| 并入了什么 | `nature-skills` v0.1.0 中的 **`nature-paper-card` 一个技能**，落在 `vendor/nature-paper-card/`（27 个文件，144 KB，Apache-2.0） |
 | 没并入什么 | 上游其余 **19 个技能**（`nature-reader` / `nature-academic-search` / `nature-reviewer` / `nature-literature-pipeline` / `nature-paper2ppt` / `nature-figure` / `nature-writing` …）**一律没有并入**，本流程也不调用它们 |
-| 外部依赖 | **无**。路径解析只有一个权威 `scripts/nature_bridge.py`，它**优先**找 `<流程1>/vendor/nature-paper-card`，仓库根的上游检出仅作开发期回退 |
+| 外部依赖 | **无**。路径解析只有一个权威 `scripts/nature_bridge.py`，它**优先**找 `vendor/nature-paper-card`，仓库根的上游检出仅作开发期回退 |
 | 术语台账 | 上游放在共享层 `nature-shared/core/terminology-ledger.md`，因只并一个技能而**内联**为 `vendor/nature-paper-card/references/terminology-ledger.md`（`manifest.yaml` 的 `always_load` 已同步改指技能内路径，不再有 `../` 越界引用） |
 | 上游的安装/自动更新 | `npx skills add`、`autoupdate-skills.sh`、Codex/OpenClaw/Hermes 的技能目录配置 —— **均不属于本次合并，也不应再被引用** |
 
@@ -40,8 +40,8 @@ description: 流程1/SKILL.md 的子流程（阶段 H 的 paper-card 引擎）�
 阶段 0 收口，写在 `.work_cdp/prepare_plan.json`：
 
 ```bash
-uv run python 流程1/scripts/prepare_stage.py --set interpret_engine=legacy|paper-card
-uv run python 流程1/scripts/prepare_stage.py --engine H      # 查询（stdout 只有取值）
+uv run python scripts/prepare_stage.py --set interpret_engine=legacy|paper-card
+uv run python scripts/prepare_stage.py --engine H      # 查询（stdout 只有取值）
 ```
 
 | 引擎 | 产出 | 何时用 |
@@ -76,7 +76,7 @@ uv run python 流程1/scripts/prepare_stage.py --engine H      # 查询（stdout
 
 ```bash
 # ① 组包（下发引擎与全部路径；paper-card 引擎会先做可用性前置检查）
-uv run --with pypdf python 流程1/scripts/interpret_prepare.py --engine=paper-card
+uv run --with pypdf python scripts/interpret_prepare.py --engine=paper-card
 #     只用相位作用域内子集：--only=<DOI> --limit=N
 
 # ② 并行 subagent 逐篇精读（提示词模板见
@@ -85,17 +85,17 @@ uv run --with pypdf python 流程1/scripts/interpret_prepare.py --engine=paper-c
 #    → 同时写 11 字段 JSON 卡 → 自己先跑一次质量门
 
 # ③ 交付质量门（**每条都必须跑**，退出码非 0 即为 error）
-uv run python 流程1/scripts/nature_bridge.py check \
+uv run python scripts/nature_bridge.py check \
   --card  .work_cdp/interpret/paper_cards/<slug>.md \
   --bundle .work_cdp/interpret/paper_cards/<slug>.source_bundle.json \
   --locator-mode page-grounded \
   --report .work_cdp/interpret/paper_cards/<slug>.audit.json
 
 # ④ 汇总（会申报引擎，并逐篇列出深读卡与审计状态）
-uv run python 流程1/scripts/interpret_build.py
+uv run python scripts/interpret_build.py
 ```
 
-**位置无关**：`nature_bridge.py` 只认 `<流程1>/vendor/nature-paper-card`，
+**位置无关**：`nature_bridge.py` 只认 `vendor/nature-paper-card`，
 可由 `PAPER_CARD_DIR` 覆盖；分发包里只有前者。
 
 ---
@@ -162,8 +162,8 @@ uv run python 流程1/scripts/interpret_build.py
 ## 7. 检查清单
 
 - [ ] 阶段 0 已确认 `interpret_engine`（`--engine H` 查询得到取值）
-- [ ] `uv run python 流程1/scripts/nature_bridge.py --self-test` 通过
-- [ ] `uv run python 流程1/scripts/selftest_nature_integration.py` 通过
+- [ ] `uv run python scripts/nature_bridge.py --self-test` 通过
+- [ ] `uv run python scripts/selftest_nature_integration.py` 通过
 - [ ] 每个启用本引擎的篇目都**同时**有 `paper_cards/<slug>.md` 与 `results/<slug>.json`
 - [ ] 每篇都跑过 `nature_bridge.py check`，且 `audit.json` 的 `summary.status` 为 `pass`
 - [ ] 定位模式与该次准备的实际结果一致（`source_bundle.json` 的

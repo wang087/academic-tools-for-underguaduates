@@ -163,7 +163,7 @@ def main() -> int:
         import pypdf  # noqa: F401
     except ImportError:
         LOG.error("缺少 pypdf —— store.validate_pdf 无法校验任何 PDF。")
-        LOG.error("请用：uv run --with pypdf python 流程1/scripts/extract_parallel.py …")
+        LOG.error("请用：uv run --with pypdf python scripts/extract_parallel.py …")
         LOG.close()
         print()
         print("[X] 缺少 pypdf：本脚本需要它来判「残缺件」。")

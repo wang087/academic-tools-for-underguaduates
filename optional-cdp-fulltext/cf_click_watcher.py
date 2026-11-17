@@ -6,7 +6,7 @@
     `SendInput` 返回 err=5（无输入桌面），无法向屏幕注入鼠标。
     这个脚本由你在本机双击/命令行启动后，才拥有交互桌面权限。
 
-用法（在 流程1 目录）：
+用法（在 本流程 目录）：
     .venv\\Scripts\\python.exe optional-cdp-fulltext\\cf_click_watcher.py
     ... --max-minutes 30      # 最多运行 30 分钟后自动退出
     ... --once                # 只扫描一轮就退出（自检用）

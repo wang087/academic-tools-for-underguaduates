@@ -13,8 +13,8 @@
 #   Step 4.5 Deduplication（DOI 优先，题名归一化兜底）
 #
 # 用法：
-#   uv run python 流程1/scripts/search_run.py --plan outputs/07_检索/search_plan.json
-#   uv run python 流程1/scripts/search_run.py --plan … --sources europepmc
+#   uv run python scripts/search_run.py --plan outputs/07_检索/search_plan.json
+#   uv run python scripts/search_run.py --plan … --sources europepmc
 # ─────────────────────────────────────────────────────────────
 from __future__ import annotations
 
@@ -74,11 +74,11 @@ except Exception:
 WD = pathlib.Path(os.environ.get("PAPER_WORKDIR") or str(_run_root())).resolve()
 
 # paginate.py 的位置：既有 skill 的取数层。它**不在本次输出目录下** ——
-# `PAPER_WORKDIR` 缺省是 `流程1/<年月日>/`，而 skills/ 在流程根、包根或工作文件夹，
+# `PAPER_WORKDIR` 缺省是 `<年月日>/`，而 skills/ 在流程根、包根或工作文件夹，
 # 故按候选根目录逐个探测（与 `preflight_fallback.py` 同一判据）。
 SKILL_ROOTS = [
     WD / "skills", WD.parent / "skills",
-    pathlib.Path(__file__).resolve().parent.parent / "skills",  # 流程1/skills
+    pathlib.Path(__file__).resolve().parent.parent / "skills",  # skills
     pathlib.Path(__file__).resolve().parent.parent.parent / "skills",
 ]
 _PAGINATE_REL = pathlib.Path("paper-lookup") / "scripts" / "paginate.py"
