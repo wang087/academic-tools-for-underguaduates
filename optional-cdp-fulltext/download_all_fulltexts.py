@@ -309,9 +309,20 @@ def _ensure_active_tab(c: CDP, landing: str, log) -> bool:
     """
     with VERIFY_LOCK:
         try:
+            # Page.bringToFront 在多标签下可能只激活窗口、不切标签；
+            #   Target.activateTarget 按 targetId 强制切换，再补 window.focus()。
+            if getattr(c, "tab_id", ""):
+                try:
+                    c.call("Target.activateTarget", {"targetId": c.tab_id}, timeout=6)
+                except Exception:
+                    pass
             c.bring_to_front()
+            try:
+                c.eval("window.focus()", timeout=5)
+            except Exception:
+                pass
             activate_edge_window(getattr(c, "port", None))
-            time.sleep(0.35)
+            time.sleep(0.5)
             raw = c.eval(
                 "JSON.stringify({v:document.visibilityState,"
                 "f:document.hasFocus(),u:location.href})", timeout=8)

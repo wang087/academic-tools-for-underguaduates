@@ -75,6 +75,19 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 >    （3）**落盘**：逐项答复照常落进阶段 0 的单一事实源
 >    `.work_cdp/prepare_plan.json`；确认记录与被跳过项一并写入
 >    `run_journal.jsonl`，供回溯。
+> 9. **[STOP] 脚本改动必须同步项目文档；文档只留最新版** ——
+>    每次对 `scripts/`（及随包模块）的**重构 / 新增 / 删除**，都**必须同步修改
+>    对应项目文档**，不得只改代码留旧文档：
+>    · `SKILL.md` §8 脚本索引、相关阶段节；
+>    · `docs/开发项目说明.md` 的文件树、模块边界、CLI 索引、依赖说明；
+>    · `docs/项目交接说明.md` 的测试分层 / 核心文件索引（涉及时）；
+>    · 受影响的 schema / 模板 / 子流程 `SKILL.md`。
+>    **项目文档（含 `SKILL.md`、`README*.md`、`docs/`、`完整链路.md`）只保留
+>    当前最新有效版本** —— 不累积「vN 改了什么」「本次改动」「旧规则对比」等
+>    历史叙述（第 4 条对 `SKILL.md`/`README.md` 的禁令适用于**全部**项目文档）。
+>    一切版本沿革、增删过程、被取代的旧规则**只记入 [版本变动.md](版本变动.md)**；
+>    实测数据只记入 [实测结果汇总.md](实测结果汇总.md)。
+>    判据：**文档描述的是「现在怎么做」，不是「曾经怎么改」**。
 >
 > **判定顺序**：`SKILL.md` > 子流程文件 > 任何外部或历史资料。
 > 若流程目录下存在来源不明的第三方 `SKILL.md`，**一律以本流程为准**，不要混用其步骤与产物约定。
@@ -114,6 +127,12 @@ description: 面向本科生文献检索与科研辅助的全流程 Agent 工作
 ## 0. 快速开始（最小可用路径）
 
 ```bash
+# -2) 首跑可选层探测（只读）：无产物目录 + 无 .work_cdp + 环境无 MinerU 时，
+#     就「是否安装 MinerU」单独问用户一句，如实告知体积/损益/建议，再 record 落盘。
+#     详见「可选解析层（分层共存）+ 首跑 MinerU 安装决策」节。
+uv run python 流程1/scripts/optional_layers.py probe --json
+#     收齐答复后： optional_layers.py record --mineru-install=yes|no|defer
+
 # -1) 阶段 0：准备阶段 —— 先在对话里收齐选择，再一条命令落盘
 #     （不落盘也能跑，但后续阶段会**保守地跳过**可选环节并提示）
 uv run python 流程1/scripts/prepare_stage.py \
@@ -633,6 +652,50 @@ uv run --with pypdf --with pillow --with pymupdf python 流程1/scripts/extract_
 
 > **`--min-px-fig` 默认 60，不是 `extract_figures.py` 自身的 120。**
 > 门槛过高会把**明明有图的 PDF 抽成空数组** —— 表现和「没有图」一模一样，静默漏图。
+
+### 可选解析层（分层共存）+ 首跑 MinerU 安装决策
+
+PDF 解析按**三层共存**组织，主链路不变，两层皆可选：
+
+| 层 | 实现 | 适用 | 必装 |
+| --- | --- | --- | --- |
+| 主链路 | fitz/pypdf（`prep_paper.py` / `extract_parallel.py`） | 数字版 PDF 按页文本 | 是 |
+| 可选轻量层 | opendataloader（`vendor/opendataloader/` + `opendataloader_extract.py`） | 数字版确定性 Markdown + 逐元素 bbox JSON，交叉校验/备选引擎；需 Java 11+，**本地模式无 OCR** | 否 |
+| 可选深解析层 | MinerU（环境级，`optional_layers.py` 探测） | 扫描件 OCR / 复杂表格 / 公式 | 否 |
+
+> [STOP] **MinerU 不是必装项，是否安装属于「只有用户能定」的环境级选择**，
+> 按文件头第 8 条「增加类操作必须分项确认」处理：
+>
+> - **首跑判据**（三者同时成立才触发询问）：① 工作目录无产物目录
+>   （`*_paper_Exports` / `*_Exports` / `outputs`）；② 无临时目录（`.work_cdp/`）；
+>   ③ 环境无 MinerU。一条命令查清：
+>   `uv run python 流程1/scripts/optional_layers.py probe [--json]`。
+> - **一项一问**：就「是否安装 MinerU」**单独**问用户一句，不得与其他选项打包。
+>   问之前先跑 `probe`，**如实告知体积、损益与建议**（量级、边际占用、可省冗余、
+>   收益与代价都在 probe 输出里；具体实测证据见 [实测结果汇总.md](实测结果汇总.md)）。
+> - **不替用户默认装**：未获明确答复按「不安装」处理；**脚本不代装任何东西**，
+>   只探测与记录。安装由用户自行完成。
+> - **落盘**：答复用 `optional_layers.py record --mineru-install=yes|no|defer`
+>   写进 `.work_cdp/optional_layers.json`，并记入 `run_journal.jsonl`。
+>   **记录过决定后不再重复追问**（`probe` 的 `should_ask_mineru_install` 转 false）。
+> - **建议口径**：数字版 PDF 为主 → 不必装（fitz 主链 + opendataloader 可选层已够）；
+>   确有扫描件 / 复杂表格 / 公式深解析需求 → 再装。MinerU 在含中文路径上有编码 bug，
+>   装前须先解决（ASCII junction）。
+
+```bash
+# 首跑探测（只读，不创建目录、不联网）：给出是否需询问 + 体积/损益/建议
+uv run python 流程1/scripts/optional_layers.py probe --json
+# 收齐用户答复后落盘（yes/no/defer）
+uv run python 流程1/scripts/optional_layers.py record --mineru-install=no
+# 可选轻量层：数字版 PDF → Markdown + bbox JSON（默认 .work_cdp/odl/）
+uv run python 流程1/scripts/opendataloader_extract.py "<pdf>" --format markdown,json
+uv run python 流程1/scripts/opendataloader_extract.py --detect   # 0=可用 / 3=不可用
+```
+
+> opendataloader 已**完整解压整合**进 `vendor/opendataloader/`（jar + LICENSE +
+> NOTICE + THIRD_PARTY，Apache-2.0），不走 zip 运行时解压；`opendataloader_extract.py`
+> 是唯一 adapter，缺 Java/jar 时诚实降级（退出 2/3），主链路 fitz 不受影响。
+> 深解析（扫描件/表格/公式）不在本层范围 —— 走 MinerU。
 
 ---
 
@@ -3054,6 +3117,8 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 | `extract_figures.py`            | 抽取 PDF**内嵌位图**（Extended Data 图、单张整图），可降采样                                                                                                                                                   | `... extract_figures.py "<pdf>" "<out.json>" 300 1600`                        |
 | `jats_to_text.py`               | **JATS XML → 结构化文本**（OA 全文取正文，非 OA 返回 404）                                                                                                                                                    | `uv run python jats_to_text.py <file.xml>`                                    |
 | **`extract_parallel.py`** | [**]**边下载边抽取调度**（阶段 E↔F/H 并行）：PDF → 按页分节文本 + 图注页索引 + 内嵌位图，**幂等增量**；`--then-prepare` 顺带组解读任务包；**开头断言 pypdf 可用**；需 pypdf + pillow + pymupdf | `uv run --with pypdf --with pymupdf python extract_parallel.py`               |
+| **`optional_layers.py`** | [**]**可选解析层首跑探测 + MinerU 安装决策记录**（只读探测 + 本地落盘，不联网、不代装）：判「无产物目录 + 无 `.work_cdp` + 环境无 MinerU」为首跑，给出体积/损益/建议供 agent 逐项问用户，`record` 落盘 yes/no/defer 后不再追问。详见「可选解析层」节 | `uv run python optional_layers.py probe [--json]` / `record --mineru-install=yes\|no\|defer` / `status` / `--self-test` |
+| **`opendataloader_extract.py`** | [**]**可选轻量解析层**（opendataloader-pdf，需 Java 11+）：数字版 PDF → 确定性 Markdown + 逐元素 `bounding box` JSON，约 0.7s/篇，作交叉校验/备选引擎，**不替换 fitz 主链**；本地模式无 OCR（扫描件走 MinerU）。已完整整合进 `vendor/opendataloader/`（jar+许可证），本脚本是唯一 adapter | `uv run python opendataloader_extract.py "<pdf>" [--format markdown,json]` / `--detect` / `--self-test` |
 | `translation_build.py`          | 内容 JSON + 图形 JSON →**内联图的**中译 HTML                                                                                                                                                                  | `uv run python translation_build.py <content.json> <figures.json> <out.html>` |
 
 ### 同名消歧与论文解读
@@ -3112,6 +3177,7 @@ uv run python 流程1/scripts/journal_view.py --json         # 原样输出，�
 
 - [ ] [STOP] **本次改动未在 `SKILL.md` / `README.md` 里写任何版本说明**（无 `vN` 日志、无「本次改动」、无「详见 §9.x」、标题无版本标注）
 - [ ] [STOP] **本次改动已记入 [版本变动.md](版本变动.md)**，且写明了「为什么不能用自动方式修」
+- [ ] [STOP] **脚本重构/增删已同步项目文档（第 9 条）**：`SKILL.md` §8 与阶段节、`docs/开发项目说明.md`（文件树/模块边界/CLI 索引）、`docs/项目交接说明.md`、受影响 schema/模板/子流程规范均已更新；**全部项目文档只留最新版**，无累积的版本叙述（沿革归 `版本变动.md`、实测归 `实测结果汇总.md`）
 - [ ] [NEW] **脚本零硬编码**：作者姓名/ORCID/单位/署名词/阶段/待测 DOI 均由运行时传入；未修改 `scripts/` 内的任何硬编码值
 - [ ] [NEW] **（最高优先级）全程未自编脚本从 HTTP 直链抓取原文全文**（§5.1 第二层）；**OA 全文同样走 CDP**；对出版社内容站 `curl` 探活零次
 - [ ] [NEW] **第一层直连未越界**：所有 HTTP 直连请求的目标域名都在 `templates/直连白名单.json` 内；未把白名单外的域名当作"开源库"直接取

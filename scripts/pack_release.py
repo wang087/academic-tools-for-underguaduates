@@ -394,7 +394,7 @@ def _run(log) -> int:
     print(" 打包发行版")
     print(f" 源 ：{SRC}")
     print(f" 目标：{dest}（目录名 {name}）")
-    print(f" 依赖：{'不打 vendor' if no_vendor else '含 vendor/ppt-master + vendor/nature-paper-card'}"
+    print(f" 依赖：{'不打 vendor' if no_vendor else '含 vendor/ppt-master + nature-paper-card + opendataloader'}"
           + ("（--slim：裁剪配图样张/图标库/音效）" if slim else "（完整）"))
     print(" 取全文 CDP 模块：" + ("**已排除**（--exclude-optional-cdp-fulltext："
           "发行版不含出版商正文自动化；流程改走备用链路）" if no_cdp_mod
@@ -556,6 +556,33 @@ def _run(log) -> int:
             n_copy += ns_files
             print(f"  · vendor/nature-paper-card：{ns_files} 个文件"
                   f"（单技能并入，Apache-2.0；补丁登记见其 UPSTREAM.md）")
+
+    # ── ③f 可选轻量解析层：opendataloader（已完整整合，Apache-2.0）──────
+    #   整目录带走（jar + LICENSE + NOTICE + THIRD_PARTY + 整合 README）。
+    #   可选层：缺失只 WARN，不阻断 —— 主链路 fitz 不受影响。
+    if not no_vendor:
+        od_src = SRC / "vendor" / "opendataloader"
+        if not (od_src / "LICENSE").exists():
+            print("[WARN] 找不到 vendor/opendataloader，跳过"
+                  "（可选轻量解析层不可用；主链路 fitz 不受影响）")
+            manifest["skipped"].append("vendor/opendataloader（未找到源）")
+        else:
+            od_dst = dest / "vendor" / "opendataloader"
+            od_files = 0
+            for f in iter_files(od_src):
+                rel = f.relative_to(od_src)
+                out = od_dst / rel
+                data = f.read_bytes()
+                if not dry:
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(data)
+                od_files += 1
+                manifest["files"].append(
+                    {"path": f"vendor/opendataloader/{rel}", "bytes": len(data),
+                     "sha256": hashlib.sha256(data).hexdigest()})
+            n_copy += od_files
+            print(f"  · vendor/opendataloader：{od_files} 个文件"
+                  f"（可选轻量解析层，Apache-2.0；需目标机 Java 11+）")
 
     # ③c 不再打包 llama.cpp 生命周期：deai/kw 只使用 Transformers + PEFT。
     # ── ③d 训练后适配器：vendor/small-model-assets（--assets=adapters）──

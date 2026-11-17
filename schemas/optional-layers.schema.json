@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flow1/optional-layers",
+  "title": "流程1可选解析层安装决策",
+  "type": "object",
+  "required": ["_schema"],
+  "properties": {
+    "_schema": {"type": "integer", "minimum": 1},
+    "mineru_install": {
+      "type": "object",
+      "required": ["decision", "ts", "source"],
+      "properties": {
+        "decision": {"type": "string", "enum": ["yes", "no", "defer"]},
+        "ts": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "note": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

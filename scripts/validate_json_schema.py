@@ -20,6 +20,7 @@ SCHEMAS = {
     "review-card": ROOT / "schemas" / "review-card.schema.json",
     "graph-data": ROOT / "schemas" / "graph-data.schema.json",
     "run-status": ROOT / "schemas" / "run-status.schema.json",
+    "optional-layers": ROOT / "schemas" / "optional-layers.schema.json",
 }
 
 
