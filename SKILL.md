@@ -769,74 +769,66 @@ uv run python scripts/journal_view.py --json         # 原样输出，供二次�
 
 > **§8 脚本索引** —— 细节见 [`docs/脚本与CLI索引.md`](docs/脚本与CLI索引.md)（进入本阶段再读，勿全量加载）。
 
-## 10. 复用检查清单
+## 10. 复用与改动检查清单
 
-- [ ] [STOP] **本次改动未在 `SKILL.md` / `README.md` 里写任何版本说明**（无 `vN` 日志、无「本次改动」、无「详见 §9.x」、标题无版本标注）
-- [ ] [STOP] **本次改动已记入 [版本变动.md](版本变动.md)**，且写明了「为什么不能用自动方式修」
-- [ ] [STOP] **脚本重构/增删已同步项目文档（第 9 条）**：`SKILL.md` §8 与阶段节、`docs/开发项目说明.md`（文件树/模块边界/CLI 索引）、`docs/项目交接说明.md`、受影响 schema/模板/子流程规范均已更新；**全部项目文档只留最新版**，无累积的版本叙述（沿革归 `版本变动.md`、实测归 `实测结果汇总.md`）
-- [ ] [NEW] **脚本零硬编码**：作者姓名/ORCID/单位/署名词/阶段/待测 DOI 均由运行时传入；未修改 `scripts/` 内的任何硬编码值
-- [ ] [NEW] **（最高优先级）全程未自编脚本从 HTTP 直链抓取原文全文**（§5.1 第二层）；**OA 全文同样走 CDP**；对出版社内容站 `curl` 探活零次
-- [ ] [NEW] **第一层直连未越界**：所有 HTTP 直连请求的目标域名都在 `templates/直连白名单.json` 内；未把白名单外的域名当作"开源库"直接取
-- [ ] [NEW] **第一层失败已转 CDP**：`fetch_direct.py` 的缺口清单（`.work_cdp/direct_failed.json`）已交给 `grab_abstracts.py --retry-failed`，未卡在第一层反复重试
-- [ ] [NEW] **摘要来源已标注**：直连取得的摘要写进 `abstracts_openalex.json` 时带 `source` 字段，未冒充 CDP 路径产物
-- [ ] [NEW] **人机验证按 §5.2**：如用自动点击，必须是**宿主机级 `SendInput`**、每篇 ≤3 轮、失败即停；未用 CDP `Input.*` 过验证；失败已转人工或如实注明（`--manual-wait=N` > 0）
-- [ ] [NEW] 未对验证类站点（ScienceDirect/OUP/SAGE/Wiley/Cell/ACS/RSC/Springer/T&F）做任何**直连**尝试（直连禁令）
-- [ ] [NEW] 自动化点击仅限**非验证类**元素（Cookie 弹窗 / 功能按钮 / 页内导航）
-- [ ] 确认作者身份唯一（同名作者用 ORCID/单位/代表作交叉验证）
-- [ ] [NEW] **已跑 `orcid_probe.py` 并把 ORCID 任职/教育时间线与作者主页履历逐条比对**（吻合才认定同一人）
-- [ ] [NEW] **已跑 `disambiguate.py` 做同名消歧**；`--affil` 用的是**具体系/实验室名**而非整所大学名；「单位不匹配」与「单位字段缺失」已分别处理
-- [ ] [NEW] **已跑 `enrich_crossref_authors.py`** 回填作者全名；著录未按空格猜「哪段是姓」
-- [ ] [NEW] 共同第一作者已核（Crossref 只给署名序，等贡献声明须查原文脚注）
-- [ ] [NEW] **已按本流程执行，未擅自变更步骤**；如确需变更，已事先征得用户同意并在 [版本变动.md](版本变动.md) 台账登记
-- [ ] [NEW] **Cookie 弹窗自检通过**：`uv run --with websocket-client python scripts/selftest_consent.py` 6/6（改动过 `CONSENT_JS` 则**必跑**）
-- [ ] [NEW] CDP 启动参数含**弹窗抑制 6 项**（L0/L2/L3）；如需统一档位已设 `PAPER_CDP_LEVEL`
-- [ ] 工作目录与 `<作者名>_paper_Exports` 已建立（历史 `<作者名>_Exports` 会被自动沿用）
-- [ ] **多实例** CDP 已启动（`cdp_pool.py status` 全部 `[ON ]`），档位 L0–L3（推荐 L3 极速档）
-- [ ] ORCID 全量成果已抓取（含翻页）并去重；**ORCID 成果为空时改以作者主页 + OpenAlex 为基准**
-- [ ] DOI 全部经 Crossref 核实（记录失败与重试）
-- [ ] CDP 批次使用 `--delay=25-55 --site-fail-limit=2 --manual-wait=N`（**N > 0**），未反复冲击同一站点
-- [ ] 全文 PDF 以**题名**命名；未出现「改名后重复下载」（`pdf_index.json` 已登记）
-- [ ] 无「补充材料/图注页」冒充正文（`verify_pdfs.py` 页数核查通过；残缺件已改名保留）
-- [ ] 全文 PDF 已用 `store.validate_pdf` 校验；《全文清单.md》已生成并注明限制
-- [ ] [NEW] **消歧结果已接入下游**：`scope.py` 生效 —— 下载侧跳过了他人论文、著录侧未收进正文列表；「数据缺失」类**未被误排除**
-- [ ] [NEW] 被排除的同名他人论文已在《论文列表》文末**逐条注明**（DOI + 题名 + 排除理由），非静默丢弃
-- [ ] 列表为 GB/T 7714-2015 著录，含 DOI 与原文链接；**无 `et al..` 双句点**
-- [ ] [NEW] 已产出规范交付名 `<作者名>_论文列表.md`；交付目录里**没有** `_完整版.md` 重复文件
-- [ ] [NEW] **阶段 H 用并行 subagent 执行**：每个 subagent 只读自己的 `task.json`、只写自己的 `result.json`，**未发任何网络请求**
-- [ ] [NEW] 解读卡含**四步齐备**：方法论 / 已验证结论 / 二八关键信息 / 量化提升数据（无数据则 `[]` 并说明，**未编数字**）
-- [ ] [NEW] 解读报告含：时间线要点串联 / 逐篇四步 / 关键词统计（词族合并 + 单条目）/ 研究方向 / 方法范式 / **缺卡与限制申报**
-- [ ] [NEW] 关键词统计未臆造词族合并（无词族表时只出单条目频次）
-- [ ] 中译 PDF 全部通过 CJK 嵌入校验（`OK pages=… cjk_first_page=…`）
-- [ ] **日志已留存**于 `.work_cdp/logs/`，异常可在其中定位
-- [ ] [NEW] **阶段 0 已执行**：`.work_cdp/prepare_plan.json` 存在，7 个选择均已确认；
-  后续每个阶段的 `--check` 闸门**逐条按计划执行**，未擅自开启被关闭的阶段
-- [ ] [NEW] **闸门原因已复核**：`--show` 中每个 skip 都写明了「由谁关闭」，
-  没有"原因不明"的跳过
-- [ ] [NEW] **D2 已跑**（若 `reverse_refs=yes`）：《高质量文献列表》已产出，
-  且**核心期刊判定用的是显式清单**（未改成前缀匹配）
-- [ ] [NEW] **「综述」判定已如实标注为启发式**，理由逐条可查
-- [ ] [NEW] **G2 已跑**（若 `refs_bibliography=yes`）：《代表性文献参考文献》含**两部分**
-  （文章 → 参考文献）；IF 标注为「≈」；分区未命中写「未判定」而**非**「不满足」
-- [ ] [NEW] **H2① 已跑**：去重记录与**被剔除清单逐条留档**（`dropped.json`），
-  报告中单列一节，未静默丢弃
-- [ ] [NEW] **H2 保留规则生效**：被作者 ≥3 篇引用的条目**强制保留**，未因阈值被误杀
-- [ ] [NEW] **H2② 任务包命名只由 DOI 决定**（未按"第几篇"命名）
-- [ ] [NEW] **H2③ 综述报告的「缺卡与限制申报」已如实列出**：
-  缺卡数、schema 不合规数、**仅有题录无摘要**的条目均已披露
-- [ ] [NEW] **证据层级未夸大**：综述报告明确声明结论建立在**摘要级**证据上
-- [ ] [NEW] **受控标签已启用**：`.work_cdp/tag_vocabulary.json` 存在；
-  解读卡标签从词表取词；**未归一的标签已在报告中保留并列出**
-- [ ] [NEW] **词族表是按作者语料裁剪过的**（不是整份通用表直接套用）
-- [ ] [NEW] **P 已跑**（若 `make_ppt=yes`）：`design_spec.md` 的 `Page Count` 与 §IX
-  实际页数一致；`spec_lock.md` 的 `page_rhythm` 覆盖 P01 至末页无缺号
-- [ ] [NEW] **未伪造 ppt-master 确认回执**：无 `confirm_ui/` 产物、未启动确认服务器
-- [ ] [NEW] **阶段 P 的 SVG 由主 agent 手写**，未用脚本批量生成；
-  `svg_quality_checker.py` 报 0 error；Step 7 三条命令**串行**执行
-- [ ] [NEW] **未新增任何 HTTP 直连抓取**：D2/G2/H2 只走元数据 API（OpenAlex），
-  P 阶段全程离线
-- [ ] [NEW] **端到端自检已通过**：
-  `uv run python scripts/selftest_pipeline.py`
-  （联网 33 项全绿；纯逻辑改动后可先跑 `--offline` 的 18 项）
-- [ ] [NEW] **各新脚本的 `--self-test` 已通过**：
-  `prepare_stage` / `refs_backfill` / `refs_bibliography` / `refs_curate` /
-  `refs_prepare` / `refs_build` / `ppt_brief`
+> 分两组：**A 改动流程后必查**（开发维护）；**B 跑流程 / 复用新作者时必查**（执行）。
+> 红线详见 §5.1/§5.2；阶段细节按 §4 路由表读 `stages/`。本清单只留当前有效项，
+> 历史沿革见 `版本变动.md`，实测数据见 `实测结果汇总.md`。
+
+### A. 改动流程后必查（开发）
+
+- [ ] [STOP] **文档只留最新版**：未在 `SKILL.md` / `README*.md` / `docs/` 写版本叙述（无 `vN` 日志、无「本次改动」、标题无版本号）（第 4/9 条）
+- [ ] [STOP] **改动已记入 [版本变动.md](版本变动.md)**（行为/功能变更）；实测数据归 [实测结果汇总.md](实测结果汇总.md)
+- [ ] [STOP] **脚本重构/增删已同步项目文档（第 9 条）**：SKILL 路由/阶段文件、`docs/开发项目说明.md`、`docs/项目交接说明.md`、受影响 schema/模板/子流程规范均已更新
+- [ ] [STOP] **脚本零硬编码**：作者姓名/ORCID/单位/署名词/阶段/待测 DOI 均运行时传入
+- [ ] **命令符合「命令编写纪律」**：ASCII 内联、PS5.1 兼容、`.ps1` UTF-8 BOM、读文件 `-Encoding UTF8`、列目录限深、stderr 先落盘
+- [ ] **专项自检通过**（按改动模块选跑）：`prepare_stage.py --audit`、`nature_bridge.py --self-test`、`optional_layers.py --self-test`、`opendataloader_extract.py --self-test`、`knowledge_graph.py --self-test`、`selftest_keyword_terms.py`、`selftest_vosviewer_pipeline.py`、`selftest_fallback_wiring.py` 等
+- [ ] **`selftest_pipeline.py --offline` 全绿**（纯逻辑改动）；涉网络/CDP 改动另做可控专项验证（未获批准不发起大量请求）
+- [ ] **`check_doc_refs.py` 默认门通过**；涉打包再跑 `pack_release.py --self-test`
+
+### B. 跑流程 / 复用新作者时必查（执行）
+
+**红线（最高优先级）**
+
+- [ ] [STOP] **原文全文（含 OA）一律经 CDP**，未自编脚本 HTTP 直链抓取；出版社内容站（ScienceDirect/OUP/SAGE/Wiley/Cell/ACS/RSC/Springer/T&F）零直连探活（§5.1）
+- [ ] [STOP] **第一层直连仅限白名单**（`templates/直连白名单.json`）；摘要/综述题录可直连，第一层失败转 CDP（`grab_abstracts.py --retry-failed`），不卡第一层反复重试；直连摘要带 `source` 字段，不冒充 CDP 产物
+- [ ] [STOP] **人机验证按 §5.2**：宿主机级 `SendInput`、每篇 ≤3 轮、失败即停转人工；不用 CDP `Input.*` 过验证；`--manual-wait=N` > 0。宿主机点击须 `UC_HOST_CLICK=1` 且 `hasFocus()` 为 true 才点
+- [ ] [STOP] **自动化点击仅限非验证元素**（Cookie 弹窗/功能按钮/页内导航）
+
+**阶段 0 与闸门**
+
+- [ ] **阶段 0 已执行**：`.work_cdp/prepare_plan.json` 存在，各选项**逐项确认**（未确认项保守跳过并如实标注）
+- [ ] 各阶段 `--check` 闸门**逐条按计划执行**；`--show` 中每个 skip 写明「由谁关闭」，未擅自开启被关闭阶段
+
+**身份与题录**
+
+- [ ] 作者身份唯一（ORCID/单位/代表作交叉验证）；`orcid_probe.py` 任职/教育时间线与主页履历逐条比对
+- [ ] `disambiguate.py` 同名消歧（`--affil` 用**具体系/实验室名**而非整所大学）；「单位不匹配」与「字段缺失」分别处理
+- [ ] `scope.py` 接入下游（下载/著录共用排除名单，**数据缺失类不误排除**）；被排除他人论文在列表文末逐条注明（DOI+题名+理由，非静默丢弃）
+- [ ] `enrich_crossref_authors.py` 回填全名（未按空格猜姓）；DOI 全经 Crossref 核实；共同第一作者查原文脚注
+- [ ] ORCID 全量成果抓取（含翻页）去重；**为空时改作者主页 + OpenAlex 基准**
+
+**全文与产物**
+
+- [ ] 多实例 CDP 启动（`cdp_pool.py status` 全 `[ON ]`）；批次 `--delay=25-55 --site-fail-limit=2 --manual-wait=N`（N>0），未反复冲击同站
+- [ ] PDF 以**题名**命名（`pdf_index.json` 登记，无改名后重复下载）；`verify_pdfs.py` 页数核查（无补充材料/图注页冒充正文，残缺件改名保留）
+- [ ] `store.validate_pdf` 校验（**pypdf 在位**；缺 pypdf 会静默判全损，须显式报错而非当作真损坏）；《全文清单.md》注明限制
+- [ ] 列表 GB/T 7714-2015（含 DOI/原文链接，**无 `et al..` 双句点**）；规范交付名 `<作者名>_论文列表.md`（无 `_完整版.md` 重复）
+
+**解读与综述（H/H2/R2）**
+
+- [ ] **并行 subagent**：各读自己的 `task.json`、各写自己的 `result.json`，**零网络请求**
+- [ ] 解读卡**四步齐备**（方法论/已验证结论/二八关键信息/量化提升；无数据则 `[]` 并说明，**未编数字**）
+- [ ] 关键词三层证据按 NFKC+去空白回溯原文；受控标签从 `tag_vocabulary.json` 取词（未归一标签保留列出）；**未臆造词族合并**（词族表按作者语料裁剪）
+- [ ] D2（若 `reverse_refs=yes`）：核心期刊判定用**显式清单**（非前缀匹配）；「综述」判定如实标注启发式
+- [ ] G2（若 `refs_bibliography=yes`）：含文章→参考文献两部分；IF 标「≈」；分区未命中写「未判定」而非「不满足」
+- [ ] H2：去重剔除清单留档（`dropped.json`）；被作者 ≥3 篇引用条目强制保留；任务包命名只由 DOI 决定；**缺卡与限制逐条申报**
+- [ ] **证据层级不夸大**：综述报告声明结论建立在摘要级证据上
+- [ ] 中译 PDF 通过 CJK 嵌入校验（若 `translate=yes`）
+
+**图谱 / PPT / 交付（K/P/I）**
+
+- [ ] K（若 `make_graphs=yes`）：三图产出；VOSviewer **空网/仅孤立节点时不宣称形成词群**，如实申报
+- [ ] P（若 `make_ppt=yes`）：`design_spec.md` Page Count 与实际页数一致；`spec_lock.md` page_rhythm 无缺号；SVG 质检 0 error；**未伪造 ppt-master 确认回执**
+- [ ] D2/G2/H2 只走元数据 API（OpenAlex），P 全程离线，未新增 HTTP 直连抓取
+- [ ] **日志留存** `.work_cdp/logs/`；交付清单完整，限制如实注明
