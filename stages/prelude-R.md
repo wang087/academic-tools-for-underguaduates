@@ -384,8 +384,13 @@ uv run python scripts/reviews_prepare.py \
 # ③ 查看进度（有几张卡、缺哪几篇、哪些被拒收）
 uv run python scripts/reviews_build.py --status
 
-# ④ 汇总成《领域概貌.md》
+# ④ 汇总成《领域概貌.md》（合并底稿渲染版）+ 产出综合底稿 synthesis_dossier.json
 uv run python scripts/reviews_build.py --topic "阿尔茨海默病早期诊断"
+
+# ⑤ 综述综合步：派**一个**综合 subagent，读 synthesis_dossier.json + 全部解读卡，
+#    按 subagent-driven-review/references/r2-synthesis.md 的综述写法写终稿《领域概貌.md》
+#    （立 spine→跨源综合共识→合并方向/概念→有界不确定性→引综述；**禁止逐卡拼接**）。
+#    任务包：.work_cdp/reviews/synthesis_task.json
 ```
 
 > ### [STOP] 并发度必须限制在每批 ≤ 4 篇

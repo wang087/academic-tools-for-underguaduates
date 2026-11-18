@@ -249,6 +249,142 @@ def _norm_key(s: str) -> str:
     return re.sub(r"[\s\-_/（）()·,，。、：:；;]+", "", str(s or "").lower())
 
 
+# ══════════════════════════════════════════════════════════════
+# 语义聚类 + 综合底稿（dossier）
+#
+# 旧版用**精确字符串**去重/计数：跨综述措辞不同永不合并，方向/共识/概念
+#   全是单篇 dump（出现篇数恒 1）＝"生硬拼凑"。这里改为按**显著词重叠**聚类，
+#   把含义相近的跨篇表述合并、计跨篇支持数，产出供综述综合 subagent 使用的
+#   「综合底稿」（参照 paper-spine：写证据绑定的综合论证，而非拼接/模板壳）。
+#   聚类是启发式（供底稿），最终 prose 由综合 subagent 依底稿撰写并再归并。
+# ══════════════════════════════════════════════════════════════
+_STOP = set("""的 了 是 在 和 与 及 或 等 对 对于 通过 用 使用 基于 一种 一个 我们 本文 该文
+综述 文章 方法 结果 结论 研究 分析 可以 可能 需要 进行 提出 认为 表明 显示 以及 并 并且
+而 但 但是 仍 没有 未 不 更 最 很 非常 相关 主要 核心 重要 关键 问题 任务 领域 方向
+技术 模型 网络 学习 深度 机器 数据 作者 原文 文中 指出 强调 讨论 介绍 概述 总结""".split())
+
+
+def _sig_tokens(text: str) -> set:
+    """显著词集合：拉丁词(≥3字母) + 中文二元组，去停用词。用于跨篇语义重叠。"""
+    s = str(text or "")
+    lat = set(re.findall(r"[a-z]{3,}", s.lower()))
+    cjk = re.findall(r"[一-鿿]", s)
+    grams = {cjk[i] + cjk[i + 1] for i in range(len(cjk) - 1)}
+    return (lat | grams) - _STOP
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _cluster(texts: list[str], threshold: float = 0.3) -> list[list[int]]:
+    """贪心聚类：返回成员下标组。含义相近（显著词 Jaccard≥threshold）归一组。"""
+    clusters: list[dict] = []
+    for i, t in enumerate(texts):
+        tok = _sig_tokens(t)
+        best, best_s = None, 0.0
+        for cl in clusters:
+            s = _jaccard(tok, cl["tok"])
+            if s > best_s:
+                best, best_s = cl, s
+        if best is not None and best_s >= threshold:
+            best["members"].append(i)
+            best["tok"] |= tok
+        else:
+            clusters.append({"tok": tok, "members": [i]})
+    return [cl["members"] for cl in clusters]
+
+
+_GAP_NOISE = ("阅读覆盖", "已分段", "未读部分", "无法核对", "参考文献编号", "图只剩",
+              "由全文", "抽取而来", "没有给出具体", "未展开", "还需另外")
+
+
+def build_dossier(cards: list[dict]) -> dict:
+    """把解读卡聚合成「综合底稿」：合并方向/共识/争议/问题/概念/缺口，计跨篇支持。"""
+    titles = [str(c.get("title") or "") for c in cards]
+
+    # 方向：name+idea 聚类
+    d_items = []  # (name, idea, conclusion, title_idx)
+    for ci, c in enumerate(cards):
+        for d in (c.get("main_directions") or []):
+            if isinstance(d, dict) and d.get("name"):
+                d_items.append((str(d["name"]).strip(), _as_text(d.get("idea")),
+                                _as_text(d.get("conclusion")), ci))
+            elif isinstance(d, str) and d.strip():
+                d_items.append((d.strip(), "", "", ci))
+    directions = []
+    if d_items:
+        for mem in _cluster([f"{n} {i}" for n, i, _, _ in d_items]):
+            names = Counter(d_items[i][0] for i in mem)
+            idea = max((d_items[i][1] for i in mem), key=len, default="")
+            concl = max((d_items[i][2] for i in mem), key=len, default="")
+            src = sorted({titles[d_items[i][3]] for i in mem})
+            directions.append({"name": names.most_common(1)[0][0], "idea": idea,
+                               "conclusion": concl, "support": len(src), "sources": src})
+        directions.sort(key=lambda x: (-x["support"], x["name"]))
+
+    def _cluster_field(field: str) -> list[dict]:
+        items = []  # (text, title_idx)
+        for ci, c in enumerate(cards):
+            for x in (c.get(field) or []):
+                t = _as_text(x)
+                if t:
+                    items.append((t, ci))
+        out = []
+        if items:
+            for mem in _cluster([t for t, _ in items]):
+                text = max((items[i][0] for i in mem), key=len)
+                src = sorted({titles[items[i][1]] for i in mem})
+                out.append({"text": text, "support": len(src), "sources": src})
+            out.sort(key=lambda x: (-x["support"], x["text"]))
+        return out
+
+    consensus = _cluster_field("consensus")
+    controversies = _cluster_field("controversies")
+    problems = _cluster_field("problem_addressed")
+
+    # 概念：中文键合并、跨篇计数；core≥2 / single=1
+    concepts: dict[str, dict] = {}
+    freq: Counter = Counter()
+    for c in cards:
+        seen = set()
+        for k in (c.get("key_concepts") or []):
+            if isinstance(k, dict) and (k.get("cn") or k.get("en")):
+                key = _norm_key(k.get("cn")) or _norm_key(k.get("en"))
+            elif isinstance(k, str) and k.strip():
+                key = _norm_key(k)
+                k = {"cn": k.strip(), "en": "", "plain": ""}
+            else:
+                continue
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            freq[key] += 1
+            old = concepts.get(key)
+            if old is None or len(str(k.get("plain") or "")) > len(str(old.get("plain") or "")):
+                concepts[key] = dict(k)
+    core = [{"cn": concepts[k].get("cn", ""), "en": concepts[k].get("en", ""),
+             "plain": concepts[k].get("plain", ""), "support": n}
+            for k, n in freq.most_common() if n >= 2]
+    single = [{"cn": concepts[k].get("cn", ""), "en": concepts[k].get("en", "")}
+              for k, n in freq.most_common() if n == 1]
+
+    # 缺口：open_questions 聚类 + 过滤单篇"阅读覆盖/取证限制"噪声
+    gaps = [g for g in _cluster_field("open_questions")
+            if not any(w in g["text"] for w in _GAP_NOISE)]
+
+    return {"schema": 1, "n_reviews": len(cards), "directions": directions,
+            "consensus": consensus, "controversies": controversies,
+            "problems": problems, "concepts_core": core, "concepts_single": single,
+            "gaps": gaps,
+            "papers": [{"title": c.get("title"), "year": c.get("year"),
+                        "journal": c.get("journal"), "doi": c.get("doi"),
+                        "field_role": c.get("field_role"), "is_oa": c.get("is_oa")}
+                       for c in cards]}
+
+
 def load_cards(d: pathlib.Path, strict: bool = True) -> tuple[list[dict], list[str], list[tuple[str, list[str]]]]:
     """读全部解读卡。
 
@@ -287,6 +423,7 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     """
     tier = normalize_tier(tier) or DEFAULT_TIER
     n = len(cards)
+    dossier = build_dossier(cards)
     L: list[str] = []
     title = topic or "领域概貌"
     L.append(f"# {title} · 领域概貌（面向本科生）")
@@ -307,58 +444,32 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
         L.append("-（解读卡未提供 one_sentence）")
     L.append("")
 
-    # ── 这个领域在解决什么问题 ──
+    # ── 这个领域在解决什么问题（跨篇聚类合并，非逐卡拼接）──
     L.append("## 这个领域在解决什么问题")
     L.append("")
-    probs = []
-    for c in cards:
-        p = (c.get("problem_addressed") or "").strip()
-        if p and p not in probs:
-            probs.append(p)
-    for p in probs[:8]:
-        L.append(f"- {p}")
-    if not probs:
+    if dossier["problems"]:
+        for p in dossier["problems"][:8]:
+            sup = f"（{p['support']} 篇综述共同关注）" if p["support"] >= 2 else ""
+            L.append(f"- {p['text']}{sup}")
+    else:
         L.append("-（解读卡未提供）")
     L.append("")
 
-    # ── 主要研究方向与流派（按出现篇数排序）──
+    # ── 主要研究方向与流派（语义聚类合并，跨篇支持数）──
     L.append("## 主要研究方向与流派")
     L.append("")
-    dirs: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-    for c in cards:
-        for d in (c.get("main_directions") or []):
-            if isinstance(d, dict) and d.get("name"):
-                dirs[str(d["name"]).strip()].append(
-                    (_as_text(d.get("idea")), _as_text(d.get("conclusion")),
-                     (c.get("title") or "")))
-            elif isinstance(d, str) and d.strip():
-                dirs[d.strip()].append(("", "", c.get("title") or ""))
-
-    if dirs:
-        # 只列**每个方向一次**，取最长的 idea/conclusion 作代表（信息量最大），
-        #   并汇总所有来源综述。早期版本对每条 (方向,论文) 组合都出一行，
-        #   12 篇卡会摊成 30+ 行且"出现篇数"恒为 1（不同论文措辞不同，永不合并）。
-        L.append("> 同一方向被多篇综述提到时合并为一行；「出现篇数」≥2 说明该方向被反复讨论。")
+    if dossier["directions"]:
+        L.append("> 含义相近的方向已按显著词重叠**自动聚类合并**；「出现篇数」= 支持该方向的综述数，≥2 为反复讨论的主干方向。")
         L.append("")
         L.append("| 方向 | 核心思路 | 代表综述 | 出现篇数 |")
         L.append("|---|---|---|---|")
-        rows = []
-        for name, items in dirs.items():
-            idea = max((i for i, _, _ in items), key=len, default="")
-            titles = []
-            for _, _, t in items:
-                if t and t not in titles:
-                    titles.append(t)
-            rows.append((len(items), name, idea, titles))
-        # 出现篇数降序；同篇数按方向名排序，便于查找
-        for n, name, idea, titles in sorted(rows, key=lambda r: (-r[0], r[1])):
-            shown = "; ".join(t[:32] for t in titles[:2])
-            if len(titles) > 2:
-                shown += f" 等 {len(titles)} 篇"
-            L.append(f"| {name} | {idea[:110]} | {shown} | {n} |")
+        for d in dossier["directions"]:
+            shown = "; ".join(t[:32] for t in d["sources"][:2])
+            if len(d["sources"]) > 2:
+                shown += f" 等 {len(d['sources'])} 篇"
+            L.append(f"| {d['name']} | {d['idea'][:110]} | {shown} | {d['support']} |")
         L.append("")
-        L.append(f"> 共 {len(rows)} 个方向。**方向名由各综述自行表述，措辞不同但含义相近的"
-                 f"不会被自动合并** —— 需要合并请人工归并。")
+        L.append(f"> 共 {len(dossier['directions'])} 个合并后方向（原始表述 {sum(len(c.get('main_directions') or []) for c in cards)} 条）。聚类为启发式，终稿由综述综合步再归并。")
     else:
         L.append("-（解读卡未提供 main_directions）")
     L.append("")
@@ -368,33 +479,21 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     L.append("")
     L.append("### 一致结论（多篇综述都这么认为）")
     L.append("")
-    cons = Counter()
-    for c in cards:
-        for x in (c.get("consensus") or []):
-            k = _as_text(x)
-            if k:
-                cons[k] += 1
-    if cons:
-        for k, v in cons.most_common(14):
-            mark = " " if v >= 2 else ""
-            L.append(f"- {k}{mark}")
+    if dossier["consensus"]:
+        for x in dossier["consensus"][:14]:
+            mark = f"（{x['support']} 篇支持）" if x["support"] >= 2 else ""
+            L.append(f"- {x['text']}{mark}")
         L.append("")
-        L.append("> = 两篇以上综述都提到，可信度更高。")
+        L.append("> 括号内为支持该结论的综述数；≥2 可信度更高。含义相近表述已聚类合并。")
     else:
         L.append("-（解读卡未提供 consensus）")
     L.append("")
 
     L.append("### 仍有争议 / 未解决")
     L.append("")
-    contro = []
-    for c in cards:
-        for x in (c.get("controversies") or []):
-            k = _as_text(x)
-            if k and k not in contro:
-                contro.append(k)
-    if contro:
-        for k in contro[:14]:
-            L.append(f"- {k}")
+    if dossier["controversies"]:
+        for x in dossier["controversies"][:14]:
+            L.append(f"- {x['text']}")
         L.append("")
         L.append("> [WARN] 争议点**原样并列**，没有替你判定谁对。"
                  "想找课题，这里往往是最好的切入口。")
@@ -402,53 +501,27 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
         L.append("-（解读卡未提供 controversies）")
     L.append("")
 
-    # ── 关键概念速查（按出现篇数排序）──
+    # ── 关键概念速查（仅跨篇核心概念入主表；单篇术语移附录）──
     L.append("## 关键概念速查")
     L.append("")
-    concepts: dict[str, dict] = {}
-    freq = Counter()
-    # 合并键的选取顺序很关键：**先用中文名**。
-    #   早期版本用英文名做键，于是同一个概念因英文写法不同而分裂成多行 ——
-    #   实测「肿瘤免疫微环境」出现了 3 行（TIME / Tumor immune microenvironment /
-    #   TME），"出现篇数"被拆成 2+3+3 而不是应有的合并计数。
-    #   中文名在各 subagent 之间一致性明显更高，故以其为首选键。
-    for c in cards:
-        seen_in_card = set()
-        for k in (c.get("key_concepts") or []):
-            if isinstance(k, dict) and (k.get("cn") or k.get("en")):
-                key = (_norm_key(k.get("cn")) or _norm_key(k.get("en")))
-                if not key:
-                    continue
-                # 同一篇综述内的重复只计一次（避免"出现篇数"虚高）
-                if key not in seen_in_card:
-                    freq[key] += 1
-                    seen_in_card.add(key)
-                old = concepts.get(key)
-                if old is None or len(str(k.get("plain") or "")) > len(str(old.get("plain") or "")):
-                    merged = dict(k)
-                    # 保留首次见到的英文名，避免被空值覆盖
-                    if not merged.get("en") and old:
-                        merged["en"] = old.get("en", "")
-                    concepts[key] = merged
-            elif isinstance(k, str) and k.strip():
-                key = _norm_key(k)
-                if key not in seen_in_card:
-                    freq[key] += 1
-                    seen_in_card.add(key)
-                concepts.setdefault(key, {"cn": k.strip(), "en": "", "plain": ""})
-    if concepts:
+    if dossier["concepts_core"]:
         L.append("| 术语 | 英文 | 解释 | 出现篇数 |")
         L.append("|---|---|---|---|")
-        # 按出现篇数降序：反复出现的才是必懂的
-        for key, n in freq.most_common():
-            k = concepts[key]
-            L.append(f"| {_as_text(k.get('cn'))} | {_as_text(k.get('en'))} | "
-                     f"{_as_text(k.get('plain'))[:130]} | {n} |")
+        for k in dossier["concepts_core"]:
+            L.append(f"| {_as_text(k['cn'])} | {_as_text(k['en'])} | "
+                     f"{_as_text(k['plain'])[:130]} | {k['support']} |")
         L.append("")
-        L.append("> 「出现篇数」= 有多少篇综述提到该术语。**≥2 的属于领域核心概念**，"
-                 "优先掌握；=1 的多是该篇综述的专门术语。")
+        L.append("> 主表只列 **≥2 篇综述共同提到**的领域核心概念，优先掌握。")
     else:
-        L.append("-（解读卡未提供 key_concepts）")
+        L.append("-（无跨篇核心概念；解读卡 key_concepts 重叠不足）")
+    if dossier["concepts_single"]:
+        L.append("")
+        L.append(f"<details><summary>单篇专门术语（{len(dossier['concepts_single'])} 个，点击展开）</summary>")
+        L.append("")
+        L.append("、".join(_as_text(k["cn"]) or _as_text(k["en"])
+                          for k in dossier["concepts_single"]))
+        L.append("")
+        L.append("</details>")
     L.append("")
 
     # ── 推荐阅读顺序 ──
@@ -471,22 +544,17 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
              "本科生建议**按顺序读**，不要一上来就啃方法综述。")
     L.append("")
 
-    # ── 选题切入点 ──
+    # ── 选题切入点（跨篇聚类 + 过滤单篇取证噪声）──
     L.append("## 可能的选题切入点")
     L.append("")
-    oq = []
-    for c in cards:
-        for q in (c.get("open_questions") or []):
-            k = _as_text(q)
-            if k and k not in oq:
-                oq.append(k)
-    if oq:
-        for q in oq[:10]:
-            L.append(f"- {q}")
+    if dossier["gaps"]:
+        for g in dossier["gaps"][:10]:
+            sup = f"（{g['support']} 篇综述共同指出）" if g["support"] >= 2 else ""
+            L.append(f"- {g['text']}{sup}")
         L.append("")
         L.append("> 这些是综述里**仍未解决**的问题，适合作为大创/研究计划的起点。")
-        if len(oq) > 10:
-            L.append(f"> （另有 {len(oq) - 10} 条见各篇解读卡）")
+        if len(dossier["gaps"]) > 10:
+            L.append(f"> （另有 {len(dossier['gaps']) - 10} 条见综合底稿 synthesis_dossier.json）")
     else:
         L.append("-（解读卡未提供 open_questions）")
     L.append("")
@@ -596,11 +664,34 @@ def main(argv: list[str] | None = None) -> int:
     if not outp.is_absolute():
         outp = WD / outp
     outp.parent.mkdir(parents=True, exist_ok=True)   # 允许输出到尚不存在的目录
+
+    # ── 综合底稿 + 综述综合步任务（paper-spine 式：综合论证而非拼接）──
+    dossier = build_dossier(cards)
+    dos_p = d / "synthesis_dossier.json"
+    dos_p.write_text(json.dumps(dossier, ensure_ascii=False, indent=1), encoding="utf-8")
+    syn_p = d / "synthesis_task.json"
+    syn_p.write_text(json.dumps({
+        "stage": "R2-synthesis",
+        "instruction": "读 synthesis_dossier.json 与全部解读卡，按 subagent-driven-review/"
+                       "references/r2-synthesis.md 的综述写法撰写终稿《领域概貌.md》："
+                       "立 spine→跨源综合共识→合并方向/概念→有界不确定性→引综述，禁止逐卡拼接。",
+        "dossier": str(dos_p),
+        "prompt": "subagent-driven-review/references/r2-synthesis.md",
+        "output": str(outp),
+        "n_reviews": len(cards),
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+
     from vosviewer_export import export_stage
     keyword_export = export_stage(WD, 'R2', outdir=d / 'vosviewer', stage_dir=d)
     text += ('\n\n## 完整术语与 VOSviewer 导出\n'
              + f'完整术语节点 {keyword_export["terms"]} 个，共现边 {keyword_export["links"]} 条。'
-             + '三层 core 优先门控；每文献二值计数；不预设聚类；证据与剔除原因见 '+str(d/'vosviewer')+'。\n')
+             + 'core+method+reagent 全三层并集、min_occurrences=1（保留孤立词）；每文献二值计数；'
+             + '不预设聚类；证据与剔除原因见 '+str(d/'vosviewer')+'。\n')
+    text += ('\n## 综述综合步（待执行）\n'
+             + f'本文件为**合并底稿渲染版**。终稿应由一个综述综合 subagent 依 '
+             + f'`synthesis_dossier.json`（{len(dossier["directions"])} 合并方向 / '
+             + f'{len(dossier["consensus"])} 共识 / {len(dossier["concepts_core"])} 核心概念）'
+             + '按 `subagent-driven-review/references/r2-synthesis.md` 撰写（综合共识，非拼接）。\n')
     outp.write_text(text, encoding="utf-8")
 
     n_task = len(tasks)

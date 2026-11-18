@@ -49,10 +49,21 @@ def load_documents(workdir, stage='H', stage_dir=None):
         elif checked:
             card={**card,'keywords':checked['keywords'],'keyword_source_evidence':checked['keyword_source_evidence']}
         if layer_present:
-            from keywords_three_layer import gated_keywords, fulltext_of
-            layer_checked = gated_keywords(original_card, packet, fulltext=fulltext_of(taskpath.name, root/'results', root/'tasks'))
-            card = {**card, 'keywords': layer_checked['terms'], 'keyword_source_evidence': layer_checked['keyword_source_evidence']}
-            notes.extend({'file':str(result), **row} for row in layer_checked['audit'])
+            from keywords_three_layer import gated_keywords, fulltext_of, CORE, METHOD, REAGENT
+            ft = fulltext_of(taskpath.name, root/'results', root/'tasks')
+            # 收词放宽：core+method+reagent 全三层并集（旧版仅 core，节点过少难以体现网络）。
+            #   每层仍各自过证据门控；并集去重。min_occurrences 默认 1 保留孤立词。
+            terms, ev, audit = [], [], []
+            seen = set()
+            for lv in (CORE, METHOD, REAGENT):
+                lc = gated_keywords(original_card, packet, level=lv, fulltext=ft)
+                for t in lc['terms']:
+                    if t not in seen:
+                        seen.add(t); terms.append(t)
+                ev.extend(lc['keyword_source_evidence'])
+                audit.extend(lc['audit'])
+            card = {**card, 'keywords': terms, 'keyword_source_evidence': ev}
+            notes.extend({'file':str(result), **row} for row in audit)
         docs.append({'id':str(identity),'title':packet.get('title') or rec.get('title') or '',
                      'abstract':packet.get('abstract') or rec.get('abstract') or '',
                      'text':packet.get('text') or packet.get('fulltext') or '',
