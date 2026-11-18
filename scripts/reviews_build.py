@@ -162,7 +162,7 @@ def tier_banner(tier: str) -> str:
 # 于是用 "placeholder" / "待补" / 空串等填充字段 —— 这种卡**必须拒收**，
 # 否则《领域概貌》会把占位符当成真实结论展示给本科生。
 _PLACEHOLDER = re.compile(
-    r"placeholder|待补|待填|TODO|TBD|\.\.\.$|^无$|^N/?A$", re.I)
+    r"placeholder|待补|待填|\bTODO\b|\bTBD\b|\.\.\.$|^无$|^N/?A$", re.I)
 
 
 def _bad_text(s) -> bool:

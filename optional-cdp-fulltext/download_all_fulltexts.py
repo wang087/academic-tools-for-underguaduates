@@ -322,11 +322,16 @@ def _ensure_active_tab(c: CDP, landing: str, log) -> bool:
             except Exception:
                 pass
             activate_edge_window(getattr(c, "port", None))
-            time.sleep(0.5)
-            raw = c.eval(
-                "JSON.stringify({v:document.visibilityState,"
-                "f:document.hasFocus(),u:location.href})", timeout=8)
-            info = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            # AppActivate 异步；固定 0.5s 实测抢不到焦点 → 轮询最多 2.5s
+            info = {}
+            for _ in range(5):
+                time.sleep(0.5)
+                raw = c.eval(
+                    "JSON.stringify({v:document.visibilityState,"
+                    "f:document.hasFocus(),u:location.href})", timeout=8)
+                info = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                if info.get("v") == "visible" and info.get("f"):
+                    break
             if info.get("v") != "visible" or not info.get("f"):
                 log.warn(f"  目标标签页不在前台（visibility={info.get('v')}, "
                          f"focus={info.get('f')}），本轮不点击")

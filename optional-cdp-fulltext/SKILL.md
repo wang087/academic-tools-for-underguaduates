@@ -30,7 +30,7 @@ uv run python scripts/cdp_module.py --status   # 0=可用 3=未安装
 > **无论是否 OA，一律经 CDP 浏览器获取**。原 `fetch_oa_direct.py` 已停用。
 
 ```bash
-uv run --with websocket-client --with pypdf python \
+uv run --with websocket-client --with pypdf --with opencv-python --with numpy --with Pillow python \
     optional-cdp-fulltext/download_all_fulltexts.py \
     --n=3 --tabs=3 --limit=20 --delay=25-55 --site-fail-limit=2 --manual-wait=5 --grace=35
 ```
@@ -38,6 +38,12 @@ uv run --with websocket-client --with pypdf python \
 - 并发模型：**多浏览器 × 多标签页**（`--n × --tabs`）。旧设计并发度=浏览器进程数，
   每个进程 200–400 MB，实测瓶颈在网络等待而非 CPU/内存。
 - `--manual-wait` 必须 > 0：人机验证弹窗链依赖它（默认关闭会静默失去转人工能力）。
+- **自动过验证必须显式开启**：`UC_HOST_CLICK=1`（宽限期内提前试：`UC_HOST_CLICK_EARLY=1`）。
+  未设置时 `_run_host_solver()` 直接返回 False，日志里不会出现「宿主机点击 solver」（静默 0 次点击）；
+  且目标页必须 `visibility=visible && hasFocus()==true`，否则按 §5.2 拒点（置前轮询最多 2.5s）。
+  `reviews_fulltext.py --cdp` 已默认导出这两个开关（`UC_NO_HOST_CLICK=1` 可禁用）。
+- **宿主机点击依赖**：`cf_host_solver.py` 需 `opencv-python`/`numpy`/`Pillow`（上方命令已带）；
+  缺依赖即使开关打开也会 `ModuleNotFoundError`。
 - 逐站点熔断（`SiteGuard`）与跨轮节流（`fetch_pacing`）都在核心模块里，
   本模块直接复用。
 

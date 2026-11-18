@@ -397,9 +397,14 @@ def fetch_repo_via_cdp(layers: dict[str, dict], tasks: list[dict],
     # 只处理：有 PMCID、第一层没拿到、且还没成功过的
     todo = []
     for doi, rec in layers.items():
-        if rec.get("layer1"):
+        st = state.get(doi) or {}
+        # layer1=True 只说明探测时 EPMC 有 OA 全文；EPMC 临时不可达时缓存仍 True 但实际没拿到。
+        #   仅当确实已有全文（pool 里的 layer1 产物 或 state.fulltext_chars>0）才跳过，
+        #   否则放行 PMC 仓库副本通道补取（避免误跳过；也避免对已拿到者冗余请求）。
+        have_layer1 = bool((pool.get(doi) or {}).get("path"))
+        if rec.get("layer1") and (have_layer1 or (st.get("fulltext_chars") or 0) > 0):
             continue
-        if (state.get(doi) or {}).get("pdf_ok"):
+        if st.get("pdf_ok"):
             continue
         pmcid = rec.get("pmcid")
         if pmcid:
@@ -607,7 +612,8 @@ def build_cdp_input(layers: dict[str, dict], tasks: list[dict],
         print(f"\n  题录已并入 {cr_path}（新增 {added} 条）")
         print(f"  [INFO] CDP 取全文模块未安装 → 本批缺口改走备用链路（见 {cmdf0.name}）")
         return cmdf0
-    cmd = (f'uv run --with websocket-client --with pypdf python '
+    cmd = (f'uv run --with websocket-client --with pypdf '
+           f'--with opencv-python --with numpy --with Pillow python '
            f'{dl} '
            f'--doi={",".join(gaps)} --limit={max(1, len(gaps))} '
            f'--delay=25-55 --site-fail-limit=2 --grace=35')
@@ -700,8 +706,25 @@ def run_cdp(num: int, ports: str | None, manual_wait: float,
     if manual_wait > 0:
         cmd.append(f"--manual-wait={manual_wait}")
     print(f"  执行：{' '.join(cmd)}\n")
+    # 宿主机点击 solver（cf_host_solver.py）依赖 cv2/numpy/PIL；下载器与本脚本同解释器，
+    #   缺依赖时即使开关打开也会 ModuleNotFoundError → 先 fail-fast 给出补依赖命令。
+    try:
+        import cv2, numpy, PIL  # noqa: F401
+    except ImportError as _e:
+        print(f"  [X] 宿主机点击依赖缺失：{_e}\n"
+              f"      请改用：uv run --with websocket-client --with pypdf "
+              f"--with opencv-python --with numpy --with Pillow python "
+              f"scripts/reviews_fulltext.py --cdp ...")
+        return 2
+    # §5.2 允许宿主机 SendInput（每篇 ≤3 轮、失败即停）。默认开启自动过验证，
+    #   否则 _run_host_solver 直接返回 False、日志无 solver 调用（静默 0 次点击）。
+    #   需禁用时设 UC_NO_HOST_CLICK=1。
+    env = dict(os.environ)
+    if os.environ.get("UC_NO_HOST_CLICK") != "1":
+        env.setdefault("UC_HOST_CLICK", "1")
+        env.setdefault("UC_HOST_CLICK_EARLY", "1")  # 宽限期内先试一次，留下 solver.log
     # stdio 继承：既有脚本自身负责日志与进度，不在此重复捕获
-    rc = subprocess.call(cmd, cwd=str(FLOW1))
+    rc = subprocess.call(cmd, cwd=str(FLOW1), env=env)
     print(f"\n  CDP 下载器退出码 {rc}")
     return rc
 
@@ -768,6 +791,12 @@ def collect_fulltext_candidates() -> dict[str, list[tuple[int, str, str]]]:
             state = {}
         for doi, rec in state.items():
             _add(doi, rec.get("fulltext_file"), "cdp-landing-page")
+            # PDF 抽取正文（extract_parallel/prep_paper 先跑过才有）一并入候选池，
+            #   回填按字数择优：PDF 全文通常远长于落地页摘要页，会自然胜出。
+            pdf = rec.get("pdf_file") or ""
+            if pdf:
+                md = WORK / "md" / (pathlib.Path(pdf).stem + ".txt")
+                _add(doi, md if md.exists() else None, "cdp-pdf-extract")
 
     # ③ 第二层补充通道：PMC 仓库副本（经 CDP）
     p3 = WORK / "reviews_layer2_repo.json"

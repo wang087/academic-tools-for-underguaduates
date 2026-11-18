@@ -222,6 +222,9 @@ def _run(log) -> int:
             print(f"  [X] {f.name}: {e}")
             continue
         text = dsrc.get("text") or ""
+        # 备份之后才回填的全文（如 CDP 补取）可能比 tasks_full/ 备份更长 → 取较长者
+        if len(d.get("text") or "") > len(text):
+            text = d.get("text") or ""
         if not text or len(text) <= a.excerpt:
             print(f"  {f.stem[:40]:<40} {'(无完整正文)':>10}")
             continue
