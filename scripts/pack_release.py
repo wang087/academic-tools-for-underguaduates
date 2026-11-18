@@ -117,6 +117,12 @@ TEXT_EXT = {".md", ".py", ".sh", ".json", ".txt", ".html", ".toml", ".cfg", ".ym
 # 顶层条目：源目录名 → 是否必须
 TOP_ITEMS = ["SKILL.md", "README.md", "README_FOR_AGENTS.md", "start_local.ps1", "requirements-core.txt", "requirements-visual.txt", "requirements-browser.txt", "requirements-ppt.txt", "run_all.sh", "scripts", "templates",
              "subagent-driven-review", "ppt-integration", "robot", "paper-card-integration", "schemas",
+             # SKILL 拆分（按链分组）：阶段细节文件 + 索引/参考并集文件。
+             #   主 SKILL.md 的路由表与指针指向这些文件，**不带就断链**：
+             #   · stages/                  —— 各阶段懒加载细节（prelude-N/S/R、author-*）
+             #   · docs/脚本与CLI索引.md     —— SKILL §8 + 开发说明 §13 的并集索引
+             #   · docs/参考_工具与关键坑.md —— SKILL §3 工具清单 + §5 关键坑
+             "stages", "docs/脚本与CLI索引.md", "docs/参考_工具与关键坑.md",
              # v17：流程内的技能副本。两者都是**运行时**依赖，不带就断链：
              #   · skills/paper-lookup        —— route_databases.py 直接调它的
              #       paginate.py / arxiv_atom.py 取数（阶段 R 检索链）

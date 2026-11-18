@@ -12,8 +12,8 @@ DEFAULT_DOCS = (ROOT / "README.md", ROOT / "SKILL.md")
 EXCLUDED_PARTS = {".git", ".work_cdp", "vendor"}
 PATH_RE = re.compile(
     r"(?<![\w.$-])(?:<[^>]+>/)?(?:skills/[A-Za-z0-9_.-]+/)?"
-    r"(?:scripts|optional-cdp-fulltext|subagent-driven-review|"
-    r"ppt-integration|nature-integration|templates|run_all\.sh|README\.md|SKILL\.md)"
+    r"(?:scripts|stages|optional-cdp-fulltext|subagent-driven-review|"
+    r"ppt-integration|nature-integration|paper-card-integration|templates|run_all\.sh|README\.md|SKILL\.md)"
     r"(?:/[A-Za-z0-9_.-]+)*"
     r"(?:\.(?:py|mjs|sh|md|json|html))?"
     r"(?::\d+(?:-\d+)?)?"
