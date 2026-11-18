@@ -337,7 +337,12 @@ def build_dossier(cards: list[dict]) -> dict:
     def _cluster_field(field: str) -> list[dict]:
         items = []  # (text, title_idx)
         for ci, c in enumerate(cards):
-            for x in (c.get(field) or []):
+            val = c.get(field) or []
+            # problem_addressed 等是**字符串**字段；若直接 for x in str 会逐字符迭代，
+            #   把整句拆成单字（实测渲染出孤立的 `"`）。字符串须包装成单元素列表。
+            if isinstance(val, str):
+                val = [val]
+            for x in val:
                 t = _as_text(x)
                 if t:
                     items.append((t, ci))
