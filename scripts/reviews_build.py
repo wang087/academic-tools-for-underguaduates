@@ -17,9 +17,9 @@
 #   # ① 汇总（subagent 写完全部 result.json 之后）
 #   uv run python scripts/reviews_build.py
 #
-#   # ② 自定义目录 / 输出文件名
+#   # ② 自定义中间目录 / 交付路径（交付物默认 outputs/03_领域概貌，不在 .work_cdp）
 #   uv run python scripts/reviews_build.py \
-#       --dir .work_cdp/reviews --out .work_cdp/reviews/领域概貌.md
+#       --dir .work_cdp/reviews --out outputs/03_领域概貌/领域概貌.md
 #
 #   # ③ 只看状态（有几张卡、缺哪几篇）
 #   uv run python scripts/reviews_build.py --status
@@ -627,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
         description="阶段 R②：把并行 subagent 的解读卡汇总为《领域概貌.md》。",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=".work_cdp/reviews", help="阶段 R 的工作目录")
-    ap.add_argument("--out", help="输出文件名（默认 <dir>/领域概貌.md）")
+    ap.add_argument("--out", help="交付物路径（默认 <WORKDIR>/outputs/03_领域概貌/领域概貌.md，**不在 .work_cdp**）")
     ap.add_argument("--topic", default="", help="领域名（用于标题，可不填）")
     ap.add_argument("--status", action="store_true", help="只看进度，不生成报告")
     ap.add_argument("--allow-placeholder", action="store_true",
@@ -700,7 +700,9 @@ def main(argv: list[str] | None = None) -> int:
     tier, tier_src = resolve_tier(tasks, mf)
 
     text = render(cards, mf, topic=args.topic, tier=tier)
-    outp = pathlib.Path(args.out) if args.out else (d / "领域概貌.md")
+    # 交付物《领域概貌》**不放 .work_cdp**（那是中间工作区）；默认落 outputs/03_领域概貌。
+    #   --dir 仍指中间工作区（tasks/results/底稿/综合任务/vosviewer），--out 可覆盖交付路径。
+    outp = pathlib.Path(args.out) if args.out else (WD / "outputs" / "03_领域概貌" / "领域概貌.md")
     if not outp.is_absolute():
         outp = WD / outp
     outp.parent.mkdir(parents=True, exist_ok=True)   # 允许输出到尚不存在的目录

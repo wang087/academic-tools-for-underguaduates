@@ -384,7 +384,8 @@ uv run python scripts/reviews_prepare.py \
 # ③ 查看进度（有几张卡、缺哪几篇、哪些被拒收）
 uv run python scripts/reviews_build.py --status
 
-# ④ 汇总成《领域概貌.md》（合并底稿渲染版）+ 产出综合底稿 synthesis_dossier.json
+# ④ 汇总：中间底稿/综合任务在 --dir(.work_cdp/reviews)，**交付物《领域概貌.md》默认落
+#    <WORKDIR>/outputs/03_领域概貌/（不在 .work_cdp）**；--out 可覆盖
 uv run python scripts/reviews_build.py --topic "阿尔茨海默病早期诊断"
 
 # ⑤ 综述综合步：派**一个**综合 subagent，读 synthesis_dossier.json + 全部解读卡，

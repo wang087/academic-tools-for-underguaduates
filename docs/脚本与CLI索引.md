@@ -227,7 +227,7 @@ uv run python scripts/reviews_build.py --dir .work_cdp/reviews --topic "研究�
 - `search_report.py` 必需 `--screened PATH`；支持 `--plan`、`--out`、`--name`。
 - `reviews_prepare.py` 必须且只能提供一个来源选项：`--input`、`--from-europepmc`、`--from-json`；支持 `--out`、`--limit`、`--fetch-abstracts`、`--tier L1|L2|L3`。
 - `reviews_fulltext.py` 以 `--probe`/`--layer1`/`--layer2`/`--cdp`/`--all` 选择操作；可选 `--stage-dir`、`--backfill`、`--n`、`--ports`、`--manual-wait`、`--delay`、`--site-fail-limit`、`--repo`、`--repo-pace`、`--fallback`、`--fallback-mode off|oa|oa+api`、`--fallback-arxiv`。顺序必须满足 `--cdp/--repo` 在 `--fallback` 前，且 fallback 服从阶段 0 与 CDP 已失败前提。
-- `reviews_build.py` 支持 `--dir`、`--out`、`--topic`、`--status`、`--allow-placeholder`。
+- `reviews_build.py` 支持 `--dir`（中间工作区，默认 `.work_cdp/reviews`）、`--out`（**交付物默认 `<WORKDIR>/outputs/03_领域概貌/领域概貌.md`，不在 `.work_cdp`**）、`--topic`、`--status`、`--allow-placeholder`。
 
 ### 13.4 作者采集、CDP 与论文产物
 
