@@ -65,7 +65,7 @@ def load_documents(workdir, stage='H', stage_dir=None):
     return docs,notes
 
 
-def export_stage(workdir, stage='H', *, outdir=None, aliases=None, min_occurrences=2, stage_dir=None):
+def export_stage(workdir, stage='H', *, outdir=None, aliases=None, min_occurrences=1, stage_dir=None):
     docs, notes = load_documents(workdir, stage, stage_dir)
     result = collect_documents(docs, aliases)
     result['input_notes'] = notes
@@ -80,7 +80,8 @@ def main(argv=None):
     parser.add_argument('--aliases',help='精确同义词表JSON；不要传领域分组词族')
     parser.add_argument('--out')
     parser.add_argument('--stage-dir',help='显式tasks/results所在阶段目录（支持旧式outputs布局）')
-    parser.add_argument('--min-occurrences',type=int,default=2)
+    parser.add_argument('--min-occurrences',type=int,default=1,
+                        help='词至少出现在几篇文献里（默认1，保留孤立词；小语料阈值2会剔掉约95%%的词，聚焦共享词时调高）')
     parser.add_argument('--max-terms',type=int,default=500)
     args=parser.parse_args(argv)
     if args.min_occurrences<1 or args.max_terms<1:

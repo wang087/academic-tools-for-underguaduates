@@ -2557,15 +2557,23 @@ x 轴只有 2 个刻度时散点退化、同年的点挤在一条水平线上靠
 
 ```bash
 python scripts/keywords_three_layer.py --check
-python scripts/keywords_three_layer.py --export --out .work_cdp/graph/vos --min-doc 2
+python scripts/keywords_three_layer.py --export --out .work_cdp/graph/vos --min-doc 1
 # H/H2/R2独立原文证据导出，或由对应build汇总自动生成
-python scripts/vosviewer_export.py --workdir "<工作目录>" --stage H --min-occurrences 2
+python scripts/vosviewer_export.py --workdir "<工作目录>" --stage H --min-occurrences 1
 ```
 
 每篇文献每个术语最多计1次；边权为共同出现的文献数。map/network/thesaurus及审计文件
 保留完整术语、源文证据、被拒词原因和空网络状态。聚类编号不预造，由VOSviewer计算。
 没有可靠关键词时先补证据，不能退回任意中文n-gram/英文逐词散文凑词群。
 既有 `--fulltext` 路线仅供受控词典原文匹配，不把滑窗候选直接导出。
+
+> **共现阈值口径（`--min-doc` / `--min-occurrences`，默认 1）**：阈值=篇频下限。
+> 小语料/高度专业化论文里绝大多数关键词是**篇内特异词**（仅 1 篇出现），
+> 阈值 2 会剔掉约 95% 的词（实测 30 篇 149 词 → 8 词，阈值 3 → 空网络），
+> 故**默认 1 保留孤立词**（VOSviewer 可显示孤立节点，map 中 `weight<Links>=0`）；
+> `--max-terms`（默认 500）按篇频降序截断，大语料仍优先保留高频共现词。
+> 要**聚焦跨篇共享的共现结构**时再显式调高（如 `--min-occurrences 2`）。
+> 孤立节点多≠出错；空网络或仅孤立节点时不得宣称形成词群（见导出 README）。
 
 > **诚实性约束**：挂不上方向的综述、放不下的低频词、不足 N 年的方向样本、
 > 样本不足而不做热点簇着色的方向 —— 全部**显式报出数量或名字**，不静默丢弃；

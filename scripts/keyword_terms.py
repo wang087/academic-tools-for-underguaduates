@@ -318,8 +318,14 @@ def collect_documents(documents, families=None):
                       'terms':len(terms),'rejected':len(audit)}}
 
 
-def export_vosviewer(result, outdir, *, min_occurrences=2, max_terms=500):
-    """Binary document-level co-occurrence, full counting, deterministic IDs."""
+def export_vosviewer(result, outdir, *, min_occurrences=1, max_terms=500):
+    """Binary document-level co-occurrence, full counting, deterministic IDs.
+
+    min_occurrences 默认 1：保留仅出现 1 篇的孤立词（VOSviewer 可显示孤立节点）。
+    小语料/高度专业化论文里绝大多数词是篇内特异词，阈值 2 会剔掉约 95% 的词
+    （实测 30 篇 149 词 → 8 词），故默认放宽到 1；max_terms 按篇频降序截断，
+    大语料仍优先保留高频共现词。要聚焦跨篇共享词时显式调高 --min-occurrences。
+    """
     if min_occurrences<1 or max_terms<1:
         raise ValueError('min_occurrences and max_terms must be positive')
     folder=Path(outdir); folder.mkdir(parents=True,exist_ok=True)
@@ -362,6 +368,7 @@ def export_vosviewer(result, outdir, *, min_occurrences=2, max_terms=500):
                 f'文献{metadata["documents"]}篇；过阈值词{metadata["terms"]}个；共现边{metadata["links"]}条。',
                 f'最低文献出现次数={min_occurrences}；最多词={max_terms}。空网络={metadata["empty_network"]}。',
                 '空网络或仅孤立节点时不得宣称形成词群；可先核对证据，再显式降低阈值。',
+                f'默认 min_occurrences={min_occurrences}：阈值1保留仅1篇的孤立词（map中weight<Links>=0），阈值≥2只留跨篇共享词。小语料用1避免词量过少，聚焦共现结构时调高。',
                 'keyword_evidence.json保留逐文献词项、来源与剔除原因。thesaurus仅包含已实际应用的精确别名。',
                 '默认保留完整中英文专业短语；不使用中文滑窗、英文逐词切分或自动翻译。',
                 '官方文件格式：https://app.vosviewer.com/docs/file-types/map-and-network-file-type/','']
