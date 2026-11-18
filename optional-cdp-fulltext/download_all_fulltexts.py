@@ -343,7 +343,12 @@ def _ensure_active_tab(c: CDP, landing: str, log) -> bool:
             #   就仍是目标文章（不能只看 host，否则 ACS 等跳转会被误判）。
             doi_path = urlsplit(landing).path.lstrip("/").lower()
             same_doi = bool(doi_path and doi_path in cur.lower())
-            if want and got and want != got and not same_doi:
+            # [FIX] doi.org 落地**必然**重定向到出版社文章页；ScienceDirect 等用 PII URL
+            #   （/science/article/pii/…）**不含 DOI**，旧校验会误判"不是目标文章"而拒点。
+            #   doi.org 只可能重定向到该 DOI 的文章，故离开 doi.org 即视为目标已达。
+            is_doi_landing = want in ("doi.org", "www.doi.org", "dx.doi.org")
+            redirected_ok = bool(is_doi_landing and got and got != want)
+            if want and got and want != got and not same_doi and not redirected_ok:
                 log.warn(f"  前台标签页不是目标文章（{got} != {want}，"
                          f"URL 不含 {doi_path}），本轮不点击")
                 return False

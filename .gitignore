@@ -17,6 +17,7 @@
 *_paper_Exports/
 *_Exports/
 .edge-cdp-*/
+browser_profiles/
 *.log
 
 # ── nature_bridge 临时目录（防线③：万一本脚本的回收逻辑被改坏）──────

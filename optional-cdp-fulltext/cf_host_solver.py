@@ -221,11 +221,12 @@ def find_checkbox(img: np.ndarray, anchor: dict | None) -> dict | None:
 
 def click_checkbox(hwnd, cb: dict, origin: tuple[int, int],
                    expected_size: tuple[int, int] | None = None) -> tuple[int, int]:
-    # 只抬 z 序，**不能再 SW_RESTORE/移动窗口**：SW_RESTORE 会把窗口恢复到
-    #   旧位置，而坐标仍按截图时的 origin 计算 -> 点到别处（实测偏下）。
-    #   点击本身会让窗口获得焦点，无需再 activate。
-    H.raise_window(hwnd)
-    time.sleep(0.15)
+    # [FIX] 旧实现用 SetCursorPos 瞬移 + 相对(0,0) 立即点击，**无鼠标接近轨迹、无悬停**，
+    #   Turnstile 行为分析判为机器人并静默忽略（实测 after 截图复选框零变化）。
+    #   改用 host_click 的类人路径：稳健前台 + move_to 缓动轨迹 + 悬停 + 绝对坐标点击。
+    #   进程经 host_click 导入已 set_dpi_aware，to_absolute 物理坐标正确（无 1.25 倍偏移）。
+    H.activate(hwnd)                      # 核实 GetForegroundWindow==hwnd（AttachThreadInput+Alt）
+    time.sleep(0.2)
     rect = wintypes.RECT()
     H.user32.GetWindowRect(hwnd, ctypes.byref(rect))
     left, top = int(rect.left), int(rect.top)
@@ -233,19 +234,9 @@ def click_checkbox(hwnd, cb: dict, origin: tuple[int, int],
         raise OSError(f"window-size-changed {expected_size} -> "
                       f"{(int(rect.right - rect.left), int(rect.bottom - rect.top))}")
     x, y = int(cb["cx"]) + left, int(cb["cy"]) + top
-    # [STOP] 不要用 SendInput 的 ABSOLUTE 归一化坐标：125% DPI 下会被再乘 1.25，
-    #   实测目标 (268,477) 实际落到 (336,592)。SetCursorPos 直接用屏幕物理
-    #   坐标定位，再发**相对(0,0)**的按下/抬起，坐标不再经过归一化。
-    H.user32.SetCursorPos(int(x), int(y))
-    time.sleep(0.15)
     for _ in range(3):
         try:
-            H.raise_window(hwnd)
-            H.user32.SetCursorPos(int(x), int(y))
-            time.sleep(0.12)
-            H._send_mouse(H.MOUSEEVENTF_LEFTDOWN, 0, 0)
-            time.sleep(0.08)
-            H._send_mouse(H.MOUSEEVENTF_LEFTUP, 0, 0)
+            H.click_at(x, y)              # move_to(缓动+抖动) + 悬停 + 绝对坐标 down/up
             return x, y
         except OSError:
             time.sleep(0.5)
