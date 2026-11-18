@@ -279,14 +279,23 @@ def _jaccard(a: set, b: set) -> float:
     return len(a & b) / len(a | b)
 
 
-def _cluster(texts: list[str], threshold: float = 0.3) -> list[list[int]]:
-    """贪心聚类：返回成员下标组。含义相近（显著词 Jaccard≥threshold）归一组。"""
+def _cluster(texts: list[str], threshold: float = 0.2, min_shared: int = 3) -> list[list[int]]:
+    """贪心聚类：返回成员下标组。
+
+    相似度用 **overlap coefficient**（共享词/min(两集合)）而非 Jaccard：
+    长句的 CJK 二元组会稀释 Jaccard（实测真实卡 Jaccard 即使 0.15 也零合并），
+    overlap 对"短名并入长句/同主题不同措辞"更敏感。min_shared 防小集合过度合并。
+    阈值/度量为启发式（供底稿），终稿由综述综合 subagent 再归并。
+    """
     clusters: list[dict] = []
     for i, t in enumerate(texts):
         tok = _sig_tokens(t)
         best, best_s = None, 0.0
         for cl in clusters:
-            s = _jaccard(tok, cl["tok"])
+            inter = len(tok & cl["tok"])
+            if inter < min_shared:
+                continue
+            s = inter / min(len(tok), len(cl["tok"]))
             if s > best_s:
                 best, best_s = cl, s
         if best is not None and best_s >= threshold:
