@@ -310,6 +310,35 @@ _GAP_NOISE = ("阅读覆盖", "已分段", "未读部分", "无法核对", "参�
               "由全文", "抽取而来", "没有给出具体", "未展开", "还需另外")
 
 
+def _first_clause(text: str, cap: int = 80) -> str:
+    """取首句（。；; 断句）并限长，用于综合句里引用共识/缺口而不整段照搬。"""
+    t = str(text or "").strip()
+    for sep in ("。", "；", ";"):
+        i = t.find(sep)
+        if 0 < i <= cap:
+            return t[:i]
+    return t[:cap].rstrip("，,、 ")
+
+
+def _field_summary(dos: dict, topic: str, n: int) -> str:
+    """领域级**综合**一句话：从合并底稿的主干方向+最高支持共识+开放问题提炼，
+    是跨篇综合论断，**不是**逐篇 one_sentence 的罗列/汇总。终稿由综合 subagent 润色。"""
+    dirs = [d["name"] for d in dos["directions"] if d["support"] >= 2][:3]
+    if not dirs:
+        dirs = [d["name"] for d in dos["directions"][:2]]
+    cons = [c["text"] for c in dos["consensus"] if c["support"] >= 2]
+    gaps = [g["text"] for g in dos["gaps"] if g["support"] >= 2] or \
+           [g["text"] for g in dos["gaps"][:1]]
+    head = f"综合 {n} 篇综述，{topic or '本领域'}"
+    if dirs:
+        head += f"主要沿{'、'.join(dirs)}等方向推进"
+    if cons:
+        head += f"；多篇综述的共同认识是：{_first_clause(cons[0])}"
+    if gaps:
+        head += f"；而{_first_clause(gaps[0])}仍是开放问题"
+    return head + "。"
+
+
 def build_dossier(cards: list[dict]) -> dict:
     """把解读卡聚合成「综合底稿」：合并方向/共识/争议/问题/概念/缺口，计跨篇支持。"""
     titles = [str(c.get("title") or "") for c in cards]
@@ -447,15 +476,12 @@ def render(cards: list[dict], manifest: dict | None, topic: str = "",
     L.append(f"> {tier_banner(tier)}")
     L.append("")
 
-    # ── 一句话总结：取第一篇的 one_sentence 或并列 ──
+    # ── 一句话总结：领域级跨篇综合（非逐篇 one_sentence 罗列）──
     L.append("## 一句话总结")
     L.append("")
-    for c in cards[:3]:
-        s = (c.get("one_sentence") or "").strip()
-        if s:
-            L.append(f"- {s}")
-    if not any((c.get("one_sentence") or "").strip() for c in cards[:3]):
-        L.append("-（解读卡未提供 one_sentence）")
+    L.append(_field_summary(dossier, topic, n))
+    L.append("")
+    L.append("> 此为跨篇综合论断（主干方向+最高支持共识+开放问题），非各篇摘要的简单汇总；终稿由综述综合步润色。")
     L.append("")
 
     # ── 这个领域在解决什么问题（跨篇聚类合并，非逐卡拼接）──
